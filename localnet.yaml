@@ -1,0 +1,19 @@
+version: "1.0"
+
+validators:
+  - name: app
+    users:
+      - id: app-operator
+        primaryParty: app-operator      
+  - name: users-val
+    users:
+      - id: alice
+        primaryParty: alice
+      - id: bob
+        primaryParty: bob    
+
+auth:
+  mode: oauth2
+  keycloak:
+    admin: admin
+    password: admin

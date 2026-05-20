@@ -1,0 +1,13 @@
+.DS_Store
+node_modules/
+.localnet/
+.references/
+
+# Local secrets and ad-hoc environment files
+.env
+.env.*
+
+# Generated logs and temporary artifacts
+*.log
+tmp/
+temp/
