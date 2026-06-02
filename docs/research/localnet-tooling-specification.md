@@ -1,5 +1,10 @@
 # LocalNet Tooling Specification
 
+> [!WARNING]
+> Historical pre-implementation specification. It is useful for problem framing, but many schema,
+> CLI, discovery, and orchestration details differ from the current codebase. Prefer `AGENTS.md`,
+> `agents/INDEX.md`, and source files for current behavior.
+
 > A specification for a tooling layer that simplifies Canton Network LocalNet configuration and provides runtime discovery for mg-tokenization development.
 
 **Version:** 1.0  

@@ -1,5 +1,9 @@
 # LocalNet Simplification Research
 
+> [!WARNING]
+> Historical research. It explains why this project exists, but the recommended implementation path
+> was superseded by the current direct Docker API approach.
+
 > Research document synthesizing findings about Canton Network LocalNet infrastructure to plan a simplified development environment.
 
 **Date:** January 2026  

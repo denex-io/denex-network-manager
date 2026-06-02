@@ -1,5 +1,9 @@
 # LocalNet Tooling Project Context
 
+> [!WARNING]
+> Historical context from predecessor research. It contains useful Canton background, but project
+> structure, ports, and implementation details may not match `denex-localnet`.
+
 > Additional context from mg-tokenization research and conversations for agents working on the localnet-tools project.
 
 **Date:** January 2026  

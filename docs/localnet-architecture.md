@@ -1,6 +1,11 @@
 # LocalNet Architecture
 
-This document provides a comprehensive technical overview of the mg-localnet infrastructure, covering container orchestration, authentication, party management, and initialization flows.
+> [!NOTE]
+> This is a supporting architecture overview. Verify current image tags, exact ports, and runtime
+> details against source files and `agents/` guidance before making implementation changes.
+
+This document provides a comprehensive technical overview of the mg-localnet infrastructure,
+covering container orchestration, authentication, party management, and initialization flows.
 
 ## Table of Contents
 
@@ -18,14 +23,18 @@ This document provides a comprehensive technical overview of the mg-localnet inf
 
 ### What is LocalNet?
 
-LocalNet is a development and testing environment for the Canton Network. It provides a complete, self-contained Canton/Splice infrastructure that runs locally via Docker containers. The primary goal is to dramatically simplify the setup process for developers working with Canton-based applications.
+LocalNet is a development and testing environment for the Canton Network. It provides a complete,
+self-contained Canton/Splice infrastructure that runs locally via Docker containers. The primary
+goal is to dramatically simplify the setup process for developers working with Canton-based
+applications.
 
 ### The Simplification
 
-The upstream Canton/Splice infrastructure requires **60-100+ configuration files** to set up a working network. LocalNet reduces this to a **single YAML file**:
+The upstream Canton/Splice infrastructure requires **60-100+ configuration files** to set up a
+working network. LocalNet reduces this to a **single YAML file**:
 
 ```yaml
-version: "1.0"
+version: '1.0'
 validators: 2
 auth:
   keycloak:
@@ -34,6 +43,7 @@ auth:
 ```
 
 This configuration creates a complete network with:
+
 - 1 Super Validator (implicit, always created)
 - 2 Regular Validators (user-specified)
 - Full OAuth2 authentication via Keycloak
@@ -43,43 +53,44 @@ This configuration creates a complete network with:
 
 #### Default Ports
 
-| Component | SV (Base: 5000) | Validator 1 (5100) | Validator 2 (5200) |
-|-----------|-----------------|--------------------|--------------------|
-| HTTP Health | 5000 | 5100 | 5200 |
-| Ledger API | 5001 | 5101 | 5201 |
-| Admin API | 5002 | 5102 | 5202 |
-| Validator Admin | 5003 | 5103 | 5203 |
-| gRPC Health | 5061 | 5161 | 5261 |
-| JSON API | 5075 | 5175 | 5275 |
-| Web UI | 5080 | 5180 | 5280 |
-| Keycloak | 5082 | — | — |
+| Component       | SV (Base: 5000) | Validator 1 (5100) | Validator 2 (5200) |
+| --------------- | --------------- | ------------------ | ------------------ |
+| HTTP Health     | 5000            | 5100               | 5200               |
+| Ledger API      | 5001            | 5101               | 5201               |
+| Admin API       | 5002            | 5102               | 5202               |
+| Validator Admin | 5003            | 5103               | 5203               |
+| gRPC Health     | 5061            | 5161               | 5261               |
+| JSON API        | 5075            | 5175               | 5275               |
+| Web UI          | 5080            | 5180               | 5280               |
+| Keycloak        | 5082            | —                  | —                  |
 
 #### SV-Specific Internal Ports
 
-| Service | Port |
-|---------|------|
+| Service          | Port |
+| ---------------- | ---- |
 | Sequencer Public | 5008 |
-| Sequencer Admin | 5009 |
-| Mediator Admin | 5007 |
-| Scan Admin | 5012 |
-| SV Admin | 5014 |
+| Sequencer Admin  | 5009 |
+| Mediator Admin   | 5007 |
+| Scan Admin       | 5012 |
+| SV Admin         | 5014 |
 
 #### Default URLs
 
-| Service | URL |
-|---------|-----|
-| SV Management UI | http://sv.localhost:5080 |
-| Scan Explorer | http://scan.localhost:5080 |
-| SV Wallet | http://wallet.localhost:5080 |
+| Service            | URL                          |
+| ------------------ | ---------------------------- |
+| SV Management UI   | http://sv.localhost:5080     |
+| Scan Explorer      | http://scan.localhost:5080   |
+| SV Wallet          | http://wallet.localhost:5080 |
 | Validator 1 Wallet | http://wallet.localhost:5180 |
 | Validator 2 Wallet | http://wallet.localhost:5280 |
-| Keycloak | http://localhost:5082 |
+| Keycloak           | http://localhost:5082        |
 
 ---
 
 ## Container Architecture
 
-LocalNet orchestrates multiple Docker containers that work together to provide the complete Canton Network infrastructure.
+LocalNet orchestrates multiple Docker containers that work together to provide the complete Canton
+Network infrastructure.
 
 ### Container Overview
 
@@ -139,7 +150,8 @@ graph TB
 - **Port**: 5432 (internal)
 - **Health Check**: `pg_isready` command
 
-The PostgreSQL container uses a custom entrypoint script that dynamically creates all required databases on startup based on environment variables.
+The PostgreSQL container uses a custom entrypoint script that dynamically creates all required
+databases on startup based on environment variables.
 
 #### canton
 
@@ -154,7 +166,11 @@ The PostgreSQL container uses a custom entrypoint script that dynamically create
 - **Health Check**: HTTP health endpoint on port 5000
 - **Dependencies**: postgres
 
-All participants run in a single Canton process, sharing the same JVM. This matches the upstream [Splice LocalNet](https://github.com/hyperledger-labs/splice/tree/main/cluster/compose/localnet) approach and is intentional for development: it saves ~2-4GB RAM, speeds up startup, and Canton explicitly supports multi-node operation in a single process. Production deployments would use separate containers or hosts for each participant.
+All participants run in a single Canton process, sharing the same JVM. This matches the upstream
+[Splice LocalNet](https://github.com/hyperledger-labs/splice/tree/main/cluster/compose/localnet)
+approach and is intentional for development: it saves ~2-4GB RAM, speeds up startup, and Canton
+explicitly supports multi-node operation in a single process. Production deployments would use
+separate containers or hosts for each participant.
 
 #### splice
 
@@ -203,14 +219,15 @@ Keycloak is always started as part of the LocalNet.
 
 Each web UI runs in its own container:
 
-| Container | Image | Purpose |
-|-----------|-------|---------|
-| `wallet-web-ui-sv` | `wallet-web-ui:0.5.3` | SV wallet interface |
+| Container                   | Image                 | Purpose                     |
+| --------------------------- | --------------------- | --------------------------- |
+| `wallet-web-ui-sv`          | `wallet-web-ui:0.5.3` | SV wallet interface         |
 | `wallet-web-ui-{validator}` | `wallet-web-ui:0.5.3` | Validator wallet interfaces |
-| `sv-web-ui` | `sv-web-ui:0.5.3` | Super Validator management |
-| `scan-web-ui` | `scan-web-ui:0.5.3` | Network explorer |
+| `sv-web-ui`                 | `sv-web-ui:0.5.3`     | Super Validator management  |
+| `scan-web-ui`               | `scan-web-ui:0.5.3`   | Network explorer            |
 
 All web UIs:
+
 - Run on internal port 8080
 - Are proxied through nginx
 - Receive auth configuration via environment variables
@@ -227,6 +244,7 @@ LocalNet uses OAuth2 with Keycloak as the only authentication mode.
 Keycloak serves as the identity provider for all Splice and Validator Admin APIs.
 
 **Characteristics**:
+
 - RS-256 signature algorithm with JWKS URL for token validation
 - Separate Keycloak realm per validator for isolation
 - Service accounts for service-to-service authentication
@@ -234,18 +252,19 @@ Keycloak serves as the identity provider for all Splice and Validator Admin APIs
 - Full OIDC flows (authorization code, client credentials)
 
 **Realm Structure**:
+
 - `SV` realm: For Super Validator services and UIs
 - `Validator1`, `Validator2`, etc.: One realm per regular validator
 
 **Client Types per Realm**:
 
-| Client ID | Type | Purpose |
-|-----------|------|---------|
+| Client ID          | Type         | Purpose                           |
+| ------------------ | ------------ | --------------------------------- |
 | `{name}-validator` | Confidential | Service account for validator app |
-| `{name}-wallet` | Public | Wallet web UI authentication |
-| `{name}-backend` | Confidential | Backend service integration |
-| `{name}-pqs` | Confidential | PQS (Participant Query Store) |
-| `{name}-unsafe` | Public | Direct access grants for testing |
+| `{name}-wallet`    | Public       | Wallet web UI authentication      |
+| `{name}-backend`   | Confidential | Backend service integration       |
+| `{name}-pqs`       | Confidential | PQS (Participant Query Store)     |
+| `{name}-unsafe`    | Public       | Direct access grants for testing  |
 
 ### Token Flow
 
@@ -275,25 +294,27 @@ sequenceDiagram
 
 Default users are created with **username = password**:
 
-| Realm | Username | Password | Purpose |
-|-------|----------|----------|---------|
-| SV | `sv` | `sv` | SV management, SV Wallet |
-| Validator1 | `validator-1` | `validator-1` | Validator 1 wallet |
-| Validator2 | `validator-2` | `validator-2` | Validator 2 wallet |
+| Realm      | Username      | Password      | Purpose                  |
+| ---------- | ------------- | ------------- | ------------------------ |
+| SV         | `sv`          | `sv`          | SV management, SV Wallet |
+| Validator1 | `validator-1` | `validator-1` | Validator 1 wallet       |
+| Validator2 | `validator-2` | `validator-2` | Validator 2 wallet       |
 
 The Scan UI is public and does not use login credentials.
 
 For custom validator configurations:
+
 ```yaml
 validators:
-  - name: alice-validator  # User: alice-validator / alice-validator
+  - name: alice-validator # User: alice-validator / alice-validator
     users:
-      - id: alice          # User: alice / alice
+      - id: alice # User: alice / alice
 ```
 
 ### Token Validation
 
-- Splice apps fetch JWKS from Keycloak: `http://keycloak:8080/realms/{realm}/protocol/openid-connect/certs`
+- Splice apps fetch JWKS from Keycloak:
+  `http://keycloak:8080/realms/{realm}/protocol/openid-connect/certs`
 - RS-256 signature verification using public keys from JWKS
 - Audience claim must match `https://canton.network.global`
 
@@ -301,13 +322,15 @@ validators:
 
 ## Parties and Users
 
-Understanding the relationship between parties, users, and participants is essential for working with Canton.
+Understanding the relationship between parties, users, and participants is essential for working
+with Canton.
 
 ### Core Concepts
 
 #### Parties
 
 A **party** is an identity on the Canton ledger. Parties:
+
 - Are the actors in Daml contracts (signatories, observers, controllers)
 - Have globally unique identifiers (e.g., `alice::12345abcdef...`)
 - Are hosted on one or more participants
@@ -316,6 +339,7 @@ A **party** is an identity on the Canton ledger. Parties:
 #### Users
 
 A **user** is an authentication identity that maps to parties. Users:
+
 - Authenticate via JWT tokens
 - Have rights granted on specific parties
 - Are managed per-participant
@@ -323,6 +347,7 @@ A **user** is an authentication identity that maps to parties. Users:
 #### Participants
 
 A **participant** is a Canton node that:
+
 - Hosts parties
 - Processes ledger commands
 - Maintains a local copy of relevant ledger state
@@ -379,13 +404,14 @@ graph TB
 
 Users are granted rights on parties:
 
-| Right | Description |
-|-------|-------------|
-| `CanActAs` | Submit commands as the party (create contracts, exercise choices) |
-| `CanReadAs` | Read transactions visible to the party |
-| `ParticipantAdmin` | Administrative operations on the participant |
+| Right              | Description                                                       |
+| ------------------ | ----------------------------------------------------------------- |
+| `CanActAs`         | Submit commands as the party (create contracts, exercise choices) |
+| `CanReadAs`        | Read transactions visible to the party                            |
+| `ParticipantAdmin` | Administrative operations on the participant                      |
 
 Example configuration:
+
 ```yaml
 validators:
   - name: validator-1
@@ -423,7 +449,8 @@ graph LR
     Seq --> Med
 ```
 
-Parties are **hosted** on participants but can interact with parties on other participants through the synchronizer.
+Parties are **hosted** on participants but can interact with parties on other participants through
+the synchronizer.
 
 ---
 
@@ -474,14 +501,15 @@ sequenceDiagram
 
 Containers start in layers based on dependencies:
 
-| Layer | Containers | Dependencies |
-|-------|------------|--------------|
-| 1 | postgres | None |
-| 2 | canton, keycloak | postgres |
-| 3 | splice | canton |
-| 4 | nginx, all web UIs | splice |
+| Layer | Containers         | Dependencies |
+| ----- | ------------------ | ------------ |
+| 1     | postgres           | None         |
+| 2     | canton, keycloak   | postgres     |
+| 3     | splice             | canton       |
+| 4     | nginx, all web UIs | splice       |
 
-Within each layer, containers start in parallel. The next layer only begins after all containers in the current layer are healthy.
+Within each layer, containers start in parallel. The next layer only begins after all containers in
+the current layer are healthy.
 
 ### DSO Creation
 
@@ -503,6 +531,7 @@ Regular validators onboard to the network via secrets:
 5. Validator receives its party ID and synchronizer connection info
 
 **Onboarding secrets** (generated deterministically):
+
 - `validator-1-onboarding-secret`
 - `validator-2-onboarding-secret`
 - etc.
@@ -529,6 +558,7 @@ flowchart TD
 ```
 
 **Steps**:
+
 1. **Wait for APIs**: Poll each validator's JSON API until responsive
 2. **Allocate Parties**: Create parties from `validators[].parties[]` config
 3. **Create Users**: Create users from `validators[].users[]` config
@@ -649,30 +679,32 @@ Where `validatorIndex` is 0-based for regular validators (SV uses index -1 effec
 ### Internal vs External Networking
 
 **Internal (Docker Network)**:
+
 - Containers communicate via hostnames: `canton`, `splice`, `postgres`, `keycloak`
 - No port mapping needed for internal communication
 - Example: Splice connects to Canton at `canton:5001`
 
 **External (Host Access)**:
+
 - Ports mapped to localhost
 - Web UIs accessed via `*.localhost` hostnames
 - APIs accessed via `localhost:{port}`
 
 ### Connection Points Summary
 
-| Service | Internal Address | External Address |
-|---------|------------------|------------------|
-| PostgreSQL | `postgres:5432` | `localhost:5432` |
-| Keycloak | `keycloak:8080` | `localhost:5082` |
-| SV Ledger API | `canton:5001` | `localhost:5001` |
-| SV Admin API | `canton:5002` | `localhost:5002` |
-| SV Validator Admin | `splice:5003` | `localhost:5003` |
-| Scan Admin | `splice:5012` | `localhost:5012` |
-| SV Admin | `splice:5014` | `localhost:5014` |
-| SV Web UIs (nginx) | `nginx:8080` | `localhost:5080` |
-| V1 Ledger API | `canton:5101` | `localhost:5101` |
-| V1 Validator Admin | `splice:5103` | `localhost:5103` |
-| V1 Web UI (nginx) | `nginx:8081` | `localhost:5180` |
+| Service            | Internal Address | External Address |
+| ------------------ | ---------------- | ---------------- |
+| PostgreSQL         | `postgres:5432`  | `localhost:5432` |
+| Keycloak           | `keycloak:8080`  | `localhost:5082` |
+| SV Ledger API      | `canton:5001`    | `localhost:5001` |
+| SV Admin API       | `canton:5002`    | `localhost:5002` |
+| SV Validator Admin | `splice:5003`    | `localhost:5003` |
+| Scan Admin         | `splice:5012`    | `localhost:5012` |
+| SV Admin           | `splice:5014`    | `localhost:5014` |
+| SV Web UIs (nginx) | `nginx:8080`     | `localhost:5080` |
+| V1 Ledger API      | `canton:5101`    | `localhost:5101` |
+| V1 Validator Admin | `splice:5103`    | `localhost:5103` |
+| V1 Web UI (nginx)  | `nginx:8081`     | `localhost:5180` |
 
 ---
 
@@ -685,6 +717,7 @@ This section documents key architectural decisions and their rationale.
 **Decision**: The Super Validator is always created automatically and cannot be configured by users.
 
 **Rationale**:
+
 - Every Canton Network requires exactly one SV to run the Global Synchronizer
 - Exposing SV configuration adds complexity without benefit for local development
 - Users only need to think about their application validators
@@ -697,7 +730,10 @@ This section documents key architectural decisions and their rationale.
 **Decision**: All Canton participants run in one container; all Splice apps run in one container.
 
 **Rationale**:
-- Matches the upstream [Splice LocalNet](https://github.com/hyperledger-labs/splice/tree/main/cluster/compose/localnet) architecture
+
+- Matches the upstream
+  [Splice LocalNet](https://github.com/hyperledger-labs/splice/tree/main/cluster/compose/localnet)
+  architecture
 - Reduces container count and resource usage (~2-4GB RAM saved)
 - Simplifies orchestration (fewer containers to manage)
 - Faster startup (single JVM warmup)
@@ -705,13 +741,15 @@ This section documents key architectural decisions and their rationale.
 
 **Trade-off**: Cannot independently restart individual participants. Acceptable for development.
 
-**Production note**: Production deployments should use separate containers (or hosts) per participant for failure isolation and independent scaling.
+**Production note**: Production deployments should use separate containers (or hosts) per
+participant for failure isolation and independent scaling.
 
 ### 3. Shared PostgreSQL
 
 **Decision**: One PostgreSQL container with multiple databases instead of separate containers.
 
 **Rationale**:
+
 - Significantly reduces memory footprint
 - Faster startup (one database server)
 - Simpler backup/restore for development
@@ -724,18 +762,21 @@ This section documents key architectural decisions and their rationale.
 **Decision**: Deterministic port allocation using base + offset pattern.
 
 **Rationale**:
+
 - Enables multiple LocalNet instances on same host (different base ports)
 - Predictable ports for scripting and automation
 - Easy to remember: SV at 5000s, V1 at 5100s, V2 at 5200s
 - Consistent offsets across all validators
 
-**Trade-off**: Fixed port ranges may conflict with other services. Mitigated by configurable base port.
+**Trade-off**: Fixed port ranges may conflict with other services. Mitigated by configurable base
+port.
 
 ### 5. Realm-per-Validator
 
 **Decision**: Each validator gets its own Keycloak realm.
 
 **Rationale**:
+
 - Isolation between validators (separate user namespaces)
 - Realistic simulation of multi-tenant scenarios
 - Each validator can have different users/clients
@@ -748,6 +789,7 @@ This section documents key architectural decisions and their rationale.
 **Decision**: Validators onboard automatically via pre-shared secrets.
 
 **Rationale**:
+
 - Zero manual steps for users
 - Deterministic secrets enable reproducible setups
 - Matches the Splice onboarding flow
@@ -760,6 +802,7 @@ This section documents key architectural decisions and their rationale.
 **Important**: LocalNet is optimized for development and testing, NOT production.
 
 **Implications**:
+
 - Default credentials are insecure (username = password)
 - No TLS/HTTPS configuration
 - Shared secrets are predictable
@@ -772,13 +815,13 @@ For production deployments, refer to the official Canton Network documentation.
 
 ## Appendix: Container Images
 
-| Component | Default Image |
-|-----------|---------------|
-| PostgreSQL | `postgres:14` |
-| Nginx | `nginx:1.27.0` |
-| Canton | `ghcr.io/digital-asset/decentralized-canton-sync/docker/canton:0.5.3` |
-| Splice | `ghcr.io/digital-asset/decentralized-canton-sync/docker/splice-app:0.5.3` |
+| Component     | Default Image                                                                |
+| ------------- | ---------------------------------------------------------------------------- |
+| PostgreSQL    | `postgres:14`                                                                |
+| Nginx         | `nginx:1.27.0`                                                               |
+| Canton        | `ghcr.io/digital-asset/decentralized-canton-sync/docker/canton:0.5.3`        |
+| Splice        | `ghcr.io/digital-asset/decentralized-canton-sync/docker/splice-app:0.5.3`    |
 | Wallet Web UI | `ghcr.io/digital-asset/decentralized-canton-sync/docker/wallet-web-ui:0.5.3` |
-| SV Web UI | `ghcr.io/digital-asset/decentralized-canton-sync/docker/sv-web-ui:0.5.3` |
-| Scan Web UI | `ghcr.io/digital-asset/decentralized-canton-sync/docker/scan-web-ui:0.5.3` |
-| Keycloak | `quay.io/keycloak/keycloak:24.0` |
+| SV Web UI     | `ghcr.io/digital-asset/decentralized-canton-sync/docker/sv-web-ui:0.5.3`     |
+| Scan Web UI   | `ghcr.io/digital-asset/decentralized-canton-sync/docker/scan-web-ui:0.5.3`   |
+| Keycloak      | `quay.io/keycloak/keycloak:24.0`                                             |

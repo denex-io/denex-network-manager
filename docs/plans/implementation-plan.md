@@ -1,5 +1,10 @@
 # Better Canton LocalNet Tools - Implementation Plan
 
+> [!WARNING]
+> Historical planning document. It is useful for original intent and rationale, but it is not a
+> current implementation spec. Prefer `AGENTS.md`, `agents/INDEX.md`, and source files for current
+> behavior.
+
 > Comprehensive plan for building a Testcontainers-style SDK for Canton Network LocalNets
 
 **Version:** 1.1  

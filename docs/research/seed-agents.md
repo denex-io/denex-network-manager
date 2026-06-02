@@ -1,5 +1,10 @@
 # Agent Guidelines for localnet-tools
 
+> [!WARNING]
+> Historical seed guidance from a predecessor project. It does not describe the current
+> `denex-localnet` implementation. Prefer `AGENTS.md`, `agents/INDEX.md`, and source files for
+> current behavior.
+
 LocalNet management tooling for Canton Network development.
 
 ## Project Purpose

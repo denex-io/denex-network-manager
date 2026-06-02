@@ -1,5 +1,9 @@
 # Canton LocalNet Deep Analysis
 
+> [!WARNING]
+> Historical research. Canton/Splice concepts here may still be useful, but implementation details
+> should be verified against current source files and `agents/` guidance.
+
 > Comprehensive research document analyzing how Canton LocalNet works in both Splice and CN-Quickstart, with the goal of informing the design of simplified, programmable LocalNet tooling.
 
 **Date:** January 2026  
