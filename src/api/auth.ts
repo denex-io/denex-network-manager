@@ -90,7 +90,7 @@ export class TokenManager {
     return Date.now() >= token.expiresAt - REFRESH_BUFFER_MS;
   }
 
-  private async fetchToken(
+  private fetchToken(
     options: ClientCredentialsTokenOptions,
   ): Promise<TokenInfo> {
     return this.fetchClientCredentialsToken(options);

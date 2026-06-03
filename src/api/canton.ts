@@ -1,5 +1,5 @@
 import { readFile } from 'node:fs/promises';
-import { TokenManager, createAuthHeader } from './auth.ts';
+import { createAuthHeader, TokenManager } from './auth.ts';
 
 export interface PartyDetails {
   party: string;
@@ -97,7 +97,7 @@ export class CantonClient {
     return this.baseUrl;
   }
 
-  private async getAccessToken(): Promise<string> {
+  private getAccessToken(): Promise<string> {
     if (!this.tokenManager || !this.realm) {
       throw new Error('CantonClient requires Keycloak configuration for authenticated requests');
     }
@@ -157,13 +157,17 @@ export class CantonClient {
   }
 
   async getParticipantId(): Promise<string> {
-    const result = await this.request<{ participantId: string }>('GET', '/v2/parties/participant-id');
+    const result = await this.request<{ participantId: string }>(
+      'GET',
+      '/v2/parties/participant-id',
+    );
     return result.participantId;
   }
 
   async listConnectedSynchronizers(): Promise<ConnectedSynchronizer[]> {
     const result = await this.request<{ connectedSynchronizers?: ConnectedSynchronizer[] }>(
-      'GET', '/v2/state/connected-synchronizers'
+      'GET',
+      '/v2/state/connected-synchronizers',
     );
     return result.connectedSynchronizers ?? [];
   }
@@ -195,7 +199,10 @@ export class CantonClient {
   }
 
   async getUser(userId: string): Promise<UserDetails> {
-    const result = await this.request<{ user: UserDetails }>('GET', `/v2/users/${encodeURIComponent(userId)}`);
+    const result = await this.request<{ user: UserDetails }>(
+      'GET',
+      `/v2/users/${encodeURIComponent(userId)}`,
+    );
     return result.user;
   }
 

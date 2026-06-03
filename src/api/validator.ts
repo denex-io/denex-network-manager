@@ -1,4 +1,4 @@
-import { TokenManager, createAuthHeader } from './auth.ts';
+import { createAuthHeader, TokenManager } from './auth.ts';
 import type { AuthConfig } from '../types/config.ts';
 
 export interface ValidatorUserInfo {
@@ -98,7 +98,10 @@ export class ValidatorAdminClient {
     });
     if (!response.ok) {
       const errorText = await response.text();
-      throw new ValidatorApiError(response.status, `GET /api/validator/v0/validator-user: ${errorText}`);
+      throw new ValidatorApiError(
+        response.status,
+        `GET /api/validator/v0/validator-user: ${errorText}`,
+      );
     }
     return response.json();
   }
@@ -108,16 +111,19 @@ export class ValidatorAdminClient {
     return info.party_id;
   }
 
-  async getWalletUserStatus(): Promise<WalletUserStatus> {
+  getWalletUserStatus(): Promise<WalletUserStatus> {
     return this.request<WalletUserStatus>('GET', '/api/validator/v0/wallet/user-status');
   }
 
   async getDsoPartyId(): Promise<string> {
-    const result = await this.request<{ dso_party_id: string }>('GET', '/api/validator/v0/scan-proxy/dso-party-id');
+    const result = await this.request<{ dso_party_id: string }>(
+      'GET',
+      '/api/validator/v0/scan-proxy/dso-party-id',
+    );
     return result.dso_party_id;
   }
 
-  async onboardUser(
+  onboardUser(
     name: string,
     options?: { party_id?: string; createPartyIfMissing?: boolean },
   ): Promise<OnboardUserResponse> {
