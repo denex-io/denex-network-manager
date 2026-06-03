@@ -1,10 +1,13 @@
 import { assertEquals, assertExists } from '@std/assert';
 import { MultiInstanceDiscoveryServer } from '../../src/api/discovery.ts';
-import {
-  LABEL_INSTANCE,
-  LABEL_SCHEMA,
-} from '../../src/api/discovery-utils.ts';
+import { LABEL_INSTANCE, LABEL_SCHEMA } from '../../src/api/discovery-utils.ts';
+import type { DockerClient } from '../../src/docker/client.ts';
 import type { ContainerInfo } from '../../src/docker/types.ts';
+
+interface DiscoveryListItem {
+  id: string;
+  status: string;
+}
 
 function createMockDockerClient(containers: ContainerInfo[]) {
   return {
@@ -24,7 +27,7 @@ function fakeContainer(
   const config = {
     version: '1.0',
     basePort,
-    validators: validatorNames.map(v => ({ name: v })),
+    validators: validatorNames.map((v) => ({ name: v })),
     auth: { keycloak: { admin: 'admin', password: 'admin' } },
   };
   return {
@@ -57,14 +60,14 @@ const MULTI_INSTANCE_CONTAINERS: ContainerInfo[] = [
 
 Deno.test('MultiInstanceDiscoveryServer - constructs with mock docker client', () => {
   const mockClient = createMockDockerClient([]);
-  const server = new MultiInstanceDiscoveryServer(mockClient as any);
+  const server = new MultiInstanceDiscoveryServer(mockClient as unknown as DockerClient);
   assertExists(server);
   assertExists(server.honoApp);
 });
 
 Deno.test('MultiInstanceDiscoveryServer - constructs with custom options', () => {
   const mockClient = createMockDockerClient([]);
-  const server = new MultiInstanceDiscoveryServer(mockClient as any, {
+  const server = new MultiInstanceDiscoveryServer(mockClient as unknown as DockerClient, {
     port: 4000,
     host: '0.0.0.0',
     cacheTtlMs: 60000,
@@ -74,7 +77,7 @@ Deno.test('MultiInstanceDiscoveryServer - constructs with custom options', () =>
 
 Deno.test('MultiInstanceDiscoveryServer - GET /health returns ok', async () => {
   const mockClient = createMockDockerClient([]);
-  const server = new MultiInstanceDiscoveryServer(mockClient as any);
+  const server = new MultiInstanceDiscoveryServer(mockClient as unknown as DockerClient);
 
   const res = await server.honoApp.request('/health');
   assertEquals(res.status, 200);
@@ -85,7 +88,9 @@ Deno.test('MultiInstanceDiscoveryServer - GET /health returns ok', async () => {
 
 Deno.test('MultiInstanceDiscoveryServer - GET /instances returns discovered instances', async () => {
   const mockClient = createMockDockerClient(TEST_CONTAINERS);
-  const server = new MultiInstanceDiscoveryServer(mockClient as any, { cacheTtlMs: 0 });
+  const server = new MultiInstanceDiscoveryServer(mockClient as unknown as DockerClient, {
+    cacheTtlMs: 0,
+  });
 
   const res = await server.honoApp.request('/instances');
   assertEquals(res.status, 200);
@@ -102,7 +107,9 @@ Deno.test('MultiInstanceDiscoveryServer - GET /instances returns discovered inst
 
 Deno.test('MultiInstanceDiscoveryServer - GET /instances returns multiple instances', async () => {
   const mockClient = createMockDockerClient(MULTI_INSTANCE_CONTAINERS);
-  const server = new MultiInstanceDiscoveryServer(mockClient as any, { cacheTtlMs: 0 });
+  const server = new MultiInstanceDiscoveryServer(mockClient as unknown as DockerClient, {
+    cacheTtlMs: 0,
+  });
 
   const res = await server.honoApp.request('/instances');
   assertEquals(res.status, 200);
@@ -115,7 +122,9 @@ Deno.test('MultiInstanceDiscoveryServer - GET /instances returns multiple instan
 
 Deno.test('MultiInstanceDiscoveryServer - GET /instances returns empty array when no containers', async () => {
   const mockClient = createMockDockerClient([]);
-  const server = new MultiInstanceDiscoveryServer(mockClient as any, { cacheTtlMs: 0 });
+  const server = new MultiInstanceDiscoveryServer(mockClient as unknown as DockerClient, {
+    cacheTtlMs: 0,
+  });
 
   const res = await server.honoApp.request('/instances');
   assertEquals(res.status, 200);
@@ -126,7 +135,9 @@ Deno.test('MultiInstanceDiscoveryServer - GET /instances returns empty array whe
 
 Deno.test('MultiInstanceDiscoveryServer - GET /instances/:id/status returns 404 for unknown instance', async () => {
   const mockClient = createMockDockerClient([]);
-  const server = new MultiInstanceDiscoveryServer(mockClient as any, { cacheTtlMs: 0 });
+  const server = new MultiInstanceDiscoveryServer(mockClient as unknown as DockerClient, {
+    cacheTtlMs: 0,
+  });
 
   const res = await server.honoApp.request('/instances/unknown/status');
   assertEquals(res.status, 404);
@@ -138,7 +149,9 @@ Deno.test('MultiInstanceDiscoveryServer - GET /instances/:id/status returns 404 
 
 Deno.test('MultiInstanceDiscoveryServer - GET /instances/:id/parties returns 404 for unknown instance', async () => {
   const mockClient = createMockDockerClient([]);
-  const server = new MultiInstanceDiscoveryServer(mockClient as any, { cacheTtlMs: 0 });
+  const server = new MultiInstanceDiscoveryServer(mockClient as unknown as DockerClient, {
+    cacheTtlMs: 0,
+  });
 
   const res = await server.honoApp.request('/instances/unknown/parties');
   assertEquals(res.status, 404);
@@ -150,7 +163,9 @@ Deno.test('MultiInstanceDiscoveryServer - GET /instances/:id/parties returns 404
 
 Deno.test('MultiInstanceDiscoveryServer - GET /instances/:id/packages returns 404 for unknown instance', async () => {
   const mockClient = createMockDockerClient([]);
-  const server = new MultiInstanceDiscoveryServer(mockClient as any, { cacheTtlMs: 0 });
+  const server = new MultiInstanceDiscoveryServer(mockClient as unknown as DockerClient, {
+    cacheTtlMs: 0,
+  });
 
   const res = await server.honoApp.request('/instances/unknown/packages');
   assertEquals(res.status, 404);
@@ -162,7 +177,9 @@ Deno.test('MultiInstanceDiscoveryServer - GET /instances/:id/packages returns 40
 
 Deno.test('MultiInstanceDiscoveryServer - GET /instances/:id/env returns env info for known instance', async () => {
   const mockClient = createMockDockerClient(TEST_CONTAINERS);
-  const server = new MultiInstanceDiscoveryServer(mockClient as any, { cacheTtlMs: 0 });
+  const server = new MultiInstanceDiscoveryServer(mockClient as unknown as DockerClient, {
+    cacheTtlMs: 0,
+  });
 
   const res = await server.honoApp.request('/instances/test-1/env');
   assertEquals(res.status, 200);
@@ -178,7 +195,9 @@ Deno.test('MultiInstanceDiscoveryServer - GET /instances/:id/env returns env inf
 
 Deno.test('MultiInstanceDiscoveryServer - GET /instances/:id/env returns 404 for unknown instance', async () => {
   const mockClient = createMockDockerClient([]);
-  const server = new MultiInstanceDiscoveryServer(mockClient as any, { cacheTtlMs: 0 });
+  const server = new MultiInstanceDiscoveryServer(mockClient as unknown as DockerClient, {
+    cacheTtlMs: 0,
+  });
 
   const res = await server.honoApp.request('/instances/unknown/env');
   assertEquals(res.status, 404);
@@ -189,7 +208,9 @@ Deno.test('MultiInstanceDiscoveryServer - GET /instances/:id/env returns 404 for
 
 Deno.test('MultiInstanceDiscoveryServer - GET /instances/:id/snapshot returns 404 for unknown instance', async () => {
   const mockClient = createMockDockerClient([]);
-  const server = new MultiInstanceDiscoveryServer(mockClient as any, { cacheTtlMs: 0 });
+  const server = new MultiInstanceDiscoveryServer(mockClient as unknown as DockerClient, {
+    cacheTtlMs: 0,
+  });
 
   const res = await server.honoApp.request('/instances/unknown/snapshot');
   assertEquals(res.status, 404);
@@ -203,7 +224,9 @@ Deno.test('MultiInstanceDiscoveryServer - env route uses correct basePort from l
     fakeContainer('postgres', 'custom-port', 7000, ['val-1']),
   ];
   const mockClient = createMockDockerClient(containers);
-  const server = new MultiInstanceDiscoveryServer(mockClient as any, { cacheTtlMs: 0 });
+  const server = new MultiInstanceDiscoveryServer(mockClient as unknown as DockerClient, {
+    cacheTtlMs: 0,
+  });
 
   const res = await server.honoApp.request('/instances/custom-port/env');
   assertEquals(res.status, 200);
@@ -222,7 +245,9 @@ Deno.test('MultiInstanceDiscoveryServer - instance cache is used across requests
     },
   };
 
-  const server = new MultiInstanceDiscoveryServer(mockClient as any, { cacheTtlMs: 60000 });
+  const server = new MultiInstanceDiscoveryServer(mockClient as unknown as DockerClient, {
+    cacheTtlMs: 60000,
+  });
 
   await server.honoApp.request('/instances');
   assertEquals(callCount, 1);
@@ -239,7 +264,9 @@ Deno.test('MultiInstanceDiscoveryServer - discoverAndCache refreshes discovery',
     },
   };
 
-  const server = new MultiInstanceDiscoveryServer(mockClient as any, { cacheTtlMs: 60000 });
+  const server = new MultiInstanceDiscoveryServer(mockClient as unknown as DockerClient, {
+    cacheTtlMs: 60000,
+  });
 
   await server.discoverAndCache();
   assertEquals(callCount, 1);
@@ -263,7 +290,9 @@ Deno.test('MultiInstanceDiscoveryServer - GET /instances/:id/env returns 410 for
     },
   };
   const mockClient = createMockDockerClient([unsupportedContainer]);
-  const server = new MultiInstanceDiscoveryServer(mockClient as any, { cacheTtlMs: 0 });
+  const server = new MultiInstanceDiscoveryServer(mockClient as unknown as DockerClient, {
+    cacheTtlMs: 0,
+  });
 
   const res = await server.honoApp.request('/instances/unsupported-1/env');
   assertEquals(res.status, 410);
@@ -289,7 +318,9 @@ Deno.test('MultiInstanceDiscoveryServer - GET /instances/:id/status returns 410 
     },
   };
   const mockClient = createMockDockerClient([unsupportedContainer]);
-  const server = new MultiInstanceDiscoveryServer(mockClient as any, { cacheTtlMs: 0 });
+  const server = new MultiInstanceDiscoveryServer(mockClient as unknown as DockerClient, {
+    cacheTtlMs: 0,
+  });
 
   const res = await server.honoApp.request('/instances/unsupported-1/status');
   assertEquals(res.status, 410);
@@ -314,7 +345,9 @@ Deno.test('MultiInstanceDiscoveryServer - GET /instances/:id/parties returns 410
     },
   };
   const mockClient = createMockDockerClient([unsupportedContainer]);
-  const server = new MultiInstanceDiscoveryServer(mockClient as any, { cacheTtlMs: 0 });
+  const server = new MultiInstanceDiscoveryServer(mockClient as unknown as DockerClient, {
+    cacheTtlMs: 0,
+  });
 
   const res = await server.honoApp.request('/instances/unsupported-1/parties');
   assertEquals(res.status, 410);
@@ -339,7 +372,9 @@ Deno.test('MultiInstanceDiscoveryServer - GET /instances/:id/packages returns 41
     },
   };
   const mockClient = createMockDockerClient([unsupportedContainer]);
-  const server = new MultiInstanceDiscoveryServer(mockClient as any, { cacheTtlMs: 0 });
+  const server = new MultiInstanceDiscoveryServer(mockClient as unknown as DockerClient, {
+    cacheTtlMs: 0,
+  });
 
   const res = await server.honoApp.request('/instances/unsupported-1/packages');
   assertEquals(res.status, 410);
@@ -364,7 +399,9 @@ Deno.test('MultiInstanceDiscoveryServer - GET /instances/:id/snapshot returns 41
     },
   };
   const mockClient = createMockDockerClient([unsupportedContainer]);
-  const server = new MultiInstanceDiscoveryServer(mockClient as any, { cacheTtlMs: 0 });
+  const server = new MultiInstanceDiscoveryServer(mockClient as unknown as DockerClient, {
+    cacheTtlMs: 0,
+  });
 
   const res = await server.honoApp.request('/instances/unsupported-1/snapshot');
   assertEquals(res.status, 410);
@@ -390,14 +427,16 @@ Deno.test('MultiInstanceDiscoveryServer - GET /instances includes unsupported en
   };
   const containers = [...TEST_CONTAINERS, unsupportedContainer];
   const mockClient = createMockDockerClient(containers);
-  const server = new MultiInstanceDiscoveryServer(mockClient as any, { cacheTtlMs: 0 });
+  const server = new MultiInstanceDiscoveryServer(mockClient as unknown as DockerClient, {
+    cacheTtlMs: 0,
+  });
 
   const res = await server.honoApp.request('/instances');
   assertEquals(res.status, 200);
 
-  const body = await res.json();
+  const body = await res.json() as DiscoveryListItem[];
   assertEquals(body.length, 2);
-  const unsupported = body.find((i: any) => i.id === 'unsupported-1');
+  const unsupported = body.find((i) => i.id === 'unsupported-1');
   assertExists(unsupported);
   assertEquals(unsupported.status, 'unsupported');
 });

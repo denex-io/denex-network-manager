@@ -1,12 +1,13 @@
 import { assertEquals } from '@std/assert';
 import {
-  reconstructConfigFromLabels,
+  type ContainerListItem,
   discoverInstances,
+  LABEL_CONFIG,
   LABEL_INSTANCE,
   LABEL_SCHEMA,
-  LABEL_CONFIG,
-  type ContainerListItem,
+  reconstructConfigFromLabels,
 } from '../../src/api/discovery-utils.ts';
+import type { ValidatorConfig } from '../../src/types/config.ts';
 
 Deno.test('reconstructConfigFromLabels - Happy path schema 2 returns real credentials', () => {
   const config = {
@@ -98,7 +99,7 @@ Deno.test('reconstructConfigFromLabels - Round-trip idempotent', () => {
   if (result) {
     assertEquals(result.basePort, 5000);
     assertEquals(Array.isArray(result.validators), true);
-    const validators = result.validators as any[];
+    const validators = result.validators as ValidatorConfig[];
     assertEquals(validators.length, 2);
     assertEquals(validators[0].name, 'validator-1');
     assertEquals(validators[1].name, 'validator-2');

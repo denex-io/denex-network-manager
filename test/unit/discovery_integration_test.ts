@@ -1,8 +1,7 @@
 import { assertEquals, assertExists } from '@std/assert';
 import { MultiInstanceDiscoveryServer } from '../../src/api/discovery.ts';
-import {
-  LABEL_INSTANCE,
-} from '../../src/api/discovery-utils.ts';
+import { LABEL_INSTANCE } from '../../src/api/discovery-utils.ts';
+import type { DockerClient } from '../../src/docker/client.ts';
 import type { ContainerInfo } from '../../src/docker/types.ts';
 
 // --- Test helpers ---
@@ -46,7 +45,7 @@ function fakeContainer(
 
 function makeServer(containers: ContainerInfo[]) {
   const mockClient = createMockDockerClient(containers);
-  return new MultiInstanceDiscoveryServer(mockClient as any, { cacheTtlMs: 0 });
+  return new MultiInstanceDiscoveryServer(mockClient as unknown as DockerClient, { cacheTtlMs: 0 });
 }
 
 function assertJsonContentType(res: Response) {
@@ -319,8 +318,16 @@ Deno.test('Integration - two instances - cross-instance isolation: no port leaka
 
   // Staging uses port 7000 range — should not contain 5000 range
   const stagingJson = JSON.stringify(stagingBody);
-  assertEquals(stagingJson.includes('5001'), false, 'Staging env should not contain prod port 5001');
-  assertEquals(stagingJson.includes('5101'), false, 'Staging env should not contain prod port 5101');
+  assertEquals(
+    stagingJson.includes('5001'),
+    false,
+    'Staging env should not contain prod port 5001',
+  );
+  assertEquals(
+    stagingJson.includes('5101'),
+    false,
+    'Staging env should not contain prod port 5101',
+  );
 });
 
 Deno.test('Integration - two instances - /instances/nonexistent/env returns 404', async () => {
@@ -358,5 +365,9 @@ Deno.test('Integration - two instances - /instances/staging/env has correct keyc
   assertExists(body.auth.keycloak);
   assertExists(body.auth.keycloak.url);
   // Keycloak port is basePort + 82 = 7082 for staging
-  assertEquals(body.auth.keycloak.url.includes('7082'), true, 'Staging keycloak should use port 7082');
+  assertEquals(
+    body.auth.keycloak.url.includes('7082'),
+    true,
+    'Staging keycloak should use port 7082',
+  );
 });
