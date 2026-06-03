@@ -5,10 +5,11 @@
 > CLI, discovery, and orchestration details differ from the current codebase. Prefer `AGENTS.md`,
 > `agents/INDEX.md`, and source files for current behavior.
 
-> A specification for a tooling layer that simplifies Canton Network LocalNet configuration and provides runtime discovery for mg-tokenization development.
+> A specification for a tooling layer that simplifies Canton Network LocalNet configuration and
+> provides runtime discovery for mg-tokenization development.
 
-**Version:** 1.0  
-**Date:** January 2026  
+**Version:** 1.0\
+**Date:** January 2026\
 **Status:** Specification
 
 ---
@@ -32,15 +33,16 @@
 
 ### Configuration Complexity
 
-Canton Network Quickstart (cn-quickstart) provides a comprehensive development environment, but its configuration complexity creates significant developer friction:
+Canton Network Quickstart (cn-quickstart) provides a comprehensive development environment, but its
+configuration complexity creates significant developer friction:
 
-| Category | Count | Description |
-|----------|-------|-------------|
-| Environment files | **37** | Scattered across modules with layered overrides |
-| HOCON configs | **34** | Canton/Splice participant configuration |
-| Docker Compose files | **6+** | Modular composition with profiles |
-| Keycloak realm JSONs | **2** | 4,621 lines combined (not human-writable) |
-| **Total config files** | **135+** | Spanning 6 modules |
+| Category               | Count    | Description                                     |
+| ---------------------- | -------- | ----------------------------------------------- |
+| Environment files      | **37**   | Scattered across modules with layered overrides |
+| HOCON configs          | **34**   | Canton/Splice participant configuration         |
+| Docker Compose files   | **6+**   | Modular composition with profiles               |
+| Keycloak realm JSONs   | **2**    | 4,621 lines combined (not human-writable)       |
+| **Total config files** | **135+** | Spanning 6 modules                              |
 
 ### Example Pain Point: Keycloak Realm JSON
 
@@ -49,20 +51,20 @@ The current Keycloak realm files are exports, not human-authored configurations:
 ```json
 // AppUser-realm.json - 2,309 lines including:
 {
-  "id" : "6e72bec3-79a3-4faa-932e-0e261ee04aeb",  // Generated UUID
-  "realm" : "AppUser",
-  "roles" : {
-    "realm" : [ {
-      "id" : "6bbfc5b2-8dc3-490e-9a96-621191b6fb4f",  // Generated UUID
-      "name" : "uma_authorization",
-      "containerId" : "6e72bec3-79a3-4faa-932e-0e261ee04aeb",  // Reference
+  "id": "6e72bec3-79a3-4faa-932e-0e261ee04aeb", // Generated UUID
+  "realm": "AppUser",
+  "roles": {
+    "realm": [{
+      "id": "6bbfc5b2-8dc3-490e-9a96-621191b6fb4f", // Generated UUID
+      "name": "uma_authorization",
+      "containerId": "6e72bec3-79a3-4faa-932e-0e261ee04aeb" // Reference
       // ... 50+ lines per role
     }]
   },
-  "clients" : [
+  "clients": [
     // 12 clients, each 50-100 lines with generated UUIDs
   ],
-  "clientScopes" : [
+  "clientScopes": [
     // 15 scopes with protocol mappers
   ]
   // ... hundreds more lines of defaults
@@ -70,6 +72,7 @@ The current Keycloak realm files are exports, not human-authored configurations:
 ```
 
 **To add one new OAuth client**, a developer must:
+
 1. Manually edit 2,300+ line JSON file
 2. Generate new UUIDs for all references
 3. Ensure client scope mappings are correct
@@ -93,6 +96,7 @@ A single configuration change may require edits to 3-5 files.
 ### Runtime-Generated Identifiers
 
 **Party IDs are only known after startup:**
+
 ```
 # Before startup: We define a hint
 APP_PROVIDER_PARTY_HINT=app_provider_quickstart-mgaare-1
@@ -104,9 +108,10 @@ app_provider_quickstart-mgaare-1::1220e46903d02f76f0911c27dc2d29d4211b3fae7a2300
 ```
 
 **Package IDs are only known after DAR upload:**
+
 ```typescript
 // Currently hardcoded in asset-manager/src/shared/template-ids.ts
-const TOKEN_MANAGER_PACKAGE_ID = "5f8c316c1752ac1bbb0cf38b38d25a6ae8b9894b22faf9a72f507819603997f1";
+const TOKEN_MANAGER_PACKAGE_ID = '5f8c316c1752ac1bbb0cf38b38d25a6ae8b9894b22faf9a72f507819603997f1';
 // Must be manually updated after every DAML rebuild!
 ```
 
@@ -116,7 +121,7 @@ Currently, to run asset-manager against LocalNet, developers must:
 
 1. Start LocalNet: `./scripts/start-localnet.sh`
 2. Wait for services (no readiness indicator)
-3. Upload DAR: `./scripts/upload-dar.sh` 
+3. Upload DAR: `./scripts/upload-dar.sh`
 4. Query party ID: Manual API call or copy from logs
 5. Get package ID: Extract from DAR upload response
 6. Update `.env` file with party ID
@@ -131,23 +136,23 @@ Currently, to run asset-manager against LocalNet, developers must:
 
 ### Goals
 
-| Goal | Description |
-|------|-------------|
-| **Single config file** | Replace 37 env files with one human-readable `localnet.yaml` (~50 lines) |
-| **Keycloak generation** | Generate minimal realm JSON from simple client/user definitions |
-| **Runtime discovery** | REST API to query party IDs, package IDs, connection info |
-| **CLI commands** | `localnet` command for common operations |
-| **Integration-ready** | Output suitable for asset-manager and conflib consumption |
+| Goal                    | Description                                                              |
+| ----------------------- | ------------------------------------------------------------------------ |
+| **Single config file**  | Replace 37 env files with one human-readable `localnet.yaml` (~50 lines) |
+| **Keycloak generation** | Generate minimal realm JSON from simple client/user definitions          |
+| **Runtime discovery**   | REST API to query party IDs, package IDs, connection info                |
+| **CLI commands**        | `localnet` command for common operations                                 |
+| **Integration-ready**   | Output suitable for asset-manager and conflib consumption                |
 
 ### Non-Goals
 
-| Non-Goal | Rationale |
-|----------|-----------|
-| Replace cn-quickstart | We wrap and extend it, not replace |
+| Non-Goal                   | Rationale                                              |
+| -------------------------- | ------------------------------------------------------ |
+| Replace cn-quickstart      | We wrap and extend it, not replace                     |
 | Support shared-secret auth | OAuth2 with Keycloak is required for production parity |
-| Reduce resource usage | 8GB minimum is acceptable for local dev |
-| Manage Canton internals | We don't modify Canton/Splice HOCON configs |
-| Production deployment | This is dev tooling only |
+| Reduce resource usage      | 8GB minimum is acceptable for local dev                |
+| Manage Canton internals    | We don't modify Canton/Splice HOCON configs            |
+| Production deployment      | This is dev tooling only                               |
 
 ---
 
@@ -159,19 +164,19 @@ Currently, to run asset-manager against LocalNet, developers must:
 # localnet.yaml - Human-authored LocalNet configuration
 # Location: project root or $LOCALNET_CONFIG_PATH
 
-version: "1.0"
+version: '1.0'
 
 # cn-quickstart location (auto-detected if not specified)
 quickstart:
-  path: "${CN_QUICKSTART_DIR}"  # Supports env var expansion
-  # Or explicit path: path: "/Users/me/cn-quickstart"
+  path: '${CN_QUICKSTART_DIR}' # Supports env var expansion
+# Or explicit path: path: "/Users/me/cn-quickstart"
 
 # Keycloak configuration
 keycloak:
-  url: "http://localhost:8082"
-  admin_user: "admin"
-  admin_password: "admin"
-  audience: "https://canton.network.global"
+  url: 'http://localhost:8082'
+  admin_user: 'admin'
+  admin_password: 'admin'
+  audience: 'https://canton.network.global'
 
 # Participant configuration
 participants:
@@ -180,69 +185,69 @@ participants:
     json_api_port: 2975
     ledger_api_port: 2901
     admin_api_port: 2902
-    realm: "AppUser"
-    party_hint: "app_user"
-    
+    realm: 'AppUser'
+    party_hint: 'app_user'
+
   app-provider:
     enabled: true
     json_api_port: 3975
     ledger_api_port: 3901
     admin_api_port: 3902
-    realm: "AppProvider"
-    party_hint: "app_provider"
-    
+    realm: 'AppProvider'
+    party_hint: 'app_provider'
+
   sv:
-    enabled: false  # Disable SV for token development
+    enabled: false # Disable SV for token development
     json_api_port: 4975
     ledger_api_port: 4901
     admin_api_port: 4902
-    realm: "SV"
-    party_hint: "sv"
+    realm: 'SV'
+    party_hint: 'sv'
 
 # Keycloak clients to create/manage
 clients:
   # Service account for backend services (confidential client)
   app-provider-validator:
-    realm: "AppProvider"
+    realm: 'AppProvider'
     service_account: true
-    client_secret: "AL8648b9SfdTFImq7FV56Vd0KHifHBuC"  # Can be auto-generated
-    
+    client_secret: 'AL8648b9SfdTFImq7FV56Vd0KHifHBuC' # Can be auto-generated
+
   app-user-validator:
-    realm: "AppUser"
+    realm: 'AppUser'
     service_account: true
-    client_secret: "6m12QyyGl81d9nABWQXMycZdXho6ejEX"
-    
+    client_secret: '6m12QyyGl81d9nABWQXMycZdXho6ejEX'
+
   # Public client for frontend apps
   token-manager-ui:
-    realm: "AppProvider"
+    realm: 'AppProvider'
     service_account: false
     public: true
     redirect_uris:
-      - "http://localhost:5173/*"
-      - "http://127.0.0.1:5173/*"
+      - 'http://localhost:5173/*'
+      - 'http://127.0.0.1:5173/*'
     web_origins:
-      - "http://localhost:5173"
-      - "http://127.0.0.1:5173"
+      - 'http://localhost:5173'
+      - 'http://127.0.0.1:5173'
 
 # DAR packages to upload after startup
 packages:
-  - name: "token-manager-v1"
-    dar_path: "daml/token-manager-v1/.daml/dist/token-manager-v1-1.0.0.dar"
+  - name: 'token-manager-v1'
+    dar_path: 'daml/token-manager-v1/.daml/dist/token-manager-v1-1.0.0.dar'
     upload_to:
-      - "app-provider"
-      - "app-user"
-      
-  - name: "token-standard"
-    dar_path: "dependencies/splice-token-standard-1.0.0.dar"
+      - 'app-provider'
+      - 'app-user'
+
+  - name: 'token-standard'
+    dar_path: 'dependencies/splice-token-standard-1.0.0.dar'
     upload_to:
-      - "app-provider"
-      - "app-user"
+      - 'app-provider'
+      - 'app-user'
 
 # Discovery server configuration
 discovery:
   port: 3100
-  host: "127.0.0.1"
-  cache_ttl_seconds: 300  # Cache party/package IDs for 5 minutes
+  host: '127.0.0.1'
+  cache_ttl_seconds: 300 # Cache party/package IDs for 5 minutes
 ```
 
 ### Minimal Configuration Example
@@ -250,21 +255,21 @@ discovery:
 For simple token development with single participant:
 
 ```yaml
-version: "1.0"
+version: '1.0'
 
 participants:
   app-provider:
     enabled: true
-    
+
 clients:
   app-provider-validator:
-    realm: "AppProvider"
+    realm: 'AppProvider'
     service_account: true
 
 packages:
-  - name: "token-manager-v1"
-    dar_path: "daml/token-manager-v1/.daml/dist/token-manager-v1-1.0.0.dar"
-    upload_to: ["app-provider"]
+  - name: 'token-manager-v1'
+    dar_path: 'daml/token-manager-v1/.daml/dist/token-manager-v1-1.0.0.dar'
+    upload_to: ['app-provider']
 ```
 
 All other values use sensible defaults.
@@ -272,7 +277,7 @@ All other values use sensible defaults.
 ### Schema Validation (Zod)
 
 ```typescript
-import { z } from "zod";
+import { z } from 'zod';
 
 const ParticipantSchema = z.object({
   enabled: z.boolean().default(true),
@@ -299,28 +304,28 @@ const PackageSchema = z.object({
 });
 
 const LocalnetConfigSchema = z.object({
-  version: z.literal("1.0"),
+  version: z.literal('1.0'),
   quickstart: z.object({
     path: z.string().optional(),
   }).optional(),
   keycloak: z.object({
-    url: z.string().url().default("http://localhost:8082"),
-    admin_user: z.string().default("admin"),
-    admin_password: z.string().default("admin"),
-    audience: z.string().default("https://canton.network.global"),
+    url: z.string().url().default('http://localhost:8082'),
+    admin_user: z.string().default('admin'),
+    admin_password: z.string().default('admin'),
+    audience: z.string().default('https://canton.network.global'),
   }).optional(),
   participants: z.record(z.string(), ParticipantSchema).default({
-    "app-provider": {
+    'app-provider': {
       enabled: true,
       json_api_port: 3975,
-      realm: "AppProvider",
+      realm: 'AppProvider',
     },
   }),
   clients: z.record(z.string(), ClientSchema).optional(),
   packages: z.array(PackageSchema).optional(),
   discovery: z.object({
     port: z.number().int().default(3100),
-    host: z.string().default("127.0.0.1"),
+    host: z.string().default('127.0.0.1'),
     cache_ttl_seconds: z.number().int().default(300),
   }).optional(),
 });
@@ -381,6 +386,7 @@ EXAMPLES:
 ```
 
 **Output Structure:**
+
 ```
 .localnet/
 ├── generated/
@@ -628,6 +634,7 @@ http://localhost:3100
 Health check for all LocalNet services.
 
 **Response:**
+
 ```json
 {
   "healthy": true,
@@ -670,6 +677,7 @@ Health check for all LocalNet services.
 Get all discovered party IDs.
 
 **Response:**
+
 ```json
 {
   "parties": {
@@ -696,9 +704,11 @@ Get all discovered party IDs.
 Get party ID for a specific participant.
 
 **Parameters:**
+
 - `participant` - Participant name (e.g., `app-provider`)
 
 **Response:**
+
 ```json
 {
   "party_id": "app_provider_quickstart-mgaare-1::1220e46903d02f76f0911c27dc2d29d4211b3fae7a2300db223f4074c5b59bdedc1b",
@@ -709,6 +719,7 @@ Get party ID for a specific participant.
 ```
 
 **Errors:**
+
 - `404 Not Found` - Participant not found or not enabled
 - `503 Service Unavailable` - Participant not healthy
 
@@ -717,6 +728,7 @@ Get party ID for a specific participant.
 List all uploaded packages.
 
 **Response:**
+
 ```json
 {
   "packages": {
@@ -744,9 +756,11 @@ List all uploaded packages.
 Get package ID for a specific package.
 
 **Parameters:**
+
 - `name` - Package name (e.g., `token-manager-v1`)
 
 **Response:**
+
 ```json
 {
   "package_id": "5f8c316c1752ac1bbb0cf38b38d25a6ae8b9894b22faf9a72f507819603997f1",
@@ -762,12 +776,15 @@ Get package ID for a specific package.
 Generate ready-to-use environment configuration.
 
 **Parameters:**
+
 - `participant` - Participant name (e.g., `app-provider`)
 
 **Query Parameters:**
+
 - `format` - Output format: `dotenv` (default), `json`, `shell`
 
 **Response (format=dotenv):**
+
 ```
 Content-Type: text/plain
 
@@ -782,6 +799,7 @@ TOKEN_MANAGER_V1_PACKAGE_ID=5f8c316c1752ac1bbb0cf38b38d25a6ae8b9894b22faf9a72f50
 ```
 
 **Response (format=json):**
+
 ```json
 {
   "ledger": {
@@ -807,6 +825,7 @@ TOKEN_MANAGER_V1_PACKAGE_ID=5f8c316c1752ac1bbb0cf38b38d25a6ae8b9894b22faf9a72f50
 Clear discovery cache and re-fetch all data.
 
 **Response:**
+
 ```json
 {
   "invalidated": true,
@@ -834,14 +853,14 @@ paths:
       responses:
         '200':
           description: Service status
-          
+
   /discovery/parties:
     get:
       summary: Get all party IDs
       responses:
         '200':
           description: Party information
-          
+
   /discovery/parties/{participant}:
     get:
       summary: Get party ID for participant
@@ -856,14 +875,14 @@ paths:
           description: Party information
         '404':
           description: Participant not found
-          
+
   /discovery/packages:
     get:
       summary: List all packages
       responses:
         '200':
           description: Package information
-          
+
   /discovery/packages/{name}:
     get:
       summary: Get package by name
@@ -878,7 +897,7 @@ paths:
           description: Package information
         '404':
           description: Package not found
-          
+
   /discovery/env/{participant}:
     get:
       summary: Generate environment config
@@ -897,7 +916,7 @@ paths:
       responses:
         '200':
           description: Environment configuration
-          
+
   /discovery/invalidate:
     post:
       summary: Clear discovery cache
@@ -925,9 +944,9 @@ The generator reads `localnet.yaml` and produces:
 ```yaml
 clients:
   app-provider-validator:
-    realm: "AppProvider"
+    realm: 'AppProvider'
     service_account: true
-    client_secret: "AL8648b9SfdTFImq7FV56Vd0KHifHBuC"
+    client_secret: 'AL8648b9SfdTFImq7FV56Vd0KHifHBuC'
 ```
 
 #### Output (minimal realm JSON)
@@ -938,7 +957,7 @@ clients:
   "enabled": true,
   "sslRequired": "none",
   "registrationAllowed": false,
-  
+
   "clients": [
     {
       "clientId": "app-provider-validator",
@@ -962,7 +981,7 @@ clients:
       ]
     }
   ],
-  
+
   "clientScopes": [
     {
       "name": "audience_canton_network",
@@ -988,6 +1007,7 @@ clients:
 ```
 
 **Key Differences from Export:**
+
 - No UUIDs (Keycloak generates them on import)
 - No default roles (Keycloak creates them)
 - No built-in clients (account, admin-cli, etc.)
@@ -999,18 +1019,18 @@ clients:
 function generateKeycloakRealm(
   realmName: string,
   clients: ClientConfig[],
-  audience: string
+  audience: string,
 ): KeycloakRealm {
   return {
     realm: realmName,
     enabled: true,
-    sslRequired: "none",
+    sslRequired: 'none',
     registrationAllowed: false,
-    
+
     clients: clients
-      .filter(c => c.realm === realmName)
-      .map(c => generateClient(c)),
-      
+      .filter((c) => c.realm === realmName)
+      .map((c) => generateClient(c)),
+
     clientScopes: [
       generateAudienceScope(audience),
       generateServiceAccountScope(),
@@ -1026,41 +1046,66 @@ function generateClient(config: ClientConfig): KeycloakClient {
       publicClient: true,
       standardFlowEnabled: true,
       directAccessGrantsEnabled: false,
-      redirectUris: config.redirect_uris ?? ["*"],
-      webOrigins: config.web_origins ?? ["*"],
-      protocol: "openid-connect",
-      defaultClientScopes: ["web-origins", "acr", "audience_canton_network", "roles", "profile", "basic", "email"],
+      redirectUris: config.redirect_uris ?? ['*'],
+      webOrigins: config.web_origins ?? ['*'],
+      protocol: 'openid-connect',
+      defaultClientScopes: [
+        'web-origins',
+        'acr',
+        'audience_canton_network',
+        'roles',
+        'profile',
+        'basic',
+        'email',
+      ],
     };
   }
-  
+
   if (config.service_account) {
     return {
       clientId: config.name,
       enabled: true,
-      clientAuthenticatorType: "client-secret",
+      clientAuthenticatorType: 'client-secret',
       secret: config.client_secret,
       serviceAccountsEnabled: true,
       standardFlowEnabled: false,
       directAccessGrantsEnabled: false,
       publicClient: false,
-      protocol: "openid-connect",
-      defaultClientScopes: ["web-origins", "service_account", "acr", "audience_canton_network", "roles", "profile", "basic", "email"],
+      protocol: 'openid-connect',
+      defaultClientScopes: [
+        'web-origins',
+        'service_account',
+        'acr',
+        'audience_canton_network',
+        'roles',
+        'profile',
+        'basic',
+        'email',
+      ],
     };
   }
-  
+
   // Default: confidential client with standard flow
   return {
     clientId: config.name,
     enabled: true,
-    clientAuthenticatorType: "client-secret",
+    clientAuthenticatorType: 'client-secret',
     secret: config.client_secret,
     standardFlowEnabled: true,
     directAccessGrantsEnabled: false,
     publicClient: false,
-    protocol: "openid-connect",
-    redirectUris: config.redirect_uris ?? ["*"],
-    webOrigins: config.web_origins ?? ["*"],
-    defaultClientScopes: ["web-origins", "acr", "audience_canton_network", "roles", "profile", "basic", "email"],
+    protocol: 'openid-connect',
+    redirectUris: config.redirect_uris ?? ['*'],
+    webOrigins: config.web_origins ?? ['*'],
+    defaultClientScopes: [
+      'web-origins',
+      'acr',
+      'audience_canton_network',
+      'roles',
+      'profile',
+      'basic',
+      'email',
+    ],
   };
 }
 ```
@@ -1074,11 +1119,11 @@ participants:
   app-provider:
     enabled: true
     json_api_port: 3975
-    realm: "AppProvider"
-    
+    realm: 'AppProvider'
+
 keycloak:
-  url: "http://localhost:8082"
-  audience: "https://canton.network.global"
+  url: 'http://localhost:8082'
+  audience: 'https://canton.network.global'
 ```
 
 #### Output (.localnet/generated/env/localnet.env)
@@ -1126,17 +1171,17 @@ services:
       - app-provider
       - app-user
       # sv profile omitted (disabled in localnet.yaml)
-      
+
   splice:
     profiles:
       - app-provider
       - app-user
-      
+
   # Disable wallet UIs (not needed for token development)
   wallet-web-ui-app-user:
     profiles:
       - never
-      
+
   wallet-web-ui-app-provider:
     profiles:
       - never
@@ -1154,39 +1199,37 @@ Party IDs are discovered by querying the Canton JSON API after startup.
 
 ```typescript
 interface PartyInfo {
-  party_id: string;      // Full party ID with namespace
-  party_hint: string;    // Hint without namespace
-  user_id: string;       // Ledger user ID
-  participant: string;   // Participant name
+  party_id: string; // Full party ID with namespace
+  party_hint: string; // Hint without namespace
+  user_id: string; // Ledger user ID
+  participant: string; // Participant name
 }
 
 async function discoverParty(
   participant: ParticipantConfig,
-  authToken: string
+  authToken: string,
 ): Promise<PartyInfo> {
   const jsonApiUrl = `http://localhost:${participant.json_api_port}`;
-  
+
   // Get all parties from the participant
   const response = await fetch(`${jsonApiUrl}/v2/parties`, {
-    headers: { "Authorization": `Bearer ${authToken}` }
+    headers: { 'Authorization': `Bearer ${authToken}` },
   });
-  
+
   const data = await response.json();
-  
+
   // Find party matching our hint
   const partyHint = `${participant.party_hint}_${config.party_hint_suffix}`;
-  const party = data.parties.find((p: any) => 
-    p.party.startsWith(partyHint)
-  );
-  
+  const party = data.parties.find((p: any) => p.party.startsWith(partyHint));
+
   if (!party) {
     throw new Error(`Party not found for hint: ${partyHint}`);
   }
-  
+
   return {
     party_id: party.party,
     party_hint: partyHint,
-    user_id: "ledger-api-user",  // Default user
+    user_id: 'ledger-api-user', // Default user
     participant: participant.name,
   };
 }
@@ -1210,26 +1253,26 @@ interface PackageInfo {
 async function uploadAndTrackPackage(
   packageConfig: PackageConfig,
   participant: ParticipantConfig,
-  authToken: string
+  authToken: string,
 ): Promise<PackageInfo> {
   const jsonApiUrl = `http://localhost:${participant.json_api_port}`;
   const darPath = packageConfig.dar_path;
-  
+
   // Read DAR file
   const darContent = await Deno.readFile(darPath);
-  
+
   // Upload to participant
   const response = await fetch(`${jsonApiUrl}/v2/dars?vetAllPackages=true`, {
-    method: "POST",
+    method: 'POST',
     headers: {
-      "Authorization": `Bearer ${authToken}`,
-      "Content-Type": "application/octet-stream",
+      'Authorization': `Bearer ${authToken}`,
+      'Content-Type': 'application/octet-stream',
     },
     body: darContent,
   });
-  
+
   const result = await response.json();
-  
+
   // Extract package ID from response
   // Response format: { "mainPackageId": "abc123..." }
   return {
@@ -1248,16 +1291,16 @@ async function uploadAndTrackPackage(
 async function verifyPackage(
   packageId: string,
   participant: ParticipantConfig,
-  authToken: string
+  authToken: string,
 ): Promise<boolean> {
   const jsonApiUrl = `http://localhost:${participant.json_api_port}`;
-  
+
   const response = await fetch(`${jsonApiUrl}/v2/packages`, {
-    headers: { "Authorization": `Bearer ${authToken}` }
+    headers: { 'Authorization': `Bearer ${authToken}` },
   });
-  
+
   const data = await response.json();
-  
+
   return data.packages.some((p: any) => p.packageId === packageId);
 }
 ```
@@ -1275,37 +1318,37 @@ const tokenCache = new Map<string, TokenCache>();
 async function getAuthToken(
   realm: string,
   clientId: string,
-  clientSecret: string
+  clientSecret: string,
 ): Promise<string> {
   const cacheKey = `${realm}:${clientId}`;
   const cached = tokenCache.get(cacheKey);
-  
+
   // Return cached token if still valid (with 30s buffer)
   if (cached && cached.expires_at > Date.now() + 30000) {
     return cached.token;
   }
-  
+
   const tokenUrl = `http://localhost:8082/realms/${realm}/protocol/openid-connect/token`;
-  
+
   const response = await fetch(tokenUrl, {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams({
-      grant_type: "client_credentials",
+      grant_type: 'client_credentials',
       client_id: clientId,
       client_secret: clientSecret,
-      scope: "openid",
+      scope: 'openid',
     }),
   });
-  
+
   const data = await response.json();
-  
+
   // Cache token
   tokenCache.set(cacheKey, {
     token: data.access_token,
     expires_at: Date.now() + (data.expires_in * 1000),
   });
-  
+
   return data.access_token;
 }
 ```
@@ -1388,10 +1431,12 @@ cd asset-manager && deno task dev
 ```
 
 **Pros:**
+
 - Simple, no code changes to asset-manager
 - Works with existing configuration loading
 
 **Cons:**
+
 - Manual step required
 - .env must be regenerated if LocalNet restarts
 
@@ -1400,22 +1445,23 @@ cd asset-manager && deno task dev
 **Code Changes (asset-manager/src/server/mod.ts):**
 
 ```typescript
-import { z } from "zod";
+import { z } from 'zod';
 
 const DiscoveryConfigSchema = z.object({
   DISCOVERY_API_URL: z.string().url().optional(),
-  PARTICIPANT: z.string().default("app-provider"),
+  PARTICIPANT: z.string().default('app-provider'),
 });
 
 async function loadConfigWithDiscovery(): Promise<Config> {
   const discoveryConfig = DiscoveryConfigSchema.parse(Deno.env.toObject());
-  
+
   // If discovery URL is set, fetch config from discovery API
   if (discoveryConfig.DISCOVERY_API_URL) {
-    const envUrl = `${discoveryConfig.DISCOVERY_API_URL}/discovery/env/${discoveryConfig.PARTICIPANT}?format=json`;
+    const envUrl =
+      `${discoveryConfig.DISCOVERY_API_URL}/discovery/env/${discoveryConfig.PARTICIPANT}?format=json`;
     const response = await fetch(envUrl);
     const discovered = await response.json();
-    
+
     // Merge discovered config with any explicit env vars
     return {
       server: loadServerConfig(),
@@ -1435,7 +1481,7 @@ async function loadConfigWithDiscovery(): Promise<Config> {
       },
     };
   }
-  
+
   // Fall back to standard env-based config
   return loadConfig();
 }
@@ -1452,10 +1498,12 @@ echo "DISCOVERY_API_URL=http://localhost:3100" >> .env
 ```
 
 **Pros:**
+
 - Automatic configuration
 - Always up-to-date with LocalNet state
 
 **Cons:**
+
 - Requires code changes
 - Adds runtime dependency on discovery service
 
@@ -1465,8 +1513,8 @@ echo "DISCOVERY_API_URL=http://localhost:3100" >> .env
 
 ```typescript
 // tools/localnet-config/src/conflib-discovery.ts
-import { z } from "zod";
-import { fromEnv, type InferConfigType } from "@denex/conflib";
+import { z } from 'zod';
+import { fromEnv, type InferConfigType } from '@denex/conflib';
 
 export interface DiscoveryOptions {
   discoveryUrl?: string;
@@ -1476,36 +1524,36 @@ export interface DiscoveryOptions {
 
 export async function fromEnvWithDiscovery<
   Schema extends z.ZodTypeAny,
-  Prefix extends string = "",
+  Prefix extends string = '',
 >(
   schema: Schema,
   prefix?: Prefix,
-  options?: DiscoveryOptions
+  options?: DiscoveryOptions,
 ): Promise<InferConfigType<Schema, Prefix>> {
-  const discoveryUrl = options?.discoveryUrl ?? Deno.env.get("DISCOVERY_API_URL");
-  
+  const discoveryUrl = options?.discoveryUrl ?? Deno.env.get('DISCOVERY_API_URL');
+
   if (discoveryUrl) {
     try {
-      const participant = options?.participant ?? "app-provider";
+      const participant = options?.participant ?? 'app-provider';
       const response = await fetch(
-        `${discoveryUrl}/discovery/env/${participant}?format=json`
+        `${discoveryUrl}/discovery/env/${participant}?format=json`,
       );
       const discovered = await response.json();
-      
+
       // Convert discovered config to env-like object
       const envLike = flattenToEnv(discovered, prefix);
-      
+
       // Parse with schema
       return fromObj(envLike, schema, prefix);
     } catch (error) {
       if (options?.fallbackToEnv) {
-        console.warn("Discovery failed, falling back to environment:", error);
+        console.warn('Discovery failed, falling back to environment:', error);
       } else {
         throw error;
       }
     }
   }
-  
+
   // Standard env loading
   return fromEnv(schema, prefix);
 }
@@ -1514,26 +1562,28 @@ export async function fromEnvWithDiscovery<
 **Usage in asset-manager:**
 
 ```typescript
-import { fromEnvWithDiscovery } from "@localnet/conflib-discovery";
-import { ServerConfig, LedgerConfig, AuthConfig, RegistryConfig } from "./shared/config.ts";
+import { fromEnvWithDiscovery } from '@localnet/conflib-discovery';
+import { AuthConfig, LedgerConfig, RegistryConfig, ServerConfig } from './shared/config.ts';
 
 const config = await fromEnvWithDiscovery({
-  server: ["SERVER_", ServerConfig],
-  ledger: ["LEDGER_", LedgerConfig],
-  auth: ["AUTH_", AuthConfig],
-  registry: ["REGISTRY_", RegistryConfig],
+  server: ['SERVER_', ServerConfig],
+  ledger: ['LEDGER_', LedgerConfig],
+  auth: ['AUTH_', AuthConfig],
+  registry: ['REGISTRY_', RegistryConfig],
 }, {
-  discoveryUrl: Deno.env.get("DISCOVERY_API_URL"),
-  participant: "app-provider",
+  discoveryUrl: Deno.env.get('DISCOVERY_API_URL'),
+  participant: 'app-provider',
   fallbackToEnv: true,
 });
 ```
 
 **Pros:**
+
 - Clean integration with existing conflib patterns
 - Automatic fallback to environment
 
 **Cons:**
+
 - Requires building conflib extension
 - More complex implementation
 
@@ -1546,6 +1596,7 @@ const config = await fromEnvWithDiscovery({
 3. Easy to understand and troubleshoot
 
 **Migrate to Option C (conflib with discovery) when:**
+
 - Multiple developers need consistent setup
 - CI/CD integration requires dynamic configuration
 - conflib is already being adopted project-wide
@@ -1556,14 +1607,14 @@ const config = await fromEnvWithDiscovery({
 
 ### Technology Stack
 
-| Component | Choice | Rationale |
-|-----------|--------|-----------|
-| Language | TypeScript/Deno | Consistent with asset-manager |
+| Component     | Choice                       | Rationale                                |
+| ------------- | ---------------------------- | ---------------------------------------- |
+| Language      | TypeScript/Deno              | Consistent with asset-manager            |
 | CLI Framework | [Cliffy](https://cliffy.io/) | Full-featured, Deno-native CLI framework |
-| HTTP Server | [Hono](https://hono.dev/) | Fast, lightweight, Deno-compatible |
-| Validation | Zod | Already used in project, excellent DX |
-| YAML Parsing | `@std/yaml` | Deno standard library |
-| Testing | `@std/testing` | Deno standard library |
+| HTTP Server   | [Hono](https://hono.dev/)    | Fast, lightweight, Deno-compatible       |
+| Validation    | Zod                          | Already used in project, excellent DX    |
+| YAML Parsing  | `@std/yaml`                  | Deno standard library                    |
+| Testing       | `@std/testing`               | Deno standard library                    |
 
 ### Project Structure
 
@@ -1642,14 +1693,14 @@ tools/localnet-config/
 
 ### Effort Estimate
 
-| Phase | Tasks | Effort |
-|-------|-------|--------|
-| **Phase 1: Core** | Schema, config loading, basic CLI | 4 hours |
-| **Phase 2: Generator** | Keycloak realm, .env generation | 4 hours |
-| **Phase 3: Discovery** | HTTP server, party/package discovery | 4 hours |
-| **Phase 4: CLI** | All commands, formatting, help | 4 hours |
-| **Phase 5: Integration** | Testing, documentation | 2 hours |
-| **Total** | | **~2 days** |
+| Phase                    | Tasks                                | Effort      |
+| ------------------------ | ------------------------------------ | ----------- |
+| **Phase 1: Core**        | Schema, config loading, basic CLI    | 4 hours     |
+| **Phase 2: Generator**   | Keycloak realm, .env generation      | 4 hours     |
+| **Phase 3: Discovery**   | HTTP server, party/package discovery | 4 hours     |
+| **Phase 4: CLI**         | All commands, formatting, help       | 4 hours     |
+| **Phase 5: Integration** | Testing, documentation               | 2 hours     |
+| **Total**                |                                      | **~2 days** |
 
 ### Installation
 
@@ -1751,12 +1802,12 @@ localnet stop --clean
 # localnet.yaml - add new client
 clients:
   app-provider-validator:
-    # ... existing
-    
-  my-new-service:           # <-- Add this
-    realm: "AppProvider"
+  # ... existing
+
+  my-new-service: # <-- Add this
+    realm: 'AppProvider'
     service_account: true
-    client_secret: "my-secret-123"
+    client_secret: 'my-secret-123'
 ```
 
 ```bash
@@ -1770,24 +1821,24 @@ localnet start --no-generate  # Use just-generated configs
 
 ```typescript
 // Integration test setup
-import { assertEquals } from "@std/assert";
+import { assertEquals } from '@std/assert';
 
-const DISCOVERY_URL = "http://localhost:3100";
+const DISCOVERY_URL = 'http://localhost:3100';
 
-Deno.test("discover party IDs", async () => {
+Deno.test('discover party IDs', async () => {
   const response = await fetch(`${DISCOVERY_URL}/discovery/parties/app-provider`);
   const party = await response.json();
-  
+
   // Party ID follows expected pattern
-  assertEquals(party.party_hint.startsWith("app_provider"), true);
-  assertEquals(party.party_id.includes("::"), true);
-  
+  assertEquals(party.party_hint.startsWith('app_provider'), true);
+  assertEquals(party.party_id.includes('::'), true);
+
   // Use in test
   const ledgerClient = createLedgerClient({
-    apiUrl: "http://localhost:3975",
+    apiUrl: 'http://localhost:3975',
     adminParty: party.party_id,
   });
-  
+
   // ... run tests
 });
 ```
@@ -1819,7 +1870,8 @@ exec "$@"
 
 ### Related Documents
 
-- [LocalNet Simplification Research](./localnet-simplification-research.md) - Comprehensive analysis of current setup
+- [LocalNet Simplification Research](./localnet-simplification-research.md) - Comprehensive analysis
+  of current setup
 - [Canton Quickstart README](../../cn-quickstart/README.md) - Official cn-quickstart documentation
 - [asset-manager Configuration](../../asset-manager/src/shared/config.ts) - Current config schema
 
@@ -1834,10 +1886,11 @@ exec "$@"
 ### API Compatibility
 
 This specification targets:
+
 - Canton JSON API v2 (cn-quickstart 0.4.9+)
 - Keycloak 24.x (as bundled with cn-quickstart)
 - Deno 2.0+
 
 ---
 
-*Specification authored: January 2026*
+_Specification authored: January 2026_

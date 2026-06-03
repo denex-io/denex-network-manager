@@ -1,10 +1,5 @@
 import { assertEquals, assertExists, assertStringIncludes } from '@std/assert';
-import {
-  colors,
-  formatState,
-  formatHealth,
-  formatUptime,
-} from '../../src/cli/utils.ts';
+import { colors, formatHealth, formatState, formatUptime } from '../../src/cli/utils.ts';
 
 Deno.test('colors.green - returns green text', () => {
   const result = colors.green('test');

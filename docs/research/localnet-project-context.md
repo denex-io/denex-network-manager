@@ -4,9 +4,10 @@
 > Historical context from predecessor research. It contains useful Canton background, but project
 > structure, ports, and implementation details may not match `denex-localnet`.
 
-> Additional context from mg-tokenization research and conversations for agents working on the localnet-tools project.
+> Additional context from mg-tokenization research and conversations for agents working on the
+> localnet-tools project.
 
-**Date:** January 2026  
+**Date:** January 2026\
 **Source:** mg-tokenization project
 
 ---
@@ -15,13 +16,13 @@
 
 These constraints were established through discussion and should not be revisited:
 
-| Constraint | Rationale |
-|------------|-----------|
-| **Full Splice/Canton stack required** | Can't simplify to Canton-only; Token Standard interfaces require Splice validators |
-| **OAuth2 with Keycloak required** | Shared-secret mode not acceptable for production parity testing |
-| **Resource usage (8GB+) is acceptable** | This is not a problem to solve; focus on configuration UX instead |
-| **Must work with existing cn-quickstart** | Wrap and extend, don't replace the existing infrastructure |
-| **Don't modify submodules** | Generate configs that cn-quickstart consumes, don't fork |
+| Constraint                                | Rationale                                                                          |
+| ----------------------------------------- | ---------------------------------------------------------------------------------- |
+| **Full Splice/Canton stack required**     | Can't simplify to Canton-only; Token Standard interfaces require Splice validators |
+| **OAuth2 with Keycloak required**         | Shared-secret mode not acceptable for production parity testing                    |
+| **Resource usage (8GB+) is acceptable**   | This is not a problem to solve; focus on configuration UX instead                  |
+| **Must work with existing cn-quickstart** | Wrap and extend, don't replace the existing infrastructure                         |
+| **Don't modify submodules**               | Generate configs that cn-quickstart consumes, don't fork                           |
 
 ---
 
@@ -29,14 +30,14 @@ These constraints were established through discussion and should not be revisite
 
 These approaches were researched and rejected:
 
-| Approach | Why It Doesn't Work |
-|----------|---------------------|
-| **DAML Sandbox** | Single participant only, no Splice, no Token Standard interfaces |
-| **Canton Console standalone** | Missing Splice validators and Token Standard DAR dependencies |
-| **Shared-secret auth** | Needed for OAuth2 flow testing in real applications |
-| **Reducing container count** | The infrastructure genuinely needs all components for Token Standard |
-| **Simplifying to 1 participant** | Some workflows (transfers, allocations) require 2+ participants |
-| **In-memory databases** | State loss unacceptable for iterative development |
+| Approach                         | Why It Doesn't Work                                                  |
+| -------------------------------- | -------------------------------------------------------------------- |
+| **DAML Sandbox**                 | Single participant only, no Splice, no Token Standard interfaces     |
+| **Canton Console standalone**    | Missing Splice validators and Token Standard DAR dependencies        |
+| **Shared-secret auth**           | Needed for OAuth2 flow testing in real applications                  |
+| **Reducing container count**     | The infrastructure genuinely needs all components for Token Standard |
+| **Simplifying to 1 participant** | Some workflows (transfers, allocations) require 2+ participants      |
+| **In-memory databases**          | State loss unacceptable for iterative development                    |
 
 ---
 
@@ -53,6 +54,7 @@ SV             4xxx     4975       4901         4902        4903
 ```
 
 **Port Suffixes:**
+
 - `901` - Ledger API (gRPC)
 - `902` - Admin API (gRPC)
 - `903` - Validator Admin API (HTTP)
@@ -191,7 +193,7 @@ export class QuickstartClient {
       const response = await fetch(`${this.config.appUserJsonApi}/v2/version`, {
         signal: AbortSignal.timeout(5000),
       });
-      await response.text();  // MUST consume body (Deno leak detection)
+      await response.text(); // MUST consume body (Deno leak detection)
       return response.ok;
     } catch {
       return false;
@@ -202,20 +204,21 @@ export class QuickstartClient {
   private async fetchAccessToken(credentials: RealmCredentials): Promise<string> {
     const cacheKey = credentials.realm;
     const cached = this.tokenCache.get(cacheKey);
-    if (cached && Date.now() < cached.expiry - 30000) {  // 30s refresh buffer
+    if (cached && Date.now() < cached.expiry - 30000) { // 30s refresh buffer
       return cached.token;
     }
 
-    const tokenUrl = `${this.config.keycloakUrl}/realms/${credentials.realm}/protocol/openid-connect/token`;
+    const tokenUrl =
+      `${this.config.keycloakUrl}/realms/${credentials.realm}/protocol/openid-connect/token`;
     const body = new URLSearchParams({
-      grant_type: "client_credentials",
+      grant_type: 'client_credentials',
       client_id: credentials.clientId,
       client_secret: credentials.clientSecret,
     });
 
     const response = await fetch(tokenUrl, {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: body.toString(),
       signal: AbortSignal.timeout(10000),
     });
@@ -229,9 +232,9 @@ export class QuickstartClient {
   // Party discovery
   async getAppProviderParty(): Promise<PartyInfo> {
     const parties = await this.getParties(this.config.appProviderJsonApi, APP_PROVIDER_CREDENTIALS);
-    const localParty = parties.find((p) => p.party?.startsWith("app_provider"));
+    const localParty = parties.find((p) => p.party?.startsWith('app_provider'));
     if (!localParty) {
-      throw new Error("No app_provider party found");
+      throw new Error('No app_provider party found');
     }
     return { ...localParty, partyId: localParty.party };
   }
@@ -239,6 +242,7 @@ export class QuickstartClient {
 ```
 
 **Key Patterns:**
+
 - Token caching with Map and expiry timestamps
 - 30-second refresh buffer before token expiry
 - AbortSignal.timeout for all network calls
@@ -278,6 +282,7 @@ determine_auth() {
 ```
 
 **Key Patterns:**
+
 - Auto-detect realm from port number
 - Use curl with `-f -s -S` flags for proper error handling
 - Parse JSON with jq
@@ -288,13 +293,13 @@ determine_auth() {
 From `app-platform-mvp/conflib/`:
 
 ```typescript
-import { z } from "zod";
-import { fromEnvMap } from "@denex/conflib";
+import { z } from 'zod';
+import { fromEnvMap } from '@denex/conflib';
 
 // Define schemas for each component
 const ServerConfig = z.object({
   PORT: z.coerce.number().int().min(1).max(65535).default(8080),
-  HOST: z.string().default("0.0.0.0"),
+  HOST: z.string().default('0.0.0.0'),
 });
 
 const LedgerConfig = z.object({
@@ -303,23 +308,23 @@ const LedgerConfig = z.object({
 });
 
 const AuthConfig = z.union([
-  z.object({  // OAuth
+  z.object({ // OAuth
     OIDC_CONF_URL: z.string().url(),
     CLIENT_ID: z.string(),
     CLIENT_SECRET: z.string(),
     AUDIENCE: z.string(),
     ALLOW_INSECURE: z.coerce.boolean().default(false),
   }),
-  z.object({  // Bearer token
+  z.object({ // Bearer token
     BEARER_TOKEN: z.string(),
   }),
 ]);
 
 // Load with prefixes
 const config = fromEnvMap({
-  server: ["SERVER_", ServerConfig],
-  ledger: ["LEDGER_", LedgerConfig],
-  auth: ["AUTH_", AuthConfig],
+  server: ['SERVER_', ServerConfig],
+  ledger: ['LEDGER_', LedgerConfig],
+  auth: ['AUTH_', AuthConfig],
 });
 
 // Result type inferred:
@@ -327,6 +332,7 @@ const config = fromEnvMap({
 ```
 
 **Key Patterns:**
+
 - Group env vars by prefix (SERVER_, LEDGER_, AUTH_)
 - Use z.union for alternative configs (OAuth vs Bearer)
 - Automatic UPPER_SNAKE_CASE to camelCase conversion
@@ -336,17 +342,17 @@ const config = fromEnvMap({
 
 ## 5. Key Files in cn-quickstart to Understand
 
-| Path | What It Does |
-|------|--------------|
-| `quickstart/docker/modules/localnet/compose.yaml` | Core services: canton, splice, postgres, nginx, wallet UIs |
-| `quickstart/docker/modules/keycloak/compose.yaml` | OAuth2 Keycloak + nginx-keycloak proxy |
-| `quickstart/docker/modules/splice-onboarding/compose.yaml` | Init container that runs setup scripts |
-| `quickstart/docker/modules/splice-onboarding/docker/utils.sh` | Shell functions for party/user management |
-| `quickstart/docker/modules/keycloak/conf/data/*.json` | Keycloak realm exports (2,300+ lines each) |
-| `quickstart/Makefile` | Build/start/stop commands |
-| `quickstart/.env` | Project-level defaults |
-| `quickstart/.env.local` | User overrides (from make setup) |
-| `quickstart/docker/modules/localnet/env/common.env` | Port suffixes, DB config, Splice settings |
+| Path                                                          | What It Does                                               |
+| ------------------------------------------------------------- | ---------------------------------------------------------- |
+| `quickstart/docker/modules/localnet/compose.yaml`             | Core services: canton, splice, postgres, nginx, wallet UIs |
+| `quickstart/docker/modules/keycloak/compose.yaml`             | OAuth2 Keycloak + nginx-keycloak proxy                     |
+| `quickstart/docker/modules/splice-onboarding/compose.yaml`    | Init container that runs setup scripts                     |
+| `quickstart/docker/modules/splice-onboarding/docker/utils.sh` | Shell functions for party/user management                  |
+| `quickstart/docker/modules/keycloak/conf/data/*.json`         | Keycloak realm exports (2,300+ lines each)                 |
+| `quickstart/Makefile`                                         | Build/start/stop commands                                  |
+| `quickstart/.env`                                             | Project-level defaults                                     |
+| `quickstart/.env.local`                                       | User overrides (from make setup)                           |
+| `quickstart/docker/modules/localnet/env/common.env`           | Port suffixes, DB config, Splice settings                  |
 
 ### Makefile Key Targets
 
@@ -394,13 +400,14 @@ share_file(relative_path)  # Writes to /onboarding volume
 
 Based on research, these paths are likely relevant (needs verification in actual splice repo):
 
-| Path | What It Provides |
-|------|------------------|
-| `cluster/compose/localnet/` | Base LocalNet infrastructure that cn-quickstart extends |
-| `cluster/compose/localnet/compose.yaml` | Core Canton/Splice compose |
-| `cluster/compose/localnet/env/` | Environment file templates |
+| Path                                    | What It Provides                                        |
+| --------------------------------------- | ------------------------------------------------------- |
+| `cluster/compose/localnet/`             | Base LocalNet infrastructure that cn-quickstart extends |
+| `cluster/compose/localnet/compose.yaml` | Core Canton/Splice compose                              |
+| `cluster/compose/localnet/env/`         | Environment file templates                              |
 
-**Note:** cn-quickstart copies/extends the splice localnet compose files. The localnet-tools project should reference cn-quickstart, not splice directly.
+**Note:** cn-quickstart copies/extends the splice localnet compose files. The localnet-tools project
+should reference cn-quickstart, not splice directly.
 
 ---
 
@@ -410,15 +417,15 @@ Based on research, these paths are likely relevant (needs verification in actual
 
 Consistent with modern Deno projects in mg-tokenization:
 
-| Component | Choice | Rationale |
-|-----------|--------|-----------|
-| Runtime | Deno 2.x | Consistent with asset-manager |
-| Language | TypeScript | Type safety, IDE support |
-| CLI Framework | [Cliffy](https://cliffy.io/) | Full-featured, Deno-native |
-| HTTP Server | [Hono](https://hono.dev/) | Fast, lightweight, Deno-compatible |
-| Validation | Zod | Already used extensively |
-| YAML Parsing | `@std/yaml` | Deno standard library |
-| Testing | `@std/testing` | Deno standard library |
+| Component     | Choice                       | Rationale                          |
+| ------------- | ---------------------------- | ---------------------------------- |
+| Runtime       | Deno 2.x                     | Consistent with asset-manager      |
+| Language      | TypeScript                   | Type safety, IDE support           |
+| CLI Framework | [Cliffy](https://cliffy.io/) | Full-featured, Deno-native         |
+| HTTP Server   | [Hono](https://hono.dev/)    | Fast, lightweight, Deno-compatible |
+| Validation    | Zod                          | Already used extensively           |
+| YAML Parsing  | `@std/yaml`                  | Deno standard library              |
+| Testing       | `@std/testing`               | Deno standard library              |
 
 ### Recommended Project Structure
 
@@ -457,7 +464,8 @@ localnet-tools/
 
 1. **Config File**: Single `localnet.yaml` (~50 lines) replaces 37+ env files
 
-2. **Keycloak Generation**: Generate minimal realm JSON (50 lines) instead of editing 2,300-line exports
+2. **Keycloak Generation**: Generate minimal realm JSON (50 lines) instead of editing 2,300-line
+   exports
 
 3. **Discovery API**: HTTP server at port 3100 for runtime discovery
 
@@ -465,7 +473,8 @@ localnet-tools/
 
 5. **Environment Output**: Generate both dotenv and JSON formats for different consumers
 
-6. **Integration Pattern**: Generate configs to `.localnet/generated/`, then start cn-quickstart with those configs
+6. **Integration Pattern**: Generate configs to `.localnet/generated/`, then start cn-quickstart
+   with those configs
 
 ---
 
@@ -496,12 +505,14 @@ localnet-tools/
 ```
 
 **Token Endpoints:**
+
 ```
 AppUser:     http://localhost:8082/realms/AppUser/protocol/openid-connect/token
 AppProvider: http://localhost:8082/realms/AppProvider/protocol/openid-connect/token
 ```
 
 **Token Request:**
+
 ```bash
 curl -X POST "${TOKEN_URL}" \
   -H "Content-Type: application/x-www-form-urlencoded" \
@@ -512,6 +523,7 @@ curl -X POST "${TOKEN_URL}" \
 ```
 
 **Token Response:**
+
 ```json
 {
   "access_token": "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9...",
@@ -523,4 +535,5 @@ curl -X POST "${TOKEN_URL}" \
 
 ---
 
-*Document compiled from mg-tokenization codebase analysis, cn-quickstart exploration, and project discussions. January 2026.*
+_Document compiled from mg-tokenization codebase analysis, cn-quickstart exploration, and project
+discussions. January 2026._

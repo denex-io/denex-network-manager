@@ -1,6 +1,6 @@
 import { Command } from '@cliffy/command';
 import { Table } from '@cliffy/table';
-import { getRunningLocalNet, printError, colors } from '../utils.ts';
+import { colors, getRunningLocalNet, printError } from '../utils.ts';
 import type { FullEnvironmentInfo } from '../../types/state.ts';
 
 export const envCommand = new Command()
@@ -103,7 +103,7 @@ function outputText(envInfo: FullEnvironmentInfo): void {
   console.log();
   console.log(colors.bold('Ledger API Auth'));
   console.log(separator);
-   console.log(`  Mode:               ${envInfo.auth.ledgerApi.mode}`);
+  console.log(`  Mode:               ${envInfo.auth.ledgerApi.mode}`);
   console.log(`  Algorithm:          ${envInfo.auth.ledgerApi.algorithm}`);
   console.log(`  Audience:           ${envInfo.auth.ledgerApi.audience}`);
   console.log(`  Subject Claim:      ${envInfo.auth.ledgerApi.subjectClaim}`);
@@ -143,9 +143,7 @@ function outputText(envInfo: FullEnvironmentInfo): void {
 
     for (const party of envInfo.parties) {
       const partyId = party.partyId
-        ? (party.partyId.length > 40
-          ? party.partyId.substring(0, 37) + '...'
-          : party.partyId)
+        ? (party.partyId.length > 40 ? party.partyId.substring(0, 37) + '...' : party.partyId)
         : na;
       partyTable.push([
         party.hint,

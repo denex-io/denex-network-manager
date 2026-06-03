@@ -1,13 +1,14 @@
 import { assertEquals, assertExists, assertRejects } from '@std/assert';
 import {
+  cleanupTestResources,
   createTestDockerClient,
   generateTestInstanceId,
-  cleanupTestResources,
   isDockerAvailable,
 } from './helpers.ts';
 import { LocalNet } from '../../src/localnet.ts';
 import type { LocalNetConfig } from '../../src/types/config.ts';
 import { waitForHealthy } from '../../src/docker/health.ts';
+import { getKeycloakPort, getSvPorts, getValidatorPorts } from '../../src/utils/ports.ts';
 
 // Config for fast lifecycle tests
 const LIFECYCLE_TEST_CONFIG: LocalNetConfig = {
@@ -75,7 +76,7 @@ Deno.test({
     const localnet = new LocalNet(LIFECYCLE_TEST_CONFIG, { instanceId });
 
     try {
-      await localnet.start({ skipHealthChecks: true, timeout: 60000 });
+      await localnet.start({ skipHealthChecks: true, skipInitialization: true, timeout: 60000 });
 
       await assertRejects(
         () => localnet.start(),
@@ -100,7 +101,7 @@ Deno.test({
     const localnet = new LocalNet(LIFECYCLE_TEST_CONFIG, { instanceId });
 
     try {
-      await localnet.start({ skipHealthChecks: true, timeout: 60000 });
+      await localnet.start({ skipHealthChecks: true, skipInitialization: true, timeout: 60000 });
       assertEquals(localnet.currentState, 'running');
 
       await localnet.stop();
@@ -128,7 +129,7 @@ Deno.test({
     const localnet = new LocalNet(LIFECYCLE_TEST_CONFIG, { instanceId });
 
     try {
-      await localnet.start({ skipHealthChecks: true, timeout: 60000 });
+      await localnet.start({ skipHealthChecks: true, skipInitialization: true, timeout: 60000 });
       await localnet.destroy({ removeVolumes: true });
 
       const containersAfter = await client.listContainers({
@@ -157,11 +158,11 @@ Deno.test({
     const localnet = new LocalNet(LIFECYCLE_TEST_CONFIG, { instanceId });
 
     try {
-      await localnet.start({ skipHealthChecks: true, timeout: 60000 });
+      await localnet.start({ skipHealthChecks: true, skipInitialization: true, timeout: 60000 });
       const initialStatus = await localnet.status();
       const initialContainerCount = initialStatus.containers.length;
 
-      await localnet.restart({ skipHealthChecks: true, timeout: 60000 });
+      await localnet.restart({ skipHealthChecks: true, skipInitialization: true, timeout: 60000 });
 
       assertEquals(localnet.currentState, 'running');
 
@@ -192,7 +193,7 @@ Deno.test({
     });
 
     try {
-      await localnet.start({ skipHealthChecks: true, timeout: 60000 });
+      await localnet.start({ skipHealthChecks: true, skipInitialization: true, timeout: 60000 });
 
       const cantonConfigExists = await Deno.stat(`${configDir}/canton/app.conf`)
         .then(() => true)
@@ -293,25 +294,24 @@ Deno.test({
 
       // Verify Keycloak is responding (oauth2 mode)
       const keycloakHealth = await waitForHealthy(
-        { type: 'http', target: 'http://localhost:8082/health/ready' },
+        { type: 'tcp', target: `localhost:${getKeycloakPort()}` },
         { timeout: 5000, retries: 10, retryDelay: 1000 },
       );
       assertEquals(keycloakHealth.healthy, true, 'Keycloak should be healthy');
 
       // Verify Canton JSON API is responding (SV)
       const svJsonApiHealth = await waitForHealthy(
-        { type: 'http', target: 'http://localhost:4975/livez' },
+        { type: 'http', target: `http://localhost:${getSvPorts().jsonApi}/livez` },
         { timeout: 5000, retries: 10, retryDelay: 1000 },
       );
       assertEquals(svJsonApiHealth.healthy, true, 'SV JSON API should be healthy');
 
       // Verify Canton JSON API is responding (Validator 1)
       const validator1JsonApiHealth = await waitForHealthy(
-        { type: 'http', target: 'http://localhost:2975/livez' },
+        { type: 'http', target: `http://localhost:${getValidatorPorts(0).jsonApi}/livez` },
         { timeout: 5000, retries: 10, retryDelay: 1000 },
       );
       assertEquals(validator1JsonApiHealth.healthy, true, 'Validator 1 JSON API should be healthy');
-
     } finally {
       await localnet.destroy({ removeVolumes: true });
       await cleanupTestResources(client, instanceId);
@@ -352,21 +352,21 @@ Deno.test({
 
       // Verify SV JSON API
       const svHealth = await waitForHealthy(
-        { type: 'http', target: 'http://localhost:4975/livez' },
+        { type: 'http', target: `http://localhost:${getSvPorts().jsonApi}/livez` },
         { timeout: 5000, retries: 10, retryDelay: 1000 },
       );
       assertEquals(svHealth.healthy, true, 'SV JSON API should be healthy');
 
-      // Verify Validator 1 JSON API (port prefix 2)
+      // Verify Validator 1 JSON API
       const v1Health = await waitForHealthy(
-        { type: 'http', target: 'http://localhost:2975/livez' },
+        { type: 'http', target: `http://localhost:${getValidatorPorts(0).jsonApi}/livez` },
         { timeout: 5000, retries: 10, retryDelay: 1000 },
       );
       assertEquals(v1Health.healthy, true, 'Validator 1 JSON API should be healthy');
 
-      // Verify Validator 2 JSON API (port prefix 3)
+      // Verify Validator 2 JSON API
       const v2Health = await waitForHealthy(
-        { type: 'http', target: 'http://localhost:3975/livez' },
+        { type: 'http', target: `http://localhost:${getValidatorPorts(1).jsonApi}/livez` },
         { timeout: 5000, retries: 10, retryDelay: 1000 },
       );
       assertEquals(v2Health.healthy, true, 'Validator 2 JSON API should be healthy');
@@ -377,12 +377,9 @@ Deno.test({
         { timeout: 5000, retries: 10, retryDelay: 1000 },
       );
       assertEquals(scanHealth.healthy, true, 'Scan API should be healthy');
-
     } finally {
       await localnet.destroy({ removeVolumes: true });
       await cleanupTestResources(client, instanceId);
     }
   },
 });
-
-

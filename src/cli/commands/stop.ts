@@ -1,5 +1,5 @@
 import { Command } from '@cliffy/command';
-import { getRunningLocalNet, printSuccess, printError, progress } from '../utils.ts';
+import { getRunningLocalNet, printError, printSuccess, progress } from '../utils.ts';
 
 export const stopCommand = new Command()
   .name('stop')

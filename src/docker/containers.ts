@@ -1,14 +1,19 @@
 import type { ContainerSpec, HealthCheckConfig } from './types.ts';
 import type { LocalNetConfig } from '../types/config.ts';
-import { normalizeValidators, DEFAULT_AUDIENCE, getKeycloakUrl, getRealmName } from '../types/config.ts';
+import {
+  DEFAULT_AUDIENCE,
+  getKeycloakUrl,
+  getRealmName,
+  normalizeValidators,
+} from '../types/config.ts';
 import { BOOTSTRAP_ADMIN_USERNAME } from '../generator/keycloak.ts';
 import type { PortBinding } from './types.ts';
 import {
-  getValidatorPorts,
-  getSvPorts,
-  getKeycloakPort,
-  SV_INTERNAL_PORTS,
   DEFAULT_BASE_PORT,
+  getKeycloakPort,
+  getSvPorts,
+  getValidatorPorts,
+  SV_INTERNAL_PORTS,
 } from '../utils/ports.ts';
 
 function portServiceLabels(ports: PortBinding[], labelPrefix: string): Record<string, string> {
@@ -61,15 +66,22 @@ export interface ContainerImages {
   keycloak: string;
 }
 
+export const DEFAULT_SPLICE_VERSION = '0.6.6';
+export const DEFAULT_SPLICE_IMAGE_REPO = 'ghcr.io/digital-asset/decentralized-canton-sync/docker';
+
+function spliceImage(name: string): string {
+  return `${DEFAULT_SPLICE_IMAGE_REPO}/${name}:${DEFAULT_SPLICE_VERSION}`;
+}
+
 export const DEFAULT_IMAGES: ContainerImages = {
   postgres: 'postgres:14',
   nginx: 'nginx:1.27.0',
-  canton: 'ghcr.io/digital-asset/decentralized-canton-sync/docker/canton:0.5.3',
-  splice: 'ghcr.io/digital-asset/decentralized-canton-sync/docker/splice-app:0.5.3',
-  walletWebUi: 'ghcr.io/digital-asset/decentralized-canton-sync/docker/wallet-web-ui:0.5.3',
-  ansWebUi: 'ghcr.io/digital-asset/decentralized-canton-sync/docker/ans-web-ui:0.5.3',
-  svWebUi: 'ghcr.io/digital-asset/decentralized-canton-sync/docker/sv-web-ui:0.5.3',
-  scanWebUi: 'ghcr.io/digital-asset/decentralized-canton-sync/docker/scan-web-ui:0.5.3',
+  canton: spliceImage('canton'),
+  splice: spliceImage('splice-app'),
+  walletWebUi: spliceImage('wallet-web-ui'),
+  ansWebUi: spliceImage('ans-web-ui'),
+  svWebUi: spliceImage('sv-web-ui'),
+  scanWebUi: spliceImage('scan-web-ui'),
   keycloak: 'quay.io/keycloak/keycloak:26.1.0',
 };
 
@@ -122,7 +134,10 @@ export function buildPostgresContainer(
     ports: [{ container: 5432 }],
     volumes: [
       { source: `${options.dataDir}/postgres`, target: '/var/lib/postgresql/data' },
-      { source: `${options.configDir}/postgres-entrypoint.sh`, target: '/docker-entrypoint-initdb.d/init.sh' },
+      {
+        source: `${options.configDir}/postgres-entrypoint.sh`,
+        target: '/docker-entrypoint-initdb.d/init.sh',
+      },
     ],
     networks: [options.networkName],
     healthCheck: {
@@ -207,15 +222,27 @@ export function buildSpliceContainer(
   const svPorts = getSvPorts(config.basePort);
 
   const ports = [
-    { container: svPorts.validatorAdminApi, host: svPorts.validatorAdminApi, service: 'SV Validator Admin' },
-    { container: SV_INTERNAL_PORTS.scanAdmin, host: SV_INTERNAL_PORTS.scanAdmin, service: 'Scan Admin' },
+    {
+      container: svPorts.validatorAdminApi,
+      host: svPorts.validatorAdminApi,
+      service: 'SV Validator Admin',
+    },
+    {
+      container: SV_INTERNAL_PORTS.scanAdmin,
+      host: SV_INTERNAL_PORTS.scanAdmin,
+      service: 'Scan Admin',
+    },
     { container: SV_INTERNAL_PORTS.svAdmin, host: SV_INTERNAL_PORTS.svAdmin, service: 'SV Admin' },
   ];
 
   for (let i = 0; i < normalizedValidators.length; i++) {
     const vPorts = getValidatorPorts(i, config.basePort);
     const vName = normalizedValidators[i].name;
-    ports.push({ container: vPorts.validatorAdminApi, host: vPorts.validatorAdminApi, service: `${vName} Validator Admin` });
+    ports.push({
+      container: vPorts.validatorAdminApi,
+      host: vPorts.validatorAdminApi,
+      service: `${vName} Validator Admin`,
+    });
   }
 
   return {
@@ -279,14 +306,19 @@ export function buildKeycloakContainer(
     command: ['start-dev', '--import-realm', '--proxy-headers=forwarded'],
     ports: [{ container: 8080, host: getKeycloakPort(basePort) }],
     volumes: [
-      { source: `${options.configDir}/keycloak`, target: '/opt/keycloak/data/import', readonly: true },
+      {
+        source: `${options.configDir}/keycloak`,
+        target: '/opt/keycloak/data/import',
+        readonly: true,
+      },
     ],
     networks: [options.networkName],
     healthCheck: {
       // Use bash /dev/tcp instead of curl (curl not available in Keycloak UBI image)
       // Keycloak 26.x serves health on management port 9000 (separate from HTTP port 8080)
       type: 'exec',
-      target: 'bash -c "exec 3<>/dev/tcp/localhost/9000 && echo -e \"GET /health/ready HTTP/1.1\\r\\nHost: localhost:9000\\r\\nConnection: close\\r\\n\\r\\n\" >&3 && cat <&3 | grep -q \'200 OK\'"',
+      target:
+        'bash -c "exec 3<>/dev/tcp/localhost/9000 && echo -e "GET /health/ready HTTP/1.1\\r\\nHost: localhost:9000\\r\\nConnection: close\\r\\n\\r\\n" >&3 && cat <&3 | grep -q \'200 OK\'"',
       interval: 5,
       timeout: 5,
       retries: 30,
@@ -327,7 +359,11 @@ export function buildNginxContainer(
     environment: {},
     ports,
     volumes: [
-      { source: `${options.configDir}/nginx/nginx.conf`, target: '/etc/nginx/nginx.conf', readonly: true },
+      {
+        source: `${options.configDir}/nginx/nginx.conf`,
+        target: '/etc/nginx/nginx.conf',
+        readonly: true,
+      },
     ],
     networks: [options.networkName],
     healthCheck: {
@@ -392,7 +428,13 @@ export function buildWalletWebUiContainers(
   const svEnv = getWebUiEnvironment(localNetConfig, 'SV', 'sv-wallet');
   const svWalletPort = getSvPorts(basePort).webUi;
   containers.push(
-    buildWebUiContainer('wallet-web-ui-sv', images.walletWebUi, options, svEnv, `http://wallet.localhost:${svWalletPort}`),
+    buildWebUiContainer(
+      'wallet-web-ui-sv',
+      images.walletWebUi,
+      options,
+      svEnv,
+      `http://wallet.localhost:${svWalletPort}`,
+    ),
   );
 
   // Validator wallet UIs
@@ -426,7 +468,13 @@ export function buildSvWebUiContainer(
   const env = getWebUiEnvironment(localNetConfig, 'SV', 'sv-web-ui');
   const svWebUiPort = getSvPorts(basePort).webUi;
 
-  return buildWebUiContainer('sv-web-ui', images.svWebUi, options, env, `http://sv.localhost:${svWebUiPort}`);
+  return buildWebUiContainer(
+    'sv-web-ui',
+    images.svWebUi,
+    options,
+    env,
+    `http://sv.localhost:${svWebUiPort}`,
+  );
 }
 
 export function buildScanWebUiContainer(
@@ -438,7 +486,13 @@ export function buildScanWebUiContainer(
   const env = getWebUiEnvironment(localNetConfig, 'SV', 'scan-web-ui');
   const svWebUiPort = getSvPorts(basePort).webUi;
 
-  return buildWebUiContainer('scan-web-ui', images.scanWebUi, options, env, `http://scan.localhost:${svWebUiPort}`);
+  return buildWebUiContainer(
+    'scan-web-ui',
+    images.scanWebUi,
+    options,
+    env,
+    `http://scan.localhost:${svWebUiPort}`,
+  );
 }
 
 export function buildAllContainers(

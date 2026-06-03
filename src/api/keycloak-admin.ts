@@ -45,10 +45,16 @@ export class KeycloakAdminClient {
   }
 
   async findUser(realm: string, username: string): Promise<{ id: string } | null> {
-    const url = `${this.keycloakUrl}/admin/realms/${encodeURIComponent(realm)}/users?username=${encodeURIComponent(username)}&exact=true`;
+    const url = `${this.keycloakUrl}/admin/realms/${encodeURIComponent(realm)}/users?username=${
+      encodeURIComponent(username)
+    }&exact=true`;
     const resp = await this.authedRequest('GET', url);
 
     if (!resp.ok) {
+      if (resp.status === 404) {
+        await resp.body?.cancel();
+        return null;
+      }
       const body = await resp.text();
       throw new Error(`Keycloak findUser failed: HTTP ${resp.status} ${resp.statusText} — ${body}`);
     }
@@ -86,7 +92,7 @@ export class KeycloakAdminClient {
       // so runtime-created users behave identically to startup-defined users.
       firstName: opts.username,
       lastName: 'User',
-      email: `${opts.username}@${opts.username}.localhost`,
+      email: `${opts.username}@localnet.localhost`,
       emailVerified: true,
       // Keycloak issue #36108: without `requiredActions: []`, Keycloak adds default
       // VERIFY_EMAIL / UPDATE_PASSWORD actions that block the password grant with
@@ -113,7 +119,9 @@ export class KeycloakAdminClient {
         }
       }
       const errBody = await resp.text();
-      throw new Error(`Keycloak createUser failed: HTTP ${resp.status} ${resp.statusText} — ${errBody}`);
+      throw new Error(
+        `Keycloak createUser failed: HTTP ${resp.status} ${resp.statusText} — ${errBody}`,
+      );
     }
 
     const location = resp.headers.get('location') ?? resp.headers.get('Location');
@@ -138,7 +146,7 @@ export class KeycloakAdminClient {
     url: string,
     body?: unknown,
   ): Promise<Response> {
-    const sendOnce = async (token: string): Promise<Response> => {
+    const sendOnce = (token: string): Promise<Response> => {
       const headers: Record<string, string> = {
         Authorization: `Bearer ${token}`,
       };

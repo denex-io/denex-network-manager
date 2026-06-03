@@ -1,78 +1,69 @@
 import process from 'node:process';
-import { mkdir, writeFile, rm, chmod } from 'node:fs/promises';
+import { chmod, mkdir, rm, writeFile } from 'node:fs/promises';
 import { DockerClient } from './docker/client.ts';
 import { NetworkManager } from './docker/network.ts';
 import {
   buildAllContainers,
-  getStartupOrder,
   type ContainerBuilderOptions,
+  getStartupOrder,
 } from './docker/containers.ts';
 import type {
-  ContainerSpec,
   ContainerInfo,
+  ContainerSpec,
   LocalNetState,
   LocalNetStatus,
   StartOptions,
   StopOptions,
 } from './docker/types.ts';
 import {
-  normalizeValidators,
   getKeycloakUrl,
   getLedgerApiUserClientId,
   getRealmName,
   getValidatorClientId,
-  resolveRealmName,
   type LocalNetConfig,
+  normalizeValidators,
   type PerPartyRight,
+  resolveRealmName,
   type UserRight,
 } from './types/config.ts';
 import { parseLocalNetConfig } from './schemas/mod.ts';
 import {
+  BOOTSTRAP_ADMIN_USERNAME,
+  generateAllRealmsJson,
   generateFullCantonConfig,
   generateFullSpliceConfig,
   generateMergedEnv,
-  generateAllRealmsJson,
-  BOOTSTRAP_ADMIN_USERNAME,
 } from './generator/mod.ts';
-import { getValidatorPorts, getSvPorts } from './utils/ports.ts';
+import { getSvPorts, getValidatorPorts, SV_INTERNAL_PORTS } from './utils/ports.ts';
 import { loadConfigFile } from './utils/yaml.ts';
 import { buildConfigEnvironmentInfo } from './utils/env-info.ts';
+import { type CredentialInfo, getCredentials as getCredentialsList } from './utils/credentials.ts';
+import type { FullEnvironmentInfo, ValidatorEndpoints } from './types/state.ts';
 import {
-  getCredentials as getCredentialsList,
-  type CredentialInfo,
-} from './utils/credentials.ts';
-import type {
-  FullEnvironmentInfo,
-  ValidatorEndpoints,
-} from './types/state.ts';
-import {
+  type ApiUserRight,
   CantonClient,
   createCanActAs,
-  createCanReadAs,
   createCanExecuteAs,
-  createParticipantAdmin,
-  createCanReadAsAnyParty,
   createCanExecuteAsAnyParty,
+  createCanReadAs,
+  createCanReadAsAnyParty,
   createIdentityProviderAdmin,
+  createParticipantAdmin,
+  type PackageDetails,
   type PartyDetails,
   type UserDetails,
-  type PackageDetails,
-  type ApiUserRight,
 } from './api/canton.ts';
 import { ValidatorAdminClient, ValidatorApiError } from './api/validator.ts';
 import { KeycloakAdminClient } from './api/keycloak-admin.ts';
 import type {
+  ApiLocalNetSnapshot,
+  ApiPackageInfo,
   ApiPartyInfo,
   ApiUserInfo,
   ApiUserInfoWithRights,
-  ApiPackageInfo,
   ApiValidatorState,
-  ApiLocalNetSnapshot,
 } from './api/state-types.ts';
-import {
-  discoverInstances,
-  type DiscoveredInstance,
-} from './api/discovery-utils.ts';
+import { type DiscoveredInstance, discoverInstances } from './api/discovery-utils.ts';
 import { generateNginxConfigString } from './docker/nginx.ts';
 
 export interface LocalNetOptions {
@@ -233,6 +224,14 @@ export class LocalNet {
   }
 
   async start(options?: StartOptions): Promise<void> {
+    if (this.internalState === 'running') {
+      throw new Error('LocalNet is already running');
+    }
+
+    if (this.internalState === 'starting') {
+      throw new Error('LocalNet is already starting');
+    }
+
     await this.detectConfigMismatch();
 
     const existing = await this.client.listContainers({
@@ -243,14 +242,6 @@ export class LocalNet {
       this.internalState = 'running';
       this.attachedToRunning = true;
       return;
-    }
-
-    if (this.internalState === 'running') {
-      throw new Error('LocalNet is already running');
-    }
-
-    if (this.internalState === 'starting') {
-      throw new Error('LocalNet is already starting');
     }
 
     const timeout = options?.timeout ?? 300000;
@@ -289,7 +280,9 @@ export class LocalNet {
         }
       }
 
-      options?.onProgress?.(`All containers healthy (took ${((Date.now() - startTime) / 1000).toFixed(1)}s)`);
+      options?.onProgress?.(
+        `All containers healthy (took ${((Date.now() - startTime) / 1000).toFixed(1)}s)`,
+      );
 
       await this.deleteBootstrapAdmin(options?.onProgress);
 
@@ -300,7 +293,9 @@ export class LocalNet {
         await this.initializeResources(options?.onProgress);
       }
 
-      options?.onProgress?.(`LocalNet ready (total ${((Date.now() - startTime) / 1000).toFixed(1)}s)`);
+      options?.onProgress?.(
+        `LocalNet ready (total ${((Date.now() - startTime) / 1000).toFixed(1)}s)`,
+      );
     } catch (error) {
       this.internalState = 'error';
       throw error;
@@ -323,7 +318,7 @@ export class LocalNet {
 
       const runningContainers = containers.filter((c) => c.state === 'running');
       await Promise.all(
-        runningContainers.map((container) => this.client.stopContainer(container.id, timeout))
+        runningContainers.map((container) => this.client.stopContainer(container.id, timeout)),
       );
 
       this.internalState = 'stopped';
@@ -343,7 +338,7 @@ export class LocalNet {
     });
 
     await Promise.allSettled(
-      containers.map((container) => this.client.removeContainer(container.id, true))
+      containers.map((container) => this.client.removeContainer(container.id, true)),
     );
 
     await this.networkManager.remove(this.options.instanceId);
@@ -353,7 +348,7 @@ export class LocalNet {
     });
 
     await Promise.allSettled(
-      volumes.map((volume) => this.client.removeVolume(volume.name))
+      volumes.map((volume) => this.client.removeVolume(volume.name)),
     );
 
     const cwd = process.cwd();
@@ -364,7 +359,7 @@ export class LocalNet {
   }
 
   async restart(options?: StartOptions & StopOptions): Promise<void> {
-    await this.stop(options);
+    await this.stop();
     await this.start(options);
   }
 
@@ -425,7 +420,7 @@ export class LocalNet {
       );
     }
 
-    const currentConfigJson = JSON.stringify(this.config);
+    const currentConfigJson = JSON.stringify(parseLocalNetConfig(this.config));
     const runningConfigJson = JSON.stringify(runningConfig);
 
     if (currentConfigJson !== runningConfigJson) {
@@ -489,7 +484,9 @@ export class LocalNet {
     }
 
     const isSv = validatorName === 'sv';
-    const ports = isSv ? getSvPorts(this.config.basePort) : this.getValidatorPortsByName(validatorName);
+    const ports = isSv
+      ? getSvPorts(this.config.basePort)
+      : this.getValidatorPortsByName(validatorName);
 
     const state: ApiValidatorState = {
       name: validatorName,
@@ -694,9 +691,7 @@ export class LocalNet {
       }
     }
 
-    const primaryPartyId = options?.primaryParty
-      ? partyMap.get(options.primaryParty)
-      : undefined;
+    const primaryPartyId = options?.primaryParty ? partyMap.get(options.primaryParty) : undefined;
 
     try {
       await client.getUser(userId);
@@ -772,17 +767,19 @@ export class LocalNet {
       password: userId,
     });
 
-    // Re-call to converge — this method is NOT atomic. Partial failures
-    // (Keycloak user created but wallet onboarding failed, etc.) are intentional;
-    // caller retries createUser to reach the desired end state.
-    try {
-      await validatorClient.onboardUser(userId, {
-        party_id: primaryPartyId,
-        createPartyIfMissing: false,
-      });
-    } catch (err) {
-      if (!(err instanceof ValidatorApiError) || err.statusCode !== 409) {
-        throw err;
+    if (primaryPartyId) {
+      // Re-call to converge — this method is NOT atomic. Partial failures
+      // (Keycloak user created but wallet onboarding failed, etc.) are intentional;
+      // caller retries createUser to reach the desired end state.
+      try {
+        await validatorClient.onboardUser(userId, {
+          party_id: primaryPartyId,
+          createPartyIfMissing: false,
+        });
+      } catch (err) {
+        if (!(err instanceof ValidatorApiError) || err.statusCode !== 409) {
+          throw err;
+        }
       }
     }
 
@@ -847,7 +844,8 @@ export class LocalNet {
   async uploadDar(filePath: string, validatorNames?: string[]): Promise<string> {
     await this.requireRunning('uploadDar');
 
-    const targets = validatorNames ?? ['sv', ...normalizeValidators(this.config.validators).map((v) => v.name)];
+    const targets = validatorNames ??
+      ['sv', ...normalizeValidators(this.config.validators).map((v) => v.name)];
 
     let mainPackageId = '';
 
@@ -964,7 +962,10 @@ export class LocalNet {
     return endpoints;
   }
 
-  async logs(containerName: string, options?: { tail?: number; follow?: boolean }): Promise<ReadableStream<Uint8Array>> {
+  async logs(
+    containerName: string,
+    options?: { tail?: number; follow?: boolean },
+  ): Promise<ReadableStream<Uint8Array>> {
     await this.requireRunning('logs');
     const containerId = this.containerIds.get(containerName);
     if (!containerId) {
@@ -1015,42 +1016,54 @@ export class LocalNet {
     const svPorts = getSvPorts(this.config.basePort);
     const keycloakUrl = getKeycloakUrl(this.config);
 
-    this.cantonClients.set('sv', new CantonClient({
-      baseUrl: `http://${this.baseHost}:${svPorts.jsonApi}`,
-      keycloakUrl,
-      realm: 'SV',
-      clientId: getValidatorClientId('sv'),
-      userClientId: getLedgerApiUserClientId('sv'),
-    }));
+    this.cantonClients.set(
+      'sv',
+      new CantonClient({
+        baseUrl: `http://${this.baseHost}:${svPorts.jsonApi}`,
+        keycloakUrl,
+        realm: 'SV',
+        clientId: getValidatorClientId('sv'),
+        userClientId: getLedgerApiUserClientId('sv'),
+      }),
+    );
 
-    this.validatorClients.set('sv', new ValidatorAdminClient({
-      baseUrl: `http://${this.baseHost}:${svPorts.validatorAdminApi}`,
-      authConfig: this.config.auth,
-      keycloakUrl,
-      realm: 'SV',
-      clientId: 'sv-validator',
-    }));
+    this.validatorClients.set(
+      'sv',
+      new ValidatorAdminClient({
+        baseUrl: `http://${this.baseHost}:${svPorts.validatorAdminApi}`,
+        authConfig: this.config.auth,
+        keycloakUrl,
+        realm: 'SV',
+        clientId: 'sv-validator',
+      }),
+    );
 
     for (let i = 0; i < normalizedValidators.length; i++) {
       const validator = normalizedValidators[i];
       const ports = getValidatorPorts(i, this.config.basePort);
       const realmName = getRealmName(validator.name);
 
-      this.cantonClients.set(validator.name, new CantonClient({
-        baseUrl: `http://${this.baseHost}:${ports.jsonApi}`,
-        keycloakUrl,
-        realm: realmName,
-        clientId: getValidatorClientId(validator.name),
-        userClientId: getLedgerApiUserClientId(validator.name),
-      }));
+      this.cantonClients.set(
+        validator.name,
+        new CantonClient({
+          baseUrl: `http://${this.baseHost}:${ports.jsonApi}`,
+          keycloakUrl,
+          realm: realmName,
+          clientId: getValidatorClientId(validator.name),
+          userClientId: getLedgerApiUserClientId(validator.name),
+        }),
+      );
 
-      this.validatorClients.set(validator.name, new ValidatorAdminClient({
-        baseUrl: `http://${this.baseHost}:${ports.validatorAdminApi}`,
-        authConfig: this.config.auth,
-        keycloakUrl,
-        realm: realmName,
-        clientId: getValidatorClientId(validator.name),
-      }));
+      this.validatorClients.set(
+        validator.name,
+        new ValidatorAdminClient({
+          baseUrl: `http://${this.baseHost}:${ports.validatorAdminApi}`,
+          authConfig: this.config.auth,
+          keycloakUrl,
+          realm: realmName,
+          clientId: getValidatorClientId(validator.name),
+        }),
+      );
     }
   }
 
@@ -1129,7 +1142,9 @@ export class LocalNet {
       }
 
       const token = await adminClient.getToken();
-      const url = `${getKeycloakUrl(this.config)}/admin/realms/master/users/${encodeURIComponent(existing.id)}`;
+      const url = `${getKeycloakUrl(this.config)}/admin/realms/master/users/${
+        encodeURIComponent(existing.id)
+      }`;
       const resp = await globalThis.fetch(url, {
         method: 'DELETE',
         headers: { Authorization: `Bearer ${token}` },
@@ -1237,7 +1252,7 @@ export class LocalNet {
         try {
           onProgress?.(`Checking API readiness for ${name}...`);
           const state = await this.getValidatorState(name);
-          if (state.isHealthy) {
+          if (state.isHealthy && state.validatorParty) {
             onProgress?.(`${name} API is ready`);
             break;
           }
@@ -1246,10 +1261,13 @@ export class LocalNet {
         }
 
         if (i === maxRetries - 1) {
-          throw new Error(`API for ${name} did not become ready: ${lastError?.message ?? 'unknown error'}`);
+          throw new Error(
+            `API for ${name} did not become ready: ${lastError?.message ?? 'unknown error'}`,
+          );
         }
 
         await new Promise((resolve) => setTimeout(resolve, delay));
+        this.invalidateCache(`validator:${name}`);
         delay = Math.min(delay * 1.5, maxDelay);
       }
     }
@@ -1257,10 +1275,52 @@ export class LocalNet {
     onProgress?.('All APIs are ready');
   }
 
+  private async waitForScanActive(onProgress?: (msg: string) => void): Promise<void> {
+    interface ScanStatusResponse {
+      success?: {
+        active?: boolean;
+      };
+    }
+
+    const maxRetries = 30;
+    const initialDelay = 1000;
+    const maxDelay = 10000;
+    let delay = initialDelay;
+    let lastError: Error | null = null;
+
+    for (let i = 0; i < maxRetries; i++) {
+      try {
+        onProgress?.('Checking Scan readiness...');
+        const response = await fetch(
+          `http://localhost:${SV_INTERNAL_PORTS.scanAdmin}/api/scan/status`,
+        );
+        if (!response.ok) {
+          throw new Error(`Scan status returned ${response.status}`);
+        }
+
+        const status = await response.json() as ScanStatusResponse;
+        if (status.success?.active === true) {
+          onProgress?.('Scan is ready');
+          return;
+        }
+      } catch (error) {
+        lastError = error instanceof Error ? error : new Error(String(error));
+      }
+
+      if (i === maxRetries - 1) {
+        throw new Error(`Scan did not become ready: ${lastError?.message ?? 'inactive'}`);
+      }
+
+      await new Promise((resolve) => setTimeout(resolve, delay));
+      delay = Math.min(delay * 1.5, maxDelay);
+    }
+  }
+
   async initializeResources(onProgress?: (msg: string) => void): Promise<void> {
     onProgress?.('Initializing resources...');
 
     await this.waitForApisReady(onProgress);
+    await this.waitForScanActive(onProgress);
 
     const validators = normalizeValidators(this.config.validators);
 
@@ -1279,9 +1339,15 @@ export class LocalNet {
             partyConfig.displayName ?? partyConfig.hint,
           );
           partyMap.set(partyConfig.hint, partyInfo.partyId);
-          onProgress?.(`Allocated party '${partyConfig.hint}': ${partyInfo.partyId.substring(0, 30)}...`);
+          onProgress?.(
+            `Allocated party '${partyConfig.hint}': ${partyInfo.partyId.substring(0, 30)}...`,
+          );
         } catch (error) {
-          onProgress?.(`Warning: Failed to allocate party '${partyConfig.hint}': ${error instanceof Error ? error.message : error}`);
+          onProgress?.(
+            `Warning: Failed to allocate party '${partyConfig.hint}': ${
+              error instanceof Error ? error.message : error
+            }`,
+          );
         }
       }
     }
@@ -1304,11 +1370,19 @@ export class LocalNet {
             });
             onProgress?.(`Created user ${userConfig.id} on ${validatorName}`);
           } catch (error) {
-            onProgress?.(`Warning: Failed to create user ${userConfig.id}: ${error instanceof Error ? error.message : error}`);
+            onProgress?.(
+              `Warning: Failed to create user ${userConfig.id}: ${
+                error instanceof Error ? error.message : error
+              }`,
+            );
           }
         }
       } catch (error) {
-        onProgress?.(`Warning: Failed to initialize ${validatorName}: ${error instanceof Error ? error.message : error}`);
+        onProgress?.(
+          `Warning: Failed to initialize ${validatorName}: ${
+            error instanceof Error ? error.message : error
+          }`,
+        );
       }
     }
 

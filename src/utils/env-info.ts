@@ -9,8 +9,8 @@ import type {
 } from '../types/state.ts';
 import {
   DEFAULT_AUDIENCE,
-  getLedgerApiUserClientId,
   getKeycloakUrl,
+  getLedgerApiUserClientId,
   getRealmName,
   getValidatorClientId,
   normalizeValidators,

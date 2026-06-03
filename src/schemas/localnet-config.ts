@@ -1,9 +1,22 @@
 import { z } from 'zod';
 import { CONFIG_DEFAULTS } from '../types/config.ts';
 
-export const UserRightSchema = z.enum(['ParticipantAdmin', 'CanActAs', 'CanReadAs', 'CanExecuteAs', 'CanReadAsAnyParty', 'CanExecuteAsAnyParty', 'IdentityProviderAdmin']);
+export const UserRightSchema = z.enum([
+  'ParticipantAdmin',
+  'CanActAs',
+  'CanReadAs',
+  'CanExecuteAs',
+  'CanReadAsAnyParty',
+  'CanExecuteAsAnyParty',
+  'IdentityProviderAdmin',
+]);
 
-export const ParticipantWideRightSchema = z.enum(['ParticipantAdmin', 'CanReadAsAnyParty', 'CanExecuteAsAnyParty', 'IdentityProviderAdmin']);
+export const ParticipantWideRightSchema = z.enum([
+  'ParticipantAdmin',
+  'CanReadAsAnyParty',
+  'CanExecuteAsAnyParty',
+  'IdentityProviderAdmin',
+]);
 export const PerPartyRightSchema = z.enum(['CanActAs', 'CanReadAs', 'CanExecuteAs']);
 
 export const PartyConfigSchema = z.object({

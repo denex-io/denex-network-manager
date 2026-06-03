@@ -1,4 +1,4 @@
-import { getKeycloakPort, DEFAULT_BASE_PORT } from '../utils/ports.ts';
+import { DEFAULT_BASE_PORT, getKeycloakPort } from '../utils/ports.ts';
 
 /**
  * Configuration types for Canton LocalNet.
@@ -15,7 +15,11 @@ import { getKeycloakPort, DEFAULT_BASE_PORT } from '../utils/ports.ts';
 /**
  * Participant-wide rights that don't require a party.
  */
-export type ParticipantWideRight = 'ParticipantAdmin' | 'CanReadAsAnyParty' | 'CanExecuteAsAnyParty' | 'IdentityProviderAdmin';
+export type ParticipantWideRight =
+  | 'ParticipantAdmin'
+  | 'CanReadAsAnyParty'
+  | 'CanExecuteAsAnyParty'
+  | 'IdentityProviderAdmin';
 
 /**
  * Per-party rights that require a specific party.
@@ -61,8 +65,8 @@ export interface UserConfig {
   /** Reference to party hint that this user's primary party will be. Optional — omit for users with only participant-wide rights. */
   primaryParty?: string;
 
-   /** Rights to grant to this user. For participant-wide rights (e.g., ParticipantAdmin), list them here. For per-party rights, prefer using the `parties` field. Kept as UserRight[] for backward compatibility. */
-   rights?: UserRight[];
+  /** Rights to grant to this user. For participant-wide rights (e.g., ParticipantAdmin), list them here. For per-party rights, prefer using the `parties` field. Kept as UserRight[] for backward compatibility. */
+  rights?: UserRight[];
 
   /** Additional party rights beyond primaryParty. Each entry specifies a party hint and optional rights (defaults to CanActAs). */
   parties?: UserPartyConfig[];

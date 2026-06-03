@@ -1,11 +1,11 @@
 import { assertEquals } from '@std/assert';
 import {
+  cleanupTestResources,
   createTestDockerClient,
   generateTestInstanceId,
-  cleanupTestResources,
-  waitFor,
-  TEST_IMAGES,
   TEST_CONFIG,
+  TEST_IMAGES,
+  waitFor,
 } from './helpers.ts';
 import { checkHealth } from '../../src/docker/health.ts';
 

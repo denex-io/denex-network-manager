@@ -7,8 +7,8 @@
 
 > Comprehensive plan for building a Testcontainers-style SDK for Canton Network LocalNets
 
-**Version:** 1.1  
-**Date:** January 2026  
+**Version:** 1.1\
+**Date:** January 2026\
 **Status:** Implementation Started
 
 ---
@@ -22,7 +22,8 @@
    - Can export Compose files later if users want them
 
 2. **Topology Model**:
-   - **Super Validator (SV)**: IMPLICIT required infrastructure - always exactly 1, not user-configurable
+   - **Super Validator (SV)**: IMPLICIT required infrastructure - always exactly 1, not
+     user-configurable
    - **Regular Validators**: CONFIGURABLE - users specify count (1-N), default 2
    - SV runs: Participant + Sequencer + Mediator + SV App + Scan App + Validator App
    - Validators run: Participant + Validator App only
@@ -55,29 +56,31 @@
 
 ### Goal
 
-Create a TypeScript-based SDK and CLI tool that provides Testcontainers-style programmatic control over Canton Network LocalNets, replacing the current 100+ configuration file approach with a simple, declarative API.
+Create a TypeScript-based SDK and CLI tool that provides Testcontainers-style programmatic control
+over Canton Network LocalNets, replacing the current 100+ configuration file approach with a simple,
+declarative API.
 
 ### Key Deliverables
 
-| Deliverable | Description | Priority |
-|-------------|-------------|----------|
-| **TypeScript SDK** | Testcontainers-style API for programmatic LocalNet control | P0 |
-| **CLI Tool** | Command-line interface for manual operations | P0 |
-| **Configuration Generator** | Generate HOCON/env files from simple spec | P0 |
-| **Discovery API** | HTTP server for runtime party/package/state queries | P1 |
-| **Container Orchestration** | Manage Docker containers with health checks | P0 |
+| Deliverable                 | Description                                                | Priority |
+| --------------------------- | ---------------------------------------------------------- | -------- |
+| **TypeScript SDK**          | Testcontainers-style API for programmatic LocalNet control | P0       |
+| **CLI Tool**                | Command-line interface for manual operations               | P0       |
+| **Configuration Generator** | Generate HOCON/env files from simple spec                  | P0       |
+| **Discovery API**           | HTTP server for runtime party/package/state queries        | P1       |
+| **Container Orchestration** | Manage Docker containers with health checks                | P0       |
 
 ### Timeline Estimate
 
-| Phase | Duration | Cumulative |
-|-------|----------|------------|
-| Phase 1: Foundation | 2-3 days | 2-3 days |
-| Phase 2: Configuration Generation | 3-4 days | 5-7 days |
-| Phase 3: Container Orchestration | 4-5 days | 9-12 days |
-| Phase 4: State Management | 3-4 days | 12-16 days |
-| Phase 5: CLI Tool | 2-3 days | 14-19 days |
-| Phase 6: SDK API | 3-4 days | 17-23 days |
-| Phase 7: Integration | 2-3 days | 19-26 days |
+| Phase                             | Duration | Cumulative |
+| --------------------------------- | -------- | ---------- |
+| Phase 1: Foundation               | 2-3 days | 2-3 days   |
+| Phase 2: Configuration Generation | 3-4 days | 5-7 days   |
+| Phase 3: Container Orchestration  | 4-5 days | 9-12 days  |
+| Phase 4: State Management         | 3-4 days | 12-16 days |
+| Phase 5: CLI Tool                 | 2-3 days | 14-19 days |
+| Phase 6: SDK API                  | 3-4 days | 17-23 days |
+| Phase 7: Integration              | 2-3 days | 19-26 days |
 
 **Total: ~4-5 weeks** for full implementation
 
@@ -153,18 +156,19 @@ Create a TypeScript-based SDK and CLI tool that provides Testcontainers-style pr
 
 ### Technology Stack
 
-| Component | Technology | Rationale |
-|-----------|------------|-----------|
-| Runtime | Deno 2.x | Modern TypeScript runtime, great DX |
-| Language | TypeScript | Type safety, existing ecosystem |
-| CLI Framework | Cliffy | Deno-native, full-featured CLI |
-| HTTP Server | Hono | Fast, lightweight, works with Deno |
-| Validation | Zod | Type inference, excellent DX |
+| Component     | Technology                         | Rationale                                     |
+| ------------- | ---------------------------------- | --------------------------------------------- |
+| Runtime       | Deno 2.x                           | Modern TypeScript runtime, great DX           |
+| Language      | TypeScript                         | Type safety, existing ecosystem               |
+| CLI Framework | Cliffy                             | Deno-native, full-featured CLI                |
+| HTTP Server   | Hono                               | Fast, lightweight, works with Deno            |
+| Validation    | Zod                                | Type inference, excellent DX                  |
 | Config Format | YAML (input) → HOCON/JSON (output) | Human-readable input, machine-readable output |
-| Docker | Docker API via Dockerode | Direct container control (NOT Compose) |
-| Testing | Deno standard library | Built-in test runner |
+| Docker        | Docker API via Dockerode           | Direct container control (NOT Compose)        |
+| Testing       | Deno standard library              | Built-in test runner                          |
 
 **Why Docker API directly (not Docker Compose)?**
+
 - Full programmatic control over individual containers
 - Dynamic configuration without YAML templating
 - Better error handling and logging per container
@@ -278,7 +282,8 @@ Set up the project infrastructure, define core types, and implement configuratio
 ### Tasks
 
 #### 1.1 Project Setup
-**Priority:** P0  
+
+**Priority:** P0\
 **Effort:** 0.5 days
 
 - [ ] Initialize Deno project with `deno.json`
@@ -289,18 +294,20 @@ Set up the project infrastructure, define core types, and implement configuratio
 - [ ] Configure VSCode settings for Deno
 
 **Definition of Done:**
+
 - `deno check src/mod.ts` passes
 - `deno lint` passes
 - `deno fmt --check` passes
 - Project structure matches plan
 
 #### 1.2 Core Type Definitions
-**Priority:** P0  
+
+**Priority:** P0\
 **Effort:** 1 day
 
 - [ ] Define `LocalNetConfig` interface (high-level configuration)
 - [ ] Define `ValidatorConfig` interface
-- [ ] Define `ParticipantConfig` interface  
+- [ ] Define `ParticipantConfig` interface
 - [ ] Define `PartyConfig` and `UserConfig` interfaces
 - [ ] Define `AuthConfig` (OAuth2 and shared-secret modes)
 - [ ] Define `PackageConfig` for DAR management
@@ -314,7 +321,7 @@ Set up the project infrastructure, define core types, and implement configuratio
 
 /**
  * Main configuration for a LocalNet.
- * 
+ *
  * NOTE: Super Validator (SV) is IMPLICIT - always exactly one is created.
  * The SV runs the Global Synchronizer (Sequencer + Mediator) that all
  * Validators connect to. Users only configure the regular Validators.
@@ -346,7 +353,7 @@ export interface PartyConfig {
 
 export interface UserConfig {
   id: string;
-  primaryParty: string;  // Reference to party hint
+  primaryParty: string; // Reference to party hint
   rights: ('ParticipantAdmin' | 'CanActAs' | 'CanReadAs')[];
   /** Which validator this user belongs to. Defaults to same as primaryParty. */
   validator?: string;
@@ -354,12 +361,14 @@ export interface UserConfig {
 ```
 
 **Definition of Done:**
+
 - All types defined with JSDoc documentation
 - Types exported from `src/types/mod.ts`
 - Types compile without errors
 
 #### 1.3 Configuration Schema (Zod)
-**Priority:** P0  
+
+**Priority:** P0\
 **Effort:** 0.5 days
 
 - [ ] Create Zod schema for `localnet.yaml` configuration
@@ -369,12 +378,14 @@ export interface UserConfig {
 - [ ] Add JSON Schema export for IDE support
 
 **Definition of Done:**
+
 - Schema validates example configurations correctly
 - Invalid configurations produce clear error messages
 - Defaults are applied correctly
 
 #### 1.4 YAML Configuration Loader
-**Priority:** P0  
+
+**Priority:** P0\
 **Effort:** 0.5 days
 
 - [ ] Implement YAML file loading with `@std/yaml`
@@ -384,6 +395,7 @@ export interface UserConfig {
 - [ ] Handle missing optional fields gracefully
 
 **Definition of Done:**
+
 - Can load and parse example `localnet.yaml`
 - Environment variables are expanded
 - Missing optional fields use defaults
@@ -406,12 +418,14 @@ None (foundational phase)
 
 ### Objective
 
-Generate all required configuration files (HOCON, .env, Keycloak realms) from the high-level `localnet.yaml` specification.
+Generate all required configuration files (HOCON, .env, Keycloak realms) from the high-level
+`localnet.yaml` specification.
 
 ### Tasks
 
 #### 2.1 HOCON Template System
-**Priority:** P0  
+
+**Priority:** P0\
 **Effort:** 1 day
 
 - [ ] Create HOCON template format with variable placeholders
@@ -432,12 +446,14 @@ canton.participants.{{name}} = ${_participant} {
 ```
 
 **Definition of Done:**
+
 - Templates render correctly with variables
 - Generated HOCON is valid and parseable
 - Complex nesting and escaping works correctly
 
 #### 2.2 Canton Configuration Generator
-**Priority:** P0  
+
+**Priority:** P0\
 **Effort:** 1.5 days
 
 - [ ] Generate base Canton configuration from templates
@@ -461,12 +477,12 @@ canton.participants.{{name}} = ${_participant} {
  */
 function getValidatorPortPrefix(validatorIndex: number): number {
   if (validatorIndex < 2) {
-    return 2 + validatorIndex;  // 0→2, 1→3
+    return 2 + validatorIndex; // 0→2, 1→3
   }
-  return 3 + validatorIndex;    // 2→5, 3→6, etc. (skip 4)
+  return 3 + validatorIndex; // 2→5, 3→6, etc. (skip 4)
 }
 
-const SV_PORT_PREFIX = 4;  // Always fixed
+const SV_PORT_PREFIX = 4; // Always fixed
 
 // Example with 2 validators:
 // - SV: 4xxx (Sequencer: 5008, 5009; Mediator: 5007; Scan: 5012)
@@ -475,13 +491,15 @@ const SV_PORT_PREFIX = 4;  // Always fixed
 ```
 
 **Definition of Done:**
+
 - Generates valid Canton HOCON for N validators
 - Port allocation follows scheme correctly
 - Database names are unique per component
 - Auth configuration works with OAuth2
 
 #### 2.3 Splice Configuration Generator
-**Priority:** P0  
+
+**Priority:** P0\
 **Effort:** 1 day
 
 - [ ] Generate validator backend configurations
@@ -492,12 +510,14 @@ const SV_PORT_PREFIX = 4;  // Always fixed
 - [ ] Align ports with Canton configuration
 
 **Definition of Done:**
+
 - Generates valid Splice HOCON for N validators
 - Validators connect to correct Canton participants
 - SV-specific apps (scan, sv) configured correctly
 
 #### 2.4 Environment File Generator
-**Priority:** P0  
+
+**Priority:** P0\
 **Effort:** 0.5 days
 
 - [ ] Generate merged environment file for Docker Compose
@@ -508,12 +528,14 @@ const SV_PORT_PREFIX = 4;  // Always fixed
 - [ ] Support variable layering (common + validator-specific)
 
 **Definition of Done:**
+
 - Single `.env` file contains all required variables
 - Docker Compose can consume the file
 - All ports and profiles correctly configured
 
 #### 2.5 Keycloak Realm Generator
-**Priority:** P1  
+
+**Priority:** P1\
 **Effort:** 1 day
 
 - [ ] Generate minimal realm JSON (not 2300-line exports)
@@ -528,20 +550,22 @@ const SV_PORT_PREFIX = 4;  // Always fixed
 interface MinimalRealm {
   realm: string;
   enabled: boolean;
-  sslRequired: "none";
+  sslRequired: 'none';
   clients: MinimalClient[];
   clientScopes: ClientScope[];
 }
 ```
 
 **Definition of Done:**
+
 - Generated realm JSON is ~50-100 lines (not 2300+)
 - Keycloak imports realm successfully
 - Clients can obtain tokens
 - Audience mapper configured correctly
 
 #### 2.6 Docker Compose Override Generator
-**Priority:** P2  
+
+**Priority:** P2\
 **Effort:** 0.5 days
 
 - [ ] Generate `docker-compose.override.yaml` for profile overrides
@@ -550,6 +574,7 @@ interface MinimalRealm {
 - [ ] Set resource constraints if specified
 
 **Definition of Done:**
+
 - Override file applies correctly to base compose
 - Disabled services don't start
 - Custom configs are mounted
@@ -577,7 +602,8 @@ Manage Docker containers with proper lifecycle control, health checking, and dep
 ### Tasks
 
 #### 3.1 Docker API Client
-**Priority:** P0  
+
+**Priority:** P0\
 **Effort:** 1 day
 
 - [ ] Create Docker API wrapper using Dockerode or fetch
@@ -588,12 +614,14 @@ Manage Docker containers with proper lifecycle control, health checking, and dep
 - [ ] Handle Docker daemon connection errors gracefully
 
 **Definition of Done:**
+
 - Can create, start, stop, and remove containers
 - Can create and manage Docker networks
 - Graceful error handling for Docker issues
 
 #### 3.2 Container Definitions
-**Priority:** P0  
+
+**Priority:** P0\
 **Effort:** 1.5 days
 
 - [ ] Define PostgreSQL container configuration
@@ -621,13 +649,15 @@ interface ContainerConfig {
 ```
 
 **Definition of Done:**
+
 - All container types defined with correct images
 - Environment variables configured per container
 - Port mappings follow the prefix scheme
 - Volume mounts for configs work correctly
 
 #### 3.3 Health Check Implementation
-**Priority:** P0  
+
+**Priority:** P0\
 **Effort:** 1 day
 
 - [ ] Implement HTTP health checks (`/health`, `/readyz`)
@@ -640,7 +670,7 @@ interface ContainerConfig {
 **Health Check Types:**
 
 ```typescript
-type HealthCheck = 
+type HealthCheck =
   | { type: 'http'; url: string; expectedStatus?: number }
   | { type: 'grpc'; host: string; port: number }
   | { type: 'tcp'; host: string; port: number }
@@ -648,13 +678,15 @@ type HealthCheck =
 ```
 
 **Definition of Done:**
+
 - HTTP health checks work for Splice validators
 - gRPC health checks work for Canton participants
 - Retries with backoff implemented
 - Timeouts prevent hanging
 
 #### 3.4 Dependency Ordering
-**Priority:** P0  
+
+**Priority:** P0\
 **Effort:** 0.5 days
 
 - [ ] Define container startup order based on dependencies
@@ -663,18 +695,21 @@ type HealthCheck =
 - [ ] Handle startup failures with clear error messages
 
 **Dependency Chain:**
+
 ```
 postgres → canton → splice → nginx + web UIs
                  ↘ keycloak (if OAuth2)
 ```
 
 **Definition of Done:**
+
 - Containers start in correct order
 - Health checks gate dependent containers
 - Startup failures are reported clearly
 
 #### 3.5 Network Management
-**Priority:** P0  
+
+**Priority:** P0\
 **Effort:** 0.5 days
 
 - [ ] Create isolated Docker network for LocalNet
@@ -683,12 +718,14 @@ postgres → canton → splice → nginx + web UIs
 - [ ] Clean up networks on destroy
 
 **Definition of Done:**
+
 - Containers can communicate via network aliases
 - Network names are unique per LocalNet instance
 - Networks are cleaned up properly
 
 #### 3.6 Lifecycle Management
-**Priority:** P0  
+
+**Priority:** P0\
 **Effort:** 1 day
 
 - [ ] Implement `start()` - generate configs, create network, start containers
@@ -699,6 +736,7 @@ postgres → canton → splice → nginx + web UIs
 - [ ] Handle partial failures gracefully
 
 **Definition of Done:**
+
 - Full lifecycle works end-to-end
 - State transitions are tracked
 - Partial failures don't leave orphaned resources
@@ -720,12 +758,14 @@ postgres → canton → splice → nginx + web UIs
 
 ### Objective
 
-Provide APIs to query and manage runtime state: parties, users, packages, and connection information.
+Provide APIs to query and manage runtime state: parties, users, packages, and connection
+information.
 
 ### Tasks
 
 #### 4.1 Canton API Client
-**Priority:** P0  
+
+**Priority:** P0\
 **Effort:** 1.5 days
 
 - [ ] Create HTTP client for Canton JSON API v2
@@ -742,12 +782,14 @@ Provide APIs to query and manage runtime state: parties, users, packages, and co
   - `uploadDar(darPath)` - POST /v2/dars
 
 **Definition of Done:**
+
 - All API operations implemented and tested
 - Error handling for API failures
 - Proper typing for all responses
 
 #### 4.2 OAuth2 Token Management
-**Priority:** P0  
+
+**Priority:** P0\
 **Effort:** 0.5 days
 
 - [ ] Implement OAuth2 client credentials flow
@@ -761,7 +803,7 @@ Provide APIs to query and manage runtime state: parties, users, packages, and co
 ```typescript
 interface TokenCache {
   token: string;
-  expiresAt: number;  // Unix timestamp
+  expiresAt: number; // Unix timestamp
 }
 
 // Refresh 30s before expiry
@@ -769,12 +811,14 @@ const REFRESH_BUFFER_MS = 30_000;
 ```
 
 **Definition of Done:**
+
 - Tokens are cached and reused
 - Automatic refresh before expiry
 - Works with Keycloak realms
 
 #### 4.3 State Manager
-**Priority:** P0  
+
+**Priority:** P0\
 **Effort:** 1 day
 
 - [ ] Create StateManager class to aggregate all state
@@ -792,27 +836,29 @@ interface StateManager {
   getParties(): Promise<PartyInfo[]>;
   getParty(hint: string): Promise<PartyInfo>;
   allocateParty(hint: string, validator: string): Promise<PartyInfo>;
-  
+
   // Users
   getUsers(validator: string): Promise<UserInfo[]>;
   createUser(config: UserConfig, validator: string): Promise<UserInfo>;
-  
+
   // Packages
   getPackages(): Promise<PackageInfo[]>;
   uploadDar(path: string, validators: string[]): Promise<PackageInfo>;
-  
+
   // Cache
   invalidateCache(): void;
 }
 ```
 
 **Definition of Done:**
+
 - State manager works with running LocalNet
 - Caching reduces API calls
 - Cache invalidation works correctly
 
 #### 4.4 Discovery Server
-**Priority:** P1  
+
+**Priority:** P1\
 **Effort:** 1 day
 
 - [ ] Create Hono HTTP server for discovery API
@@ -828,6 +874,7 @@ interface StateManager {
 - [ ] Add OpenAPI documentation
 
 **Definition of Done:**
+
 - All endpoints work correctly
 - JSON and dotenv formats supported
 - Server can be started independently
@@ -854,7 +901,8 @@ Provide a command-line interface for manual LocalNet operations.
 ### Tasks
 
 #### 5.1 CLI Framework Setup
-**Priority:** P0  
+
+**Priority:** P0\
 **Effort:** 0.5 days
 
 - [ ] Set up Cliffy CLI framework
@@ -864,12 +912,14 @@ Provide a command-line interface for manual LocalNet operations.
 - [ ] Configure output formatting (text, JSON)
 
 **Definition of Done:**
+
 - `localnet --help` shows all commands
 - Global options work with all commands
 - Version command works
 
 #### 5.2 Core Commands
-**Priority:** P0  
+
+**Priority:** P0\
 **Effort:** 1.5 days
 
 - [ ] `localnet start` - Generate configs and start LocalNet
@@ -881,12 +931,14 @@ Provide a command-line interface for manual LocalNet operations.
 - [ ] `localnet destroy` - Stop and remove all resources
 
 **Definition of Done:**
+
 - All core commands work correctly
 - Options function as documented
 - Error messages are helpful
 
 #### 5.3 Query Commands
-**Priority:** P0  
+
+**Priority:** P0\
 **Effort:** 1 day
 
 - [ ] `localnet parties` - List party IDs
@@ -899,12 +951,14 @@ Provide a command-line interface for manual LocalNet operations.
   - Options: --format (dotenv/json/ts), --output
 
 **Definition of Done:**
+
 - All query commands return correct data
 - Multiple output formats work
 - Commands handle errors gracefully
 
 #### 5.4 Generation Commands
-**Priority:** P1  
+
+**Priority:** P1\
 **Effort:** 0.5 days
 
 - [ ] `localnet generate` - Generate all configs
@@ -913,18 +967,21 @@ Provide a command-line interface for manual LocalNet operations.
 - [ ] `localnet validate` - Validate localnet.yaml
 
 **Definition of Done:**
+
 - Generation produces correct files
 - Dry-run shows what would be generated
 - Validation gives helpful error messages
 
 #### 5.5 Server Command
-**Priority:** P1  
+
+**Priority:** P1\
 **Effort:** 0.5 days
 
 - [ ] `localnet serve` - Start discovery API server
   - Options: --port, --host, --background
 
 **Definition of Done:**
+
 - Server starts and handles requests
 - Background mode works (daemonize)
 
@@ -949,7 +1006,8 @@ Provide a Testcontainers-style TypeScript SDK for programmatic LocalNet control 
 ### Tasks
 
 #### 6.1 LocalNet Class
-**Priority:** P0  
+
+**Priority:** P0\
 **Effort:** 1.5 days
 
 - [ ] Create `LocalNet` class with fluent builder API
@@ -980,12 +1038,14 @@ const localnet = await LocalNet.fromConfig('./localnet.yaml').start();
 ```
 
 **Definition of Done:**
+
 - Fluent builder API works correctly
 - Configuration and file modes both work
 - Start returns properly typed StartedLocalNet
 
 #### 6.2 StartedLocalNet Class
-**Priority:** P0  
+
+**Priority:** P0\
 **Effort:** 1.5 days
 
 - [ ] Create `StartedLocalNet` class for runtime operations
@@ -1011,28 +1071,30 @@ interface StartedLocalNet {
   getParties(): Promise<PartyInfo[]>;
   getParty(hint: string): Promise<PartyInfo>;
   getConnectionInfo(): ConnectionInfo;
-  
+
   // Mutate
   createParty(hint: string, validator?: string): Promise<PartyInfo>;
   createUser(config: UserConfig): Promise<UserInfo>;
   uploadDar(path: string): Promise<PackageInfo>;
-  
+
   // Lifecycle
   stop(): Promise<void>;
   destroy(): Promise<void>;
-  
+
   // AsyncDisposable
   [Symbol.asyncDispose](): Promise<void>;
 }
 ```
 
 **Definition of Done:**
+
 - All methods work correctly
 - AsyncDisposable pattern works with `await using`
 - Connection info provides all URLs and tokens
 
 #### 6.3 Test Helpers
-**Priority:** P1  
+
+**Priority:** P1\
 **Effort:** 1 day
 
 - [ ] Create test setup helpers for common patterns
@@ -1047,13 +1109,14 @@ import { withLocalNet } from '@mg-localnet/test-helpers';
 
 Deno.test('my test', async () => {
   await using localnet = await LocalNet.minimal().start();
-  
+
   const party = await localnet.createParty('test-party');
   assertEquals(party.hint, 'test-party');
 });
 ```
 
 **Definition of Done:**
+
 - Test helpers simplify common patterns
 - Shared LocalNet reduces test suite time
 - Assertions work correctly
@@ -1080,7 +1143,8 @@ Ensure all components work together, create comprehensive tests, and document th
 ### Tasks
 
 #### 7.1 Unit Tests
-**Priority:** P0  
+
+**Priority:** P0\
 **Effort:** 1 day
 
 - [ ] Test configuration schema validation
@@ -1092,12 +1156,14 @@ Ensure all components work together, create comprehensive tests, and document th
 - [ ] Test OAuth2 token management (mocked)
 
 **Definition of Done:**
-- >80% code coverage on core modules
+
+- 80% code coverage on core modules
 - All edge cases tested
 - Tests run in <30 seconds
 
 #### 7.2 Integration Tests
-**Priority:** P0  
+
+**Priority:** P0\
 **Effort:** 1.5 days
 
 - [ ] Test full LocalNet lifecycle (start → query → stop)
@@ -1108,12 +1174,14 @@ Ensure all components work together, create comprehensive tests, and document th
 - [ ] Test OAuth2 authentication flow
 
 **Definition of Done:**
+
 - Integration tests pass against real Docker
 - Tests clean up after themselves
 - Tests can run in CI
 
 #### 7.3 Example Projects
-**Priority:** P1  
+
+**Priority:** P1\
 **Effort:** 0.5 days
 
 - [ ] Create minimal example (1 validator, 1 party)
@@ -1122,12 +1190,14 @@ Ensure all components work together, create comprehensive tests, and document th
 - [ ] Document each example
 
 **Definition of Done:**
+
 - Examples work out of the box
 - README explains each example
 - Examples demonstrate key features
 
 #### 7.4 Documentation
-**Priority:** P1  
+
+**Priority:** P1\
 **Effort:** 1 day
 
 - [ ] Write README with quick start
@@ -1138,6 +1208,7 @@ Ensure all components work together, create comprehensive tests, and document th
 - [ ] Create troubleshooting guide
 
 **Definition of Done:**
+
 - README is complete and accurate
 - API documentation is comprehensive
 - Examples are documented
@@ -1158,28 +1229,29 @@ Ensure all components work together, create comprehensive tests, and document th
 
 ### High-Risk Items
 
-| Risk | Impact | Probability | Mitigation |
-|------|--------|-------------|------------|
-| **Docker API complexity** | Container management fails | Medium | Start with Docker Compose subprocess as fallback; add direct Docker API later |
-| **Canton HOCON format changes** | Generated configs invalid | Low | Pin to specific Canton version; monitor upstream changes |
-| **OAuth2 token issues** | Auth failures | Medium | Implement comprehensive token refresh; support shared-secret fallback |
-| **Resource constraints** | OOM on developer machines | Medium | Provide memory limit options; document requirements |
-| **Startup time** | Tests too slow | High | Implement shared LocalNet singleton; document minimum startup time |
+| Risk                            | Impact                     | Probability | Mitigation                                                                    |
+| ------------------------------- | -------------------------- | ----------- | ----------------------------------------------------------------------------- |
+| **Docker API complexity**       | Container management fails | Medium      | Start with Docker Compose subprocess as fallback; add direct Docker API later |
+| **Canton HOCON format changes** | Generated configs invalid  | Low         | Pin to specific Canton version; monitor upstream changes                      |
+| **OAuth2 token issues**         | Auth failures              | Medium      | Implement comprehensive token refresh; support shared-secret fallback         |
+| **Resource constraints**        | OOM on developer machines  | Medium      | Provide memory limit options; document requirements                           |
+| **Startup time**                | Tests too slow             | High        | Implement shared LocalNet singleton; document minimum startup time            |
 
 ### Medium-Risk Items
 
-| Risk | Impact | Probability | Mitigation |
-|------|--------|-------------|------------|
-| **Port conflicts** | Containers fail to start | Medium | Detect port conflicts before start; provide port override options |
-| **Volume mount issues** | Configs not readable | Low | Validate mounts before start; provide clear error messages |
-| **Network isolation** | Containers can't communicate | Low | Use explicit network creation; validate connectivity |
-| **Keycloak import failures** | OAuth2 not available | Medium | Validate realm JSON before import; provide fallback |
+| Risk                         | Impact                       | Probability | Mitigation                                                        |
+| ---------------------------- | ---------------------------- | ----------- | ----------------------------------------------------------------- |
+| **Port conflicts**           | Containers fail to start     | Medium      | Detect port conflicts before start; provide port override options |
+| **Volume mount issues**      | Configs not readable         | Low         | Validate mounts before start; provide clear error messages        |
+| **Network isolation**        | Containers can't communicate | Low         | Use explicit network creation; validate connectivity              |
+| **Keycloak import failures** | OAuth2 not available         | Medium      | Validate realm JSON before import; provide fallback               |
 
 ### Orchestration Strategy: Docker API Direct
 
 **Decision: Use Docker API directly (via Dockerode), NOT Docker Compose.**
 
 Rationale:
+
 - Full programmatic control over individual containers
 - No YAML file generation/templating complexity
 - Better error handling and logging per container
@@ -1187,9 +1259,11 @@ Rationale:
 - Matches Testcontainers internal architecture
 - Can export Compose files as a user-facing feature if needed later
 
-This approach is slightly more complex upfront but provides better long-term flexibility and matches the Testcontainers pattern we're emulating.
+This approach is slightly more complex upfront but provides better long-term flexibility and matches
+the Testcontainers pattern we're emulating.
 
 **Kubernetes**: Deliberately not supported in v1.
+
 - Adds 20-55 seconds startup overhead (vs 2-5s for Docker)
 - Helm charts exist but are production-focused
 - Can be added later if user demand materializes
@@ -1199,43 +1273,51 @@ This approach is slightly more complex upfront but provides better long-term fle
 ## 11. Success Criteria
 
 ### Phase 1: Foundation
+
 - [ ] Project structure complete
 - [ ] Types compile without errors
 - [ ] Configuration loading works with example file
 
 ### Phase 2: Configuration Generation
+
 - [ ] Generate valid Canton HOCON for 1-5 validators
 - [ ] Generate valid Splice HOCON
 - [ ] Generate valid Keycloak realm JSON
 - [ ] Generated configs work with existing Docker images
 
 ### Phase 3: Container Orchestration
+
 - [ ] Start LocalNet with single command
 - [ ] All containers healthy within 5 minutes
 - [ ] Stop/destroy cleans up all resources
 
 ### Phase 4: State Management
+
 - [ ] Query parties from running LocalNet
 - [ ] Query packages from running LocalNet
 - [ ] Create new parties via API
 - [ ] Create new users via API
 
 ### Phase 5: CLI Tool
+
 - [ ] `localnet start` works end-to-end
 - [ ] `localnet parties` shows discovered parties
 - [ ] `localnet env` generates valid environment files
 
 ### Phase 6: SDK
+
 - [ ] Testcontainers-style API works
 - [ ] `await using` cleanup pattern works
 - [ ] Integration with Deno test framework
 
 ### Phase 7: Integration
+
 - [ ] All tests pass
 - [ ] Examples work out of the box
 - [ ] Documentation is complete
 
 ### Overall Success Metrics
+
 - [ ] LocalNet starts in <5 minutes (same as current)
 - [ ] Configuration reduced from 100+ files to 1 file
 - [ ] API provides all runtime state (parties, packages, users)
@@ -1247,16 +1329,17 @@ This approach is slightly more complex upfront but provides better long-term fle
 
 ### A. Port Allocation Scheme
 
-| Suffix | API Type | Description |
-|--------|----------|-------------|
-| 901 | Ledger API (gRPC) | Application interface |
-| 902 | Admin API (gRPC) | Node management |
-| 903 | Validator Admin API | Splice validator HTTP |
-| 975 | JSON API (HTTP) | REST interface |
-| 900 | HTTP Health | HTTP health endpoint |
-| 961 | gRPC Health | gRPC health endpoint |
+| Suffix | API Type            | Description           |
+| ------ | ------------------- | --------------------- |
+| 901    | Ledger API (gRPC)   | Application interface |
+| 902    | Admin API (gRPC)    | Node management       |
+| 903    | Validator Admin API | Splice validator HTTP |
+| 975    | JSON API (HTTP)     | REST interface        |
+| 900    | HTTP Health         | HTTP health endpoint  |
+| 961    | gRPC Health         | gRPC health endpoint  |
 
 **Prefix by Role:**
+
 - `2xxx` - Validator 1 (App User equivalent)
 - `3xxx` - Validator 2 (App Provider equivalent)
 - `4xxx` - Super Validator
@@ -1264,15 +1347,15 @@ This approach is slightly more complex upfront but provides better long-term fle
 
 ### B. Database Names
 
-| Component | Database Name |
-|-----------|---------------|
+| Component                 | Database Name             |
+| ------------------------- | ------------------------- |
 | Participant (Validator N) | `participant_validator_N` |
-| Sequencer | `sequencer` |
-| Mediator | `mediator` |
-| Validator App | `validator_validator_N` |
-| Scan | `scan` |
-| SV App | `sv` |
-| PQS | `pqs_validator_N` |
+| Sequencer                 | `sequencer`               |
+| Mediator                  | `mediator`                |
+| Validator App             | `validator_validator_N`   |
+| Scan                      | `scan`                    |
+| SV App                    | `sv`                      |
+| PQS                       | `pqs_validator_N`         |
 
 ### C. Canton JSON API v2 Endpoints
 
@@ -1307,6 +1390,7 @@ curl -X POST "http://keycloak:8082/realms/{realm}/protocol/openid-connect/token"
 ```
 
 Response:
+
 ```json
 {
   "access_token": "eyJ...",
@@ -1318,12 +1402,12 @@ Response:
 ### E. Example localnet.yaml
 
 ```yaml
-version: "1.0"
+version: '1.0'
 
 # Number of regular Validators to create.
 # Super Validator (SV) is ALWAYS created automatically - you don't configure it.
 # The SV runs the Global Synchronizer that all Validators connect to.
-validators: 2  # Creates validator-1 and validator-2
+validators: 2 # Creates validator-1 and validator-2
 
 # Or use detailed configuration:
 # validators:
@@ -1383,7 +1467,7 @@ const localnet = await new LocalNet().start();
 
 // Specify validator count
 const localnet = await new LocalNet()
-  .withValidators(3)  // Creates 3 regular Validators + 1 SV (implicit)
+  .withValidators(3) // Creates 3 regular Validators + 1 SV (implicit)
   .start();
 
 // Full configuration
@@ -1403,5 +1487,5 @@ await using localnet = await new LocalNet().withValidators(2).start();
 
 ---
 
-*Plan created: January 2026*  
-*Status: Ready for Implementation Review*
+_Plan created: January 2026_\
+_Status: Ready for Implementation Review_

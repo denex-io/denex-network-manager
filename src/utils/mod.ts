@@ -22,4 +22,4 @@ export type { ValidatorPorts } from './ports.ts';
 
 export { buildConfigEnvironmentInfo } from './env-info.ts';
 
-export { getCredentials, type CredentialInfo } from './credentials.ts';
+export { type CredentialInfo, getCredentials } from './credentials.ts';

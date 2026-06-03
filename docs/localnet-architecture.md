@@ -157,7 +157,7 @@ databases on startup based on environment variables.
 
 **Purpose**: Runs all Canton participant nodes in a single container.
 
-- **Image**: `ghcr.io/digital-asset/decentralized-canton-sync/docker/canton:0.5.3`
+- **Image**: `ghcr.io/digital-asset/decentralized-canton-sync/docker/canton:0.6.6`
 - **Role**: Hosts the ledger participants for SV and all validators
 - **Components**:
   - SV Participant (with Sequencer and Mediator for Global Synchronizer)
@@ -176,7 +176,7 @@ separate containers or hosts for each participant.
 
 **Purpose**: Runs all Splice validator applications.
 
-- **Image**: `ghcr.io/digital-asset/decentralized-canton-sync/docker/splice-app:0.5.3`
+- **Image**: `ghcr.io/digital-asset/decentralized-canton-sync/docker/splice-app:0.6.6`
 - **Role**: Hosts the validator apps that implement Canton Network business logic
 - **Components**:
   - SV App (governance, DSO management)
@@ -191,7 +191,7 @@ separate containers or hosts for each participant.
 
 **Purpose**: OAuth2 identity provider.
 
-- **Image**: `quay.io/keycloak/keycloak:24.0`
+- **Image**: `quay.io/keycloak/keycloak:26.1.0`
 - **Role**: Manages user authentication and issues JWT tokens
 - **Configuration**: Realms imported on startup from generated JSON files
 - **Port**: 5082 (mapped from internal 8080)
@@ -221,10 +221,10 @@ Each web UI runs in its own container:
 
 | Container                   | Image                 | Purpose                     |
 | --------------------------- | --------------------- | --------------------------- |
-| `wallet-web-ui-sv`          | `wallet-web-ui:0.5.3` | SV wallet interface         |
-| `wallet-web-ui-{validator}` | `wallet-web-ui:0.5.3` | Validator wallet interfaces |
-| `sv-web-ui`                 | `sv-web-ui:0.5.3`     | Super Validator management  |
-| `scan-web-ui`               | `scan-web-ui:0.5.3`   | Network explorer            |
+| `wallet-web-ui-sv`          | `wallet-web-ui:0.6.6` | SV wallet interface         |
+| `wallet-web-ui-{validator}` | `wallet-web-ui:0.6.6` | Validator wallet interfaces |
+| `sv-web-ui`                 | `sv-web-ui:0.6.6`     | Super Validator management  |
+| `scan-web-ui`               | `scan-web-ui:0.6.6`   | Network explorer            |
 
 All web UIs:
 
@@ -819,9 +819,9 @@ For production deployments, refer to the official Canton Network documentation.
 | ------------- | ---------------------------------------------------------------------------- |
 | PostgreSQL    | `postgres:14`                                                                |
 | Nginx         | `nginx:1.27.0`                                                               |
-| Canton        | `ghcr.io/digital-asset/decentralized-canton-sync/docker/canton:0.5.3`        |
-| Splice        | `ghcr.io/digital-asset/decentralized-canton-sync/docker/splice-app:0.5.3`    |
-| Wallet Web UI | `ghcr.io/digital-asset/decentralized-canton-sync/docker/wallet-web-ui:0.5.3` |
-| SV Web UI     | `ghcr.io/digital-asset/decentralized-canton-sync/docker/sv-web-ui:0.5.3`     |
-| Scan Web UI   | `ghcr.io/digital-asset/decentralized-canton-sync/docker/scan-web-ui:0.5.3`   |
-| Keycloak      | `quay.io/keycloak/keycloak:24.0`                                             |
+| Canton        | `ghcr.io/digital-asset/decentralized-canton-sync/docker/canton:0.6.6`        |
+| Splice        | `ghcr.io/digital-asset/decentralized-canton-sync/docker/splice-app:0.6.6`    |
+| Wallet Web UI | `ghcr.io/digital-asset/decentralized-canton-sync/docker/wallet-web-ui:0.6.6` |
+| SV Web UI     | `ghcr.io/digital-asset/decentralized-canton-sync/docker/sv-web-ui:0.6.6`     |
+| Scan Web UI   | `ghcr.io/digital-asset/decentralized-canton-sync/docker/scan-web-ui:0.6.6`   |
+| Keycloak      | `quay.io/keycloak/keycloak:26.1.0`                                           |

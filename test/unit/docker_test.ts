@@ -1,17 +1,19 @@
-import { assertEquals, assertExists, assert, assertStringIncludes } from '@std/assert';
+import { assert, assertEquals, assertExists, assertStringIncludes } from '@std/assert';
 import type { LocalNetConfig } from '../../src/types/config.ts';
 import type { ContainerInfo } from '../../src/docker/types.ts';
 import {
   buildAllContainers,
-  buildPostgresContainer,
   buildCantonContainer,
-  buildSpliceContainer,
   buildKeycloakContainer,
   buildNginxContainer,
+  buildPostgresContainer,
+  buildSpliceContainer,
   buildWalletWebUiContainers,
-  getStartupOrder,
-  DEFAULT_IMAGES,
   type ContainerBuilderOptions,
+  DEFAULT_IMAGES,
+  DEFAULT_SPLICE_IMAGE_REPO,
+  DEFAULT_SPLICE_VERSION,
+  getStartupOrder,
 } from '../../src/docker/containers.ts';
 import { checkHealth } from '../../src/docker/health.ts';
 import { type ConfigMismatch, generateNginxConfigString } from '../../src/docker/mod.ts';
@@ -274,6 +276,16 @@ Deno.test('DEFAULT_IMAGES - all images defined', () => {
   assertExists(DEFAULT_IMAGES.walletWebUi);
 });
 
+Deno.test('DEFAULT_IMAGES - Splice bundle uses current release tag', () => {
+  assertEquals(DEFAULT_SPLICE_VERSION, '0.6.6');
+  assertEquals(DEFAULT_IMAGES.canton, `${DEFAULT_SPLICE_IMAGE_REPO}/canton:0.6.6`);
+  assertEquals(DEFAULT_IMAGES.splice, `${DEFAULT_SPLICE_IMAGE_REPO}/splice-app:0.6.6`);
+  assertEquals(DEFAULT_IMAGES.walletWebUi, `${DEFAULT_SPLICE_IMAGE_REPO}/wallet-web-ui:0.6.6`);
+  assertEquals(DEFAULT_IMAGES.ansWebUi, `${DEFAULT_SPLICE_IMAGE_REPO}/ans-web-ui:0.6.6`);
+  assertEquals(DEFAULT_IMAGES.svWebUi, `${DEFAULT_SPLICE_IMAGE_REPO}/sv-web-ui:0.6.6`);
+  assertEquals(DEFAULT_IMAGES.scanWebUi, `${DEFAULT_SPLICE_IMAGE_REPO}/scan-web-ui:0.6.6`);
+});
+
 Deno.test('ConfigMismatch - interface exports correctly', () => {
   const mismatch: ConfigMismatch = {
     hasMismatch: false,
@@ -334,21 +346,27 @@ Deno.test('nginx config - Validator blocks contain /api/validator with correct p
 Deno.test('nginx config - Validator blocks use wallet.localhost server_name', () => {
   const nginxConfig = generateNginxConfigString(TEST_CONFIG);
   const lines = nginxConfig.split('\n');
-  
+
   let validatorBlockCount = 0;
   for (let i = 0; i < lines.length; i++) {
     if (lines[i].includes('listen 5180') || lines[i].includes('listen 5280')) {
-      assert(lines[i + 1].includes('server_name wallet.localhost;'), 'Validator blocks should use wallet.localhost, not *.localhost');
+      assert(
+        lines[i + 1].includes('server_name wallet.localhost;'),
+        'Validator blocks should use wallet.localhost, not *.localhost',
+      );
       validatorBlockCount++;
     }
   }
-  
+
   assertEquals(validatorBlockCount, 2, 'Should have 2 validator server blocks');
 });
 
 Deno.test('nginx config - no default_server block', () => {
   const nginxConfig = generateNginxConfigString(TEST_CONFIG);
-  assert(!nginxConfig.includes('default_server'), 'nginx config should not contain default_server block');
+  assert(
+    !nginxConfig.includes('default_server'),
+    'nginx config should not contain default_server block',
+  );
 });
 
 Deno.test('ContainerInfo - labels field exists', () => {
@@ -393,7 +411,10 @@ Deno.test('name prefixing - all container names are prefixed', () => {
   }
 
   for (const spec of specs) {
-    assert(spec.name.startsWith(`${prefix}-`), `container name '${spec.name}' should be prefixed with '${prefix}-'`);
+    assert(
+      spec.name.startsWith(`${prefix}-`),
+      `container name '${spec.name}' should be prefixed with '${prefix}-'`,
+    );
   }
 });
 
@@ -442,8 +463,14 @@ Deno.test('name prefixing - dependsOn arrays contain prefixed names', () => {
   for (const spec of specs) {
     if (spec.dependsOn) {
       for (const dep of spec.dependsOn) {
-        assert(dep.startsWith(`${prefix}-`), `dependsOn '${dep}' in '${spec.name}' should be prefixed`);
-        assert(allNames.has(dep), `dependsOn '${dep}' in '${spec.name}' should match an actual container name`);
+        assert(
+          dep.startsWith(`${prefix}-`),
+          `dependsOn '${dep}' in '${spec.name}' should be prefixed`,
+        );
+        assert(
+          allNames.has(dep),
+          `dependsOn '${dep}' in '${spec.name}' should match an actual container name`,
+        );
       }
     }
   }
@@ -470,7 +497,10 @@ Deno.test('getStartupOrder - works with prefixed names', () => {
   const placedNames = layers.flat().map((c) => c.name);
   assertEquals(placedNames.length, specs.length);
   for (const spec of specs) {
-    assert(placedNames.includes(spec.name), `container '${spec.name}' should appear in startup order`);
+    assert(
+      placedNames.includes(spec.name),
+      `container '${spec.name}' should appear in startup order`,
+    );
   }
 });
 

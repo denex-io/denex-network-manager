@@ -142,17 +142,19 @@ await runCheck('Builder creates valid config', async () => {
 // ── Check 5: Config-derived utilities work ──────────────────────────────────
 
 await runCheck('Config-derived utilities work', async () => {
-  const { LocalNetBuilder, getCredentials, buildConfigEnvironmentInfo } = await import('../../src/sdk/mod.ts');
+  const { LocalNetBuilder, getCredentials, buildConfigEnvironmentInfo } = await import(
+    '../../src/sdk/mod.ts'
+  );
   const errors = [];
 
   const config = LocalNetBuilder.create().withValidators(2).build();
 
-  // getCredentials — 3 SV entries + 2 validator wallet entries = 5
+  // getCredentials — 2 SV entries + 2 validator wallet entries = 4
   const creds = getCredentials(config.validators, config.basePort);
   if (!Array.isArray(creds)) {
     errors.push(`getCredentials() should return array, got ${typeof creds}`);
-  } else if (creds.length !== 5) {
-    errors.push(`Expected 5 credential entries, got ${creds.length}`);
+  } else if (creds.length !== 4) {
+    errors.push(`Expected 4 credential entries, got ${creds.length}`);
   }
 
   // buildConfigEnvironmentInfo — should have validators.sv

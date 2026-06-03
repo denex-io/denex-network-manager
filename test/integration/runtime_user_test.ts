@@ -7,9 +7,7 @@ import { isDockerAvailable } from './helpers.ts';
 
 function makeConfig(validators: string[] | number = 1): LocalNetConfig {
   return {
-    validators: typeof validators === 'number'
-      ? validators
-      : validators.map((name) => ({ name })),
+    validators: typeof validators === 'number' ? validators : validators.map((name) => ({ name })),
     auth: { keycloak: { admin: 'admin', password: 'admin' } },
   };
 }
@@ -243,12 +241,19 @@ Deno.test('runtime createUser: performance bound (< 30s)', async () => {
   try {
     await localnet.start({ timeout: 300000 });
 
-    const createUserPromise = localnet.createUser('perf-test', 'validator-1');
-    const timeoutPromise = new Promise<never>((_, reject) =>
-      setTimeout(() => reject(new Error('createUser exceeded 30s')), 30_000)
-    );
+    let timeoutId: number | undefined;
+    try {
+      const createUserPromise = localnet.createUser('perf-test', 'validator-1');
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        timeoutId = setTimeout(() => reject(new Error('createUser exceeded 30s')), 30_000);
+      });
 
-    await Promise.race([createUserPromise, timeoutPromise]);
+      await Promise.race([createUserPromise, timeoutPromise]);
+    } finally {
+      if (timeoutId !== undefined) {
+        clearTimeout(timeoutId);
+      }
+    }
   } finally {
     await localnet.destroy({ removeVolumes: true });
   }

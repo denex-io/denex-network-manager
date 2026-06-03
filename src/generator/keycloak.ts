@@ -13,7 +13,7 @@ import {
   getValidatorClientId,
   normalizeValidators,
 } from '../types/config.ts';
-import { getSvPorts, getValidatorPorts, DEFAULT_BASE_PORT } from '../utils/ports.ts';
+import { DEFAULT_BASE_PORT, getSvPorts, getValidatorPorts } from '../utils/ports.ts';
 
 export const BOOTSTRAP_ADMIN_USERNAME = 'localnet-internal-bootstrap-do-not-use';
 
@@ -328,11 +328,12 @@ function createUser(
   password: string = username,
   email?: string,
 ): KeycloakUser {
+  const userEmail = email ?? `${username}@localnet.localhost`;
   return {
     username,
     firstName: username,
     lastName: 'User',
-    email: email ?? `${username}@${username}.localhost`,
+    email: userEmail,
     emailVerified: true,
     enabled: true,
     credentials: [
@@ -347,14 +348,14 @@ function createUser(
 }
 
 export function generateValidatorRealm(
-   validator: ValidatorConfig,
-   validatorIndex: number,
-   config: LocalNetConfig,
- ): KeycloakRealm {
-   const realmName = getRealmName(validator.name);
- 
-   const basePort = config.basePort ?? DEFAULT_BASE_PORT;
-   const uiPort = getValidatorPorts(validatorIndex, basePort).webUi;
+  validator: ValidatorConfig,
+  validatorIndex: number,
+  config: LocalNetConfig,
+): KeycloakRealm {
+  const realmName = getRealmName(validator.name);
+
+  const basePort = config.basePort ?? DEFAULT_BASE_PORT;
+  const uiPort = getValidatorPorts(validatorIndex, basePort).webUi;
 
   const clients: KeycloakClient[] = [
     createValidatorClient(validator.name),
@@ -400,68 +401,67 @@ export function generateValidatorRealm(
 }
 
 export function generateSvRealm(config: LocalNetConfig): KeycloakRealm {
- 
-   const basePort = config.basePort ?? DEFAULT_BASE_PORT;
-   const svWebUiPort = getSvPorts(basePort).webUi;
- 
-    const clients: KeycloakClient[] = [
-      createValidatorClient('sv'),
-      {
-        clientId: 'sv-web-ui',
-        name: 'SV Web UI',
-        enabled: true,
-        publicClient: true,
-        serviceAccountsEnabled: false,
-        standardFlowEnabled: true,
-        directAccessGrantsEnabled: false,
-        redirectUris: [`http://sv.localhost:${svWebUiPort}/*`],
-        webOrigins: ['*'],
-        defaultClientScopes: ['canton-audience', 'profile', 'email', 'roles', 'web-origins'],
-        optionalClientScopes: ['offline_access'],
-        attributes: {
-          'oidc.ciba.grant.enabled': 'false',
-          'oauth2.device.authorization.grant.enabled': 'false',
-          'use.refresh.tokens': 'true',
-        },
+  const basePort = config.basePort ?? DEFAULT_BASE_PORT;
+  const svWebUiPort = getSvPorts(basePort).webUi;
+
+  const clients: KeycloakClient[] = [
+    createValidatorClient('sv'),
+    {
+      clientId: 'sv-web-ui',
+      name: 'SV Web UI',
+      enabled: true,
+      publicClient: true,
+      serviceAccountsEnabled: false,
+      standardFlowEnabled: true,
+      directAccessGrantsEnabled: false,
+      redirectUris: [`http://sv.localhost:${svWebUiPort}/*`],
+      webOrigins: ['*'],
+      defaultClientScopes: ['canton-audience', 'profile', 'email', 'roles', 'web-origins'],
+      optionalClientScopes: ['offline_access'],
+      attributes: {
+        'oidc.ciba.grant.enabled': 'false',
+        'oauth2.device.authorization.grant.enabled': 'false',
+        'use.refresh.tokens': 'true',
       },
-      {
-        clientId: 'sv-wallet',
-        name: 'SV Wallet UI',
-        enabled: true,
-        publicClient: true,
-        serviceAccountsEnabled: false,
-        standardFlowEnabled: true,
-        directAccessGrantsEnabled: false,
-        redirectUris: [`http://wallet.localhost:${svWebUiPort}/*`],
-        webOrigins: ['*'],
-        defaultClientScopes: ['canton-audience', 'profile', 'email', 'roles', 'web-origins'],
-        optionalClientScopes: ['offline_access'],
-        attributes: {
-          'oidc.ciba.grant.enabled': 'false',
-          'oauth2.device.authorization.grant.enabled': 'false',
-          'use.refresh.tokens': 'true',
-        },
+    },
+    {
+      clientId: 'sv-wallet',
+      name: 'SV Wallet UI',
+      enabled: true,
+      publicClient: true,
+      serviceAccountsEnabled: false,
+      standardFlowEnabled: true,
+      directAccessGrantsEnabled: false,
+      redirectUris: [`http://wallet.localhost:${svWebUiPort}/*`],
+      webOrigins: ['*'],
+      defaultClientScopes: ['canton-audience', 'profile', 'email', 'roles', 'web-origins'],
+      optionalClientScopes: ['offline_access'],
+      attributes: {
+        'oidc.ciba.grant.enabled': 'false',
+        'oauth2.device.authorization.grant.enabled': 'false',
+        'use.refresh.tokens': 'true',
       },
-      {
-        clientId: 'scan-web-ui',
-        name: 'Scan Web UI',
-        enabled: true,
-        publicClient: true,
-        serviceAccountsEnabled: false,
-        standardFlowEnabled: true,
-        directAccessGrantsEnabled: false,
-        redirectUris: [`http://scan.localhost:${svWebUiPort}/*`],
-        webOrigins: ['*'],
-        defaultClientScopes: ['canton-audience', 'profile', 'email', 'roles', 'web-origins'],
-        optionalClientScopes: ['offline_access'],
-        attributes: {
-          'oidc.ciba.grant.enabled': 'false',
-          'oauth2.device.authorization.grant.enabled': 'false',
-          'use.refresh.tokens': 'true',
-        },
+    },
+    {
+      clientId: 'scan-web-ui',
+      name: 'Scan Web UI',
+      enabled: true,
+      publicClient: true,
+      serviceAccountsEnabled: false,
+      standardFlowEnabled: true,
+      directAccessGrantsEnabled: false,
+      redirectUris: [`http://scan.localhost:${svWebUiPort}/*`],
+      webOrigins: ['*'],
+      defaultClientScopes: ['canton-audience', 'profile', 'email', 'roles', 'web-origins'],
+      optionalClientScopes: ['offline_access'],
+      attributes: {
+        'oidc.ciba.grant.enabled': 'false',
+        'oauth2.device.authorization.grant.enabled': 'false',
+        'use.refresh.tokens': 'true',
       },
-      createLedgerApiUserClient('sv'),
-    ];
+    },
+    createLedgerApiUserClient('sv'),
+  ];
 
   return {
     realm: 'SV',

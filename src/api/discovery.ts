@@ -1,26 +1,17 @@
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { Buffer } from 'node:buffer';
-import {
-  createServer,
-  type IncomingMessage,
-  type Server,
-  type ServerResponse,
-} from 'node:http';
+import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import process from 'node:process';
 import type { LocalNetConfig } from '../types/config.ts';
 import { buildConfigEnvironmentInfo } from '../utils/env-info.ts';
-import type {
-  ApiPartyInfo,
-  ApiPackageInfo,
-  ApiValidatorState,
-} from './state-types.ts';
+import type { ApiPackageInfo, ApiPartyInfo, ApiValidatorState } from './state-types.ts';
 import type { DockerClient } from '../docker/client.ts';
 import {
-  discoverInstances,
-  reconstructConfigFromLabels,
   type DiscoveredInstance,
+  discoverInstances,
   LABEL_INSTANCE,
+  reconstructConfigFromLabels,
 } from './discovery-utils.ts';
 import { LocalNet } from '../localnet.ts';
 
@@ -343,8 +334,7 @@ export class MultiInstanceDiscoveryServer {
     );
 
     await new Promise<void>((resolve) => {
-      this.server!.listen(this.options.port, this.options.host, () =>
-        resolve());
+      this.server!.listen(this.options.port, this.options.host, () => resolve());
     });
 
     console.log(

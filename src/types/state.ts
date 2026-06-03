@@ -15,7 +15,14 @@ export interface UserInfo {
 }
 
 export interface UserRightInfo {
-  kind: 'ParticipantAdmin' | 'CanActAs' | 'CanReadAs' | 'CanExecuteAs' | 'CanReadAsAnyParty' | 'CanExecuteAsAnyParty' | 'IdentityProviderAdmin';
+  kind:
+    | 'ParticipantAdmin'
+    | 'CanActAs'
+    | 'CanReadAs'
+    | 'CanExecuteAs'
+    | 'CanReadAsAnyParty'
+    | 'CanExecuteAsAnyParty'
+    | 'IdentityProviderAdmin';
   party?: string;
 }
 
@@ -91,7 +98,7 @@ export interface ValidatorAuth {
   keycloakTokenUrl: string;
   clientId: string;
   clientSecret: string;
-   userClientId: string;
+  userClientId: string;
   audience: string;
 }
 

@@ -1,17 +1,17 @@
-import { assertEquals, assertStringIncludes, assert, assertExists } from '@std/assert';
+import { assert, assertEquals, assertExists, assertStringIncludes } from '@std/assert';
 import type { LocalNetConfig } from '../../src/types/config.ts';
 import {
+  BOOTSTRAP_ADMIN_USERNAME,
+  generateAllRealms,
+  generateAllRealmsJson,
+  generateCommonEnv,
   generateFullCantonConfig,
   generateFullSpliceConfig,
-  generateCommonEnv,
-  generatePostgresEnv,
+  generateMasterRealm,
   generateMergedEnv,
+  generatePostgresEnv,
   generateSvRealm,
   generateValidatorRealm,
-  generateAllRealms,
-  generateMasterRealm,
-  generateAllRealmsJson,
-  BOOTSTRAP_ADMIN_USERNAME,
 } from '../../src/generator/mod.ts';
 
 const TEST_CONFIG: LocalNetConfig = {
@@ -100,9 +100,18 @@ Deno.test('generateFullSpliceConfig - OAuth2 mode uses RS-256 with JWKS', () => 
   );
 
   assertStringIncludes(config, 'algorithm = "rs-256"');
-  assertStringIncludes(config, 'jwks-url = "http://keycloak:8080/realms/SV/protocol/openid-connect/certs"');
-  assertStringIncludes(config, 'jwks-url = "http://keycloak:8080/realms/Validator1/protocol/openid-connect/certs"');
-  assertStringIncludes(config, 'jwks-url = "http://keycloak:8080/realms/Validator2/protocol/openid-connect/certs"');
+  assertStringIncludes(
+    config,
+    'jwks-url = "http://keycloak:8080/realms/SV/protocol/openid-connect/certs"',
+  );
+  assertStringIncludes(
+    config,
+    'jwks-url = "http://keycloak:8080/realms/Validator1/protocol/openid-connect/certs"',
+  );
+  assertStringIncludes(
+    config,
+    'jwks-url = "http://keycloak:8080/realms/Validator2/protocol/openid-connect/certs"',
+  );
 });
 
 Deno.test('generateCommonEnv - includes database config', () => {
@@ -176,7 +185,7 @@ Deno.test('generateSvRealm - creates SV browser users', () => {
 Deno.test('generateSvRealm - includes audience client scope', () => {
   const realm = generateSvRealm(TEST_CONFIG);
 
-  const audienceScope = realm.clientScopes.find(s => s.name === 'canton-audience');
+  const audienceScope = realm.clientScopes.find((s) => s.name === 'canton-audience');
   assertEquals(audienceScope !== undefined, true);
 
   const mapper = audienceScope!.protocolMappers[0];
@@ -186,7 +195,7 @@ Deno.test('generateSvRealm - includes audience client scope', () => {
 Deno.test('generateSvRealm - includes standard OAuth scopes', () => {
   const realm = generateSvRealm(TEST_CONFIG);
 
-  const scopeNames = realm.clientScopes.map(s => s.name);
+  const scopeNames = realm.clientScopes.map((s) => s.name);
   assertEquals(scopeNames.includes('offline_access'), true);
   assertEquals(scopeNames.includes('profile'), true);
   assertEquals(scopeNames.includes('email'), true);
@@ -197,15 +206,27 @@ Deno.test('generateSvRealm - UI clients have proper scopes', () => {
   const realm = generateSvRealm(TEST_CONFIG);
 
   // Find all UI clients (public clients with standard flow)
-  const uiClients = realm.clients.filter(c => c.publicClient && c.standardFlowEnabled);
+  const uiClients = realm.clients.filter((c) => c.publicClient && c.standardFlowEnabled);
   assertEquals(uiClients.length >= 3, true); // sv-web-ui, sv-wallet, scan-web-ui
 
   for (const client of uiClients) {
     // UI clients should have profile, email, etc. as default scopes
-    assertEquals(client.defaultClientScopes.includes('profile'), true, `${client.clientId} missing profile scope`);
-    assertEquals(client.defaultClientScopes.includes('email'), true, `${client.clientId} missing email scope`);
+    assertEquals(
+      client.defaultClientScopes.includes('profile'),
+      true,
+      `${client.clientId} missing profile scope`,
+    );
+    assertEquals(
+      client.defaultClientScopes.includes('email'),
+      true,
+      `${client.clientId} missing email scope`,
+    );
     // UI clients should have offline_access as optional scope
-    assertEquals(client.optionalClientScopes?.includes('offline_access'), true, `${client.clientId} missing offline_access optional scope`);
+    assertEquals(
+      client.optionalClientScopes?.includes('offline_access'),
+      true,
+      `${client.clientId} missing offline_access optional scope`,
+    );
   }
 });
 
@@ -216,7 +237,7 @@ Deno.test('generateValidatorRealm - wallet client has proper scopes', () => {
     TEST_CONFIG,
   );
 
-  const walletClient = realm.clients.find(c => c.clientId === 'test-validator-wallet');
+  const walletClient = realm.clients.find((c) => c.clientId === 'test-validator-wallet');
   assertEquals(walletClient !== undefined, true);
   assertEquals(walletClient!.defaultClientScopes.includes('profile'), true);
   assertEquals(walletClient!.defaultClientScopes.includes('email'), true);
@@ -394,7 +415,7 @@ Deno.test('generateFullSpliceConfig - validator-party-hint ignores user party co
 
 Deno.test('generateFullSpliceConfig - default party hint matches pattern', () => {
   const config: LocalNetConfig = {
-    validators: 1,  // No explicit party hints
+    validators: 1, // No explicit party hints
     auth: { keycloak: { admin: 'admin', password: 'admin' } },
   };
   const result = generateFullSpliceConfig(config.validators, config.auth);

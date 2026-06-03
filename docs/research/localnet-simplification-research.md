@@ -4,10 +4,11 @@
 > Historical research. It explains why this project exists, but the recommended implementation path
 > was superseded by the current direct Docker API approach.
 
-> Research document synthesizing findings about Canton Network LocalNet infrastructure to plan a simplified development environment.
+> Research document synthesizing findings about Canton Network LocalNet infrastructure to plan a
+> simplified development environment.
 
-**Date:** January 2026  
-**Project:** mg-tokenization  
+**Date:** January 2026\
+**Project:** mg-tokenization\
 **Status:** Research Complete
 
 ---
@@ -28,30 +29,34 @@
 
 ## Executive Summary
 
-The current LocalNet setup (Canton Quickstart) is a comprehensive but heavyweight development environment designed for production-like scenarios. For token-focused development on mg-tokenization, significant simplification opportunities exist:
+The current LocalNet setup (Canton Quickstart) is a comprehensive but heavyweight development
+environment designed for production-like scenarios. For token-focused development on
+mg-tokenization, significant simplification opportunities exist:
 
 ### Key Findings
 
-| Area | Current State | Simplification Potential |
-|------|--------------|-------------------------|
-| **Memory** | ~8GB minimum (canton 3GB + splice 3GB + postgres 2GB) | Could reduce to 2-4GB with single participant |
-| **Containers** | 10+ services (canton, splice, postgres, nginx, keycloak, UIs) | Could reduce to 2-3 (canton, postgres, optional keycloak) |
-| **Configuration** | 50+ env files, HOCON configs, shell scripts | Could centralize to single YAML + env file |
-| **Participants** | 3 hardcoded (SV, App Provider, App User) | Often need only 1-2 for dev/testing |
-| **Auth** | Full OAuth2 with Keycloak OR shared-secret | Shared-secret sufficient for local dev |
-| **Party Setup** | Manual script-based, runtime resolution | Could pre-configure or auto-discover |
+| Area              | Current State                                                 | Simplification Potential                                  |
+| ----------------- | ------------------------------------------------------------- | --------------------------------------------------------- |
+| **Memory**        | ~8GB minimum (canton 3GB + splice 3GB + postgres 2GB)         | Could reduce to 2-4GB with single participant             |
+| **Containers**    | 10+ services (canton, splice, postgres, nginx, keycloak, UIs) | Could reduce to 2-3 (canton, postgres, optional keycloak) |
+| **Configuration** | 50+ env files, HOCON configs, shell scripts                   | Could centralize to single YAML + env file                |
+| **Participants**  | 3 hardcoded (SV, App Provider, App User)                      | Often need only 1-2 for dev/testing                       |
+| **Auth**          | Full OAuth2 with Keycloak OR shared-secret                    | Shared-secret sufficient for local dev                    |
+| **Party Setup**   | Manual script-based, runtime resolution                       | Could pre-configure or auto-discover                      |
 
 ### Recommended Approach
 
 1. **Short-term**: Create wrapper scripts that configure existing Quickstart with minimal profile
-2. **Medium-term**: Use DAML Sandbox for simple contract testing, Canton Console for multi-participant
+2. **Medium-term**: Use DAML Sandbox for simple contract testing, Canton Console for
+   multi-participant
 3. **Long-term**: Build simplified Docker Compose or consider Testcontainers integration
 
 ---
 
 ## Alternative Lightweight Options
 
-Before diving into the current architecture, here are **officially supported lightweight alternatives** discovered during research:
+Before diving into the current architecture, here are **officially supported lightweight
+alternatives** discovered during research:
 
 ### Option 1: DAML Sandbox (Simplest)
 
@@ -65,17 +70,18 @@ daml sandbox --dar myapp.dar --json-api-port 7575
 daml start
 ```
 
-| Aspect | Details |
-|--------|---------|
-| **Startup Time** | ~5 seconds |
-| **Memory** | ~500MB-1GB |
-| **Participants** | Single |
-| **Storage** | In-memory (lost on restart) |
-| **Auth** | None by default |
-| **JSON API** | Included (port 7575) |
-| **Use Case** | Rapid prototyping, unit tests, contract testing |
+| Aspect           | Details                                         |
+| ---------------- | ----------------------------------------------- |
+| **Startup Time** | ~5 seconds                                      |
+| **Memory**       | ~500MB-1GB                                      |
+| **Participants** | Single                                          |
+| **Storage**      | In-memory (lost on restart)                     |
+| **Auth**         | None by default                                 |
+| **JSON API**     | Included (port 7575)                            |
+| **Use Case**     | Rapid prototyping, unit tests, contract testing |
 
 **Limitations:**
+
 - Single participant only
 - No Splice/Token Standard interfaces
 - No persistent storage
@@ -126,15 +132,15 @@ canton {
 canton -c config/dev-minimal.conf
 ```
 
-| Aspect | Details |
-|--------|---------|
-| **Startup Time** | ~15-30 seconds |
-| **Memory** | ~1-2GB |
-| **Participants** | Configurable (1+) |
-| **Storage** | In-memory or PostgreSQL |
-| **Auth** | Shared-secret (unsafe-jwt-hmac-256) |
-| **JSON API** | Included |
-| **Use Case** | Multi-participant testing, scriptable scenarios |
+| Aspect           | Details                                         |
+| ---------------- | ----------------------------------------------- |
+| **Startup Time** | ~15-30 seconds                                  |
+| **Memory**       | ~1-2GB                                          |
+| **Participants** | Configurable (1+)                               |
+| **Storage**      | In-memory or PostgreSQL                         |
+| **Auth**         | Shared-secret (unsafe-jwt-hmac-256)             |
+| **JSON API**     | Included                                        |
+| **Use Case**     | Multi-participant testing, scriptable scenarios |
 
 ### Option 3: Quickstart Shared-Secret Mode (Current, Simplified)
 
@@ -147,28 +153,28 @@ make build
 make start
 ```
 
-| Aspect | Details |
-|--------|---------|
-| **Startup Time** | 2-5 minutes |
-| **Memory** | ~6-8GB |
-| **Participants** | 3 (SV, App Provider, App User) |
-| **Storage** | PostgreSQL (persistent) |
-| **Auth** | Shared-secret JWT |
-| **JSON API** | Ports 2975, 3975, 4975 |
-| **Use Case** | Full integration testing, Token Standard compliance |
+| Aspect           | Details                                             |
+| ---------------- | --------------------------------------------------- |
+| **Startup Time** | 2-5 minutes                                         |
+| **Memory**       | ~6-8GB                                              |
+| **Participants** | 3 (SV, App Provider, App User)                      |
+| **Storage**      | PostgreSQL (persistent)                             |
+| **Auth**         | Shared-secret JWT                                   |
+| **JSON API**     | Ports 2975, 3975, 4975                              |
+| **Use Case**     | Full integration testing, Token Standard compliance |
 
 ### Comparison Matrix
 
-| Feature | DAML Sandbox | Canton Console | Quickstart (shared-secret) |
-|---------|--------------|----------------|---------------------------|
-| **Setup Complexity** | Trivial | Low | Medium |
-| **Memory** | 500MB | 1-2GB | 6-8GB |
-| **Startup** | 5s | 15-30s | 2-5min |
-| **Multi-Participant** | No | Yes | Yes (3 fixed) |
-| **Persistent Storage** | No | Optional | Yes |
-| **Token Standard** | No | No | Yes |
-| **Splice/Validators** | No | No | Yes |
-| **Programmatic Control** | Limited | Good | Shell scripts |
+| Feature                  | DAML Sandbox | Canton Console | Quickstart (shared-secret) |
+| ------------------------ | ------------ | -------------- | -------------------------- |
+| **Setup Complexity**     | Trivial      | Low            | Medium                     |
+| **Memory**               | 500MB        | 1-2GB          | 6-8GB                      |
+| **Startup**              | 5s           | 15-30s         | 2-5min                     |
+| **Multi-Participant**    | No           | Yes            | Yes (3 fixed)              |
+| **Persistent Storage**   | No           | Optional       | Yes                        |
+| **Token Standard**       | No           | No             | Yes                        |
+| **Splice/Validators**    | No           | No             | Yes                        |
+| **Programmatic Control** | Limited      | Good           | Shell scripts              |
 
 ---
 
@@ -225,18 +231,18 @@ make start
 
 ### Container Responsibilities
 
-| Container | Role | Memory | What It Runs |
-|-----------|------|--------|--------------|
-| `canton` | Participant nodes | 3GB | 3 participant processes (SV, App Provider, App User) with Ledger API, Admin API, JSON API |
-| `splice` | Validator nodes | 3GB | 3 validator processes connected to participants |
-| `postgres` | Database | 2GB | Multiple databases for canton, splice, pqs, keycloak |
-| `keycloak` | Auth (optional) | 512MB | OAuth2 identity provider with AppUser, AppProvider realms |
-| `nginx` | Routing | 32MB | Reverse proxy for UIs at *.localhost domains |
-| `splice-onboarding` | Setup | varies | One-time init: creates users, uploads DARs, shares config |
-| `wallet-web-ui-*` | UI | 256MB each | Canton Coin wallet interfaces |
-| `ans-web-ui-*` | UI | 256MB each | Canton Name Service interfaces |
-| `sv-web-ui` | UI | 512MB | Super Validator admin interface |
-| `scan-web-ui` | UI | 256MB | Transaction explorer |
+| Container           | Role              | Memory     | What It Runs                                                                              |
+| ------------------- | ----------------- | ---------- | ----------------------------------------------------------------------------------------- |
+| `canton`            | Participant nodes | 3GB        | 3 participant processes (SV, App Provider, App User) with Ledger API, Admin API, JSON API |
+| `splice`            | Validator nodes   | 3GB        | 3 validator processes connected to participants                                           |
+| `postgres`          | Database          | 2GB        | Multiple databases for canton, splice, pqs, keycloak                                      |
+| `keycloak`          | Auth (optional)   | 512MB      | OAuth2 identity provider with AppUser, AppProvider realms                                 |
+| `nginx`             | Routing           | 32MB       | Reverse proxy for UIs at *.localhost domains                                              |
+| `splice-onboarding` | Setup             | varies     | One-time init: creates users, uploads DARs, shares config                                 |
+| `wallet-web-ui-*`   | UI                | 256MB each | Canton Coin wallet interfaces                                                             |
+| `ans-web-ui-*`      | UI                | 256MB each | Canton Name Service interfaces                                                            |
+| `sv-web-ui`         | UI                | 512MB      | Super Validator admin interface                                                           |
+| `scan-web-ui`       | UI                | 256MB      | Transaction explorer                                                                      |
 
 ### Data Flow
 
@@ -276,6 +282,7 @@ Priority (lowest to highest):
 ### Key Environment Variables
 
 #### Profile Control
+
 ```bash
 # Enable/disable participants (on/off)
 SV_PROFILE=on
@@ -290,6 +297,7 @@ TEST_MODE=false
 ```
 
 #### Port Configuration
+
 ```bash
 # Port suffixes (combined with role prefix 2/3/4)
 PARTICIPANT_LEDGER_API_PORT_SUFFIX=901   # e.g., 3901 for App Provider
@@ -304,6 +312,7 @@ SV_UI_PORT=4000
 ```
 
 #### Database Configuration
+
 ```bash
 DB_USER=cnadmin
 DB_PASSWORD=supersafe
@@ -368,12 +377,12 @@ services:
       - app-user
       - sv
     # Runs only when at least one profile is active
-    
+
   console:
     profiles:
       - console
     # Only runs with explicit --profile console
-    
+
   swagger-ui:
     profiles:
       - swagger-ui
@@ -527,20 +536,22 @@ Full OAuth2 implementation using Keycloak as identity provider.
 ```
 
 **Keycloak Realms:**
+
 - `AppProvider` - For app provider services and users
 - `AppUser` - For app user services and users
 
 **Pre-configured Clients:**
 
-| Realm | Client ID | Purpose |
-|-------|-----------|---------|
+| Realm       | Client ID                | Purpose                |
+| ----------- | ------------------------ | ---------------------- |
 | AppProvider | `app-provider-validator` | Validator service auth |
-| AppProvider | `app-provider-wallet` | Wallet UI |
-| AppProvider | `app-provider-backend` | Backend services |
-| AppUser | `app-user-validator` | Validator service auth |
-| AppUser | `app-user-wallet` | Wallet UI |
+| AppProvider | `app-provider-wallet`    | Wallet UI              |
+| AppProvider | `app-provider-backend`   | Backend services       |
+| AppUser     | `app-user-validator`     | Validator service auth |
+| AppUser     | `app-user-wallet`        | Wallet UI              |
 
 **Token URL Pattern:**
+
 ```
 http://keycloak.localhost:8082/realms/{realm}/protocol/openid-connect/token
 ```
@@ -558,6 +569,7 @@ jwt-cli encode hs256 --s unsafe --p '{"sub": "admin", "aud": "https://sv.example
 ```
 
 **Configuration:**
+
 ```bash
 # Enable shared-secret mode
 AUTH_MODE=shared-secret
@@ -568,11 +580,13 @@ SPLICE_APP_UI_UNSAFE_SECRET=unsafe
 ```
 
 **Advantages:**
+
 - No Keycloak container needed (saves ~512MB RAM)
 - Simpler debugging (tokens are predictable)
 - Faster startup (no Keycloak initialization)
 
 **Limitations:**
+
 - Not suitable for production testing
 - All tokens have same privileges
 - No token expiry enforcement
@@ -602,32 +616,33 @@ export const AuthConfig = z.union([
 ```
 
 **E2E Test Credentials (from quickstart.ts):**
+
 ```typescript
 const APP_USER_CREDENTIALS = {
-  realm: "AppUser",
-  clientId: "app-user-validator",
-  clientSecret: "6m12QyyGl81d9nABWQXMycZdXho6ejEX",
+  realm: 'AppUser',
+  clientId: 'app-user-validator',
+  clientSecret: '6m12QyyGl81d9nABWQXMycZdXho6ejEX',
 };
 
 const APP_PROVIDER_CREDENTIALS = {
-  realm: "AppProvider",
-  clientId: "app-provider-validator", 
-  clientSecret: "AL8648b9SfdTFImq7FV56Vd0KHifHBuC",
+  realm: 'AppProvider',
+  clientId: 'app-provider-validator',
+  clientSecret: 'AL8648b9SfdTFImq7FV56Vd0KHifHBuC',
 };
 ```
 
 **All Pre-configured Keycloak Clients:**
 
-| Realm | Client ID | Secret | Purpose |
-|-------|-----------|--------|---------|
-| AppProvider | `app-provider-validator` | `AL8648b9SfdTFImq7FV56Vd0KHifHBuC` | Validator service |
-| AppProvider | `app-provider-backend` | `05dmL9DAUmDnIlfoZ5EQ7pKskWmhBlNz` | Backend services |
-| AppProvider | `app-provider-pqs` | (varies) | Participant Query Store |
-| AppProvider | `app-provider-wallet` | public client | Wallet UI |
-| AppProvider | `app-provider-ans` | public client | ANS UI |
-| AppUser | `app-user-validator` | `6m12QyyGl81d9nABWQXMycZdXho6ejEX` | Validator service |
-| AppUser | `app-user-pqs` | (varies) | Participant Query Store |
-| AppUser | `app-user-wallet` | public client | Wallet UI |
+| Realm       | Client ID                | Secret                             | Purpose                 |
+| ----------- | ------------------------ | ---------------------------------- | ----------------------- |
+| AppProvider | `app-provider-validator` | `AL8648b9SfdTFImq7FV56Vd0KHifHBuC` | Validator service       |
+| AppProvider | `app-provider-backend`   | `05dmL9DAUmDnIlfoZ5EQ7pKskWmhBlNz` | Backend services        |
+| AppProvider | `app-provider-pqs`       | (varies)                           | Participant Query Store |
+| AppProvider | `app-provider-wallet`    | public client                      | Wallet UI               |
+| AppProvider | `app-provider-ans`       | public client                      | ANS UI                  |
+| AppUser     | `app-user-validator`     | `6m12QyyGl81d9nABWQXMycZdXho6ejEX` | Validator service       |
+| AppUser     | `app-user-pqs`           | (varies)                           | Participant Query Store |
+| AppUser     | `app-user-wallet`        | public client                      | Wallet UI               |
 
 ---
 
@@ -635,44 +650,44 @@ const APP_PROVIDER_CREDENTIALS = {
 
 ### 1. Resource Consumption
 
-| Issue | Impact | Details |
-|-------|--------|---------|
+| Issue                | Impact                          | Details                                                    |
+| -------------------- | ------------------------------- | ---------------------------------------------------------- |
 | High memory baseline | Slow startup, laptop throttling | 8GB+ minimum: canton (3GB) + splice (3GB) + postgres (2GB) |
-| Many containers | Docker overhead | 10+ containers even for simple dev |
-| Cold start time | Developer friction | 2-5 minutes to fully healthy |
+| Many containers      | Docker overhead                 | 10+ containers even for simple dev                         |
+| Cold start time      | Developer friction              | 2-5 minutes to fully healthy                               |
 
 ### 2. Configuration Complexity
 
-| Issue | Impact | Details |
-|-------|--------|---------|
-| Scattered env files | Hard to understand | 50+ .env files across modules |
-| HOCON + YAML + shell | Multiple syntaxes | Learning curve, debugging difficulty |
-| Profile-based logic | Implicit behavior | `${APP_PROVIDER_PROFILE}` in paths |
-| Runtime resolution | Late failures | Party IDs only known after startup |
+| Issue                | Impact             | Details                              |
+| -------------------- | ------------------ | ------------------------------------ |
+| Scattered env files  | Hard to understand | 50+ .env files across modules        |
+| HOCON + YAML + shell | Multiple syntaxes  | Learning curve, debugging difficulty |
+| Profile-based logic  | Implicit behavior  | `${APP_PROVIDER_PROFILE}` in paths   |
+| Runtime resolution   | Late failures      | Party IDs only known after startup   |
 
 ### 3. Fixed Topology
 
-| Issue | Impact | Details |
-|-------|--------|---------|
-| 3 participants hardcoded | Wasted resources | Often need only 1-2 for testing |
-| SV always included | Splice overhead | Not needed for pure token dev |
-| Profile=off still configures | Incomplete isolation | Configs still processed |
+| Issue                        | Impact               | Details                         |
+| ---------------------------- | -------------------- | ------------------------------- |
+| 3 participants hardcoded     | Wasted resources     | Often need only 1-2 for testing |
+| SV always included           | Splice overhead      | Not needed for pure token dev   |
+| Profile=off still configures | Incomplete isolation | Configs still processed         |
 
 ### 4. Data Extraction Challenges
 
-| Issue | Impact | Details |
-|-------|--------|---------|
+| Issue                       | Impact           | Details                      |
+| --------------------------- | ---------------- | ---------------------------- |
 | Party IDs runtime-generated | Manual discovery | Must query API after startup |
-| Package IDs from upload | Not persisted | Lost on container restart |
-| No single config export | Script-based | `share_file()` mechanism |
+| Package IDs from upload     | Not persisted    | Lost on container restart    |
+| No single config export     | Script-based     | `share_file()` mechanism     |
 
 ### 5. Testing Difficulties
 
-| Issue | Impact | Details |
-|-------|--------|---------|
+| Issue                   | Impact             | Details                             |
+| ----------------------- | ------------------ | ----------------------------------- |
 | No programmatic control | Shell scripts only | Can't control from TypeScript tests |
-| Cleanup is destructive | `make clean-all` | Loses all state |
-| No isolated test runs | Shared state | Tests can interfere |
+| Cleanup is destructive  | `make clean-all`   | Loses all state                     |
+| No isolated test runs   | Shared state       | Tests can interfere                 |
 
 ---
 
@@ -685,29 +700,29 @@ Replace scattered env files with a single YAML configuration:
 ```yaml
 # localnet-config.yaml
 network:
-  name: "dev-localnet"
-  
+  name: 'dev-localnet'
+
 participants:
   - name: app-provider
     port_prefix: 3
     memory_limit: 2g
     parties:
       - id: admin
-        display_name: "Token Admin"
+        display_name: 'Token Admin'
       - id: treasury
-        display_name: "Treasury"
+        display_name: 'Treasury'
     users:
       - name: admin-user
         party: admin
         rights: [ParticipantAdmin, ActAs, ReadAs]
-        
+
 auth:
-  mode: shared-secret  # or oauth2
-  secret: "dev-secret"
-  
+  mode: shared-secret # or oauth2
+  secret: 'dev-secret'
+
 database:
-  type: postgres  # or in-memory for ephemeral
-  
+  type: postgres # or in-memory for ephemeral
+
 modules:
   keycloak: false
   pqs: false
@@ -773,29 +788,29 @@ Create a Deno/Node library for programmatic control:
 
 ```typescript
 // Proposed API for mg-tokenization
-import { LocalNet } from "@mg-token/localnet";
+import { LocalNet } from '@mg-token/localnet';
 
-describe("Token E2E", () => {
+describe('Token E2E', () => {
   let network: LocalNet;
-  
+
   beforeAll(async () => {
     network = await LocalNet.start({
-      participants: ["app-provider"],
-      auth: "shared-secret",
-      ephemeral: true,  // In-memory database
+      participants: ['app-provider'],
+      auth: 'shared-secret',
+      ephemeral: true, // In-memory database
     });
-    
+
     // Auto-discovers and exposes
-    console.log(network.jsonApiUrl);  // http://localhost:XXXXX
-    console.log(network.adminParty);  // app-provider::1220...
+    console.log(network.jsonApiUrl); // http://localhost:XXXXX
+    console.log(network.adminParty); // app-provider::1220...
   });
-  
+
   afterAll(async () => {
     await network.stop();
   });
-  
-  test("mint tokens", async () => {
-    const dar = await network.uploadDar("./my-tokens.dar");
+
+  test('mint tokens', async () => {
+    const dar = await network.uploadDar('./my-tokens.dar');
     const ledger = network.getLedgerClient();
     // ...
   });
@@ -878,53 +893,53 @@ Create named profiles for common scenarios:
 
 ### cn-quickstart/quickstart/
 
-| Path | Purpose |
-|------|---------|
+| Path           | Purpose                         |
+| -------------- | ------------------------------- |
 | `compose.yaml` | Main Docker Compose entry point |
-| `.env` | Root environment variables |
-| `Makefile` | Build and management commands |
+| `.env`         | Root environment variables      |
+| `Makefile`     | Build and management commands   |
 
 ### cn-quickstart/quickstart/docker/modules/
 
-| Module | Path | Purpose |
-|--------|------|---------|
-| LocalNet | `localnet/compose.yaml` | Core Canton/Splice containers |
-| LocalNet | `localnet/compose.env` | LocalNet defaults |
-| LocalNet | `localnet/env/*.env` | Per-role environment |
-| LocalNet | `localnet/conf/canton/app.conf` | Canton HOCON config |
-| LocalNet | `localnet/resource-constraints.yaml` | Memory limits |
-| Keycloak | `keycloak/compose.yaml` | OAuth2 provider |
-| Keycloak | `keycloak/conf/data/*.json` | Realm exports |
-| Onboarding | `splice-onboarding/compose.yaml` | Init container |
-| Onboarding | `splice-onboarding/docker/utils.sh` | Helper functions |
-| PQS | `pqs/` | Participant Query Store |
-| Observability | `observability/` | Grafana/Prometheus |
+| Module        | Path                                 | Purpose                       |
+| ------------- | ------------------------------------ | ----------------------------- |
+| LocalNet      | `localnet/compose.yaml`              | Core Canton/Splice containers |
+| LocalNet      | `localnet/compose.env`               | LocalNet defaults             |
+| LocalNet      | `localnet/env/*.env`                 | Per-role environment          |
+| LocalNet      | `localnet/conf/canton/app.conf`      | Canton HOCON config           |
+| LocalNet      | `localnet/resource-constraints.yaml` | Memory limits                 |
+| Keycloak      | `keycloak/compose.yaml`              | OAuth2 provider               |
+| Keycloak      | `keycloak/conf/data/*.json`          | Realm exports                 |
+| Onboarding    | `splice-onboarding/compose.yaml`     | Init container                |
+| Onboarding    | `splice-onboarding/docker/utils.sh`  | Helper functions              |
+| PQS           | `pqs/`                               | Participant Query Store       |
+| Observability | `observability/`                     | Grafana/Prometheus            |
 
 ### mg-tokenization/asset-manager/
 
-| Path | Purpose |
-|------|---------|
-| `src/shared/config.ts` | Zod config schemas |
-| `src/ledger/sdk-client.ts` | SDK client factory |
-| `src/test/e2e/quickstart.ts` | Quickstart helper for E2E |
+| Path                            | Purpose                   |
+| ------------------------------- | ------------------------- |
+| `src/shared/config.ts`          | Zod config schemas        |
+| `src/ledger/sdk-client.ts`      | SDK client factory        |
+| `src/test/e2e/quickstart.ts`    | Quickstart helper for E2E |
 | `src/test/e2e/ledger-client.ts` | E2E ledger client factory |
 
 ### mg-tokenization/config/
 
-| Path | Purpose |
-|------|---------|
-| `localnet.env.example` | General LocalNet config template |
-| `localnet-oauth.env.example` | OAuth mode template |
-| `localnet-bearer.env.example` | Bearer token mode template |
+| Path                          | Purpose                          |
+| ----------------------------- | -------------------------------- |
+| `localnet.env.example`        | General LocalNet config template |
+| `localnet-oauth.env.example`  | OAuth mode template              |
+| `localnet-bearer.env.example` | Bearer token mode template       |
 
 ### mg-tokenization/scripts/
 
-| Path | Purpose |
-|------|---------|
-| `start-localnet.sh` | Start Quickstart wrapper |
-| `stop-localnet.sh` | Stop Quickstart wrapper |
-| `check-localnet.sh` | Health check wrapper |
-| `upload-dar.sh` | DAR upload with auto-auth |
+| Path                | Purpose                   |
+| ------------------- | ------------------------- |
+| `start-localnet.sh` | Start Quickstart wrapper  |
+| `stop-localnet.sh`  | Stop Quickstart wrapper   |
+| `check-localnet.sh` | Health check wrapper      |
+| `upload-dar.sh`     | DAR upload with auto-auth |
 
 ---
 
@@ -946,7 +961,7 @@ Based on this research, recommended next steps organized by timeframe:
    - Faster startup (fewer containers)
    - Sufficient for token minting/burning tests
 
-2. **Document shared-secret setup** 
+2. **Document shared-secret setup**
    - Update `AGENTS.md` with shared-secret auth option
    - Create `config/localnet-shared-secret.env.example`
    - Simplifies initial developer onboarding
@@ -982,7 +997,7 @@ Based on this research, recommended next steps organized by timeframe:
    - Single participant + PostgreSQL + optional Keycloak
    - Target: 2GB memory, 30s startup
 
-7. **Testcontainers spike** 
+7. **Testcontainers spike**
    - Evaluate wrapping Canton in Deno-compatible Testcontainers
    - Would enable fully programmatic test setup
    - Similar pattern to existing `quickstart.ts` but with container lifecycle control
@@ -1013,6 +1028,7 @@ make start
 ## References
 
 ### Official Documentation
+
 - [Canton Getting Started](https://docs.digitalasset.com/operate/3.4/tutorials/getting_started.html)
 - [DAML Sandbox](https://docs.digitalasset.com/build/3.4/component-howtos/application-development/daml-sandbox.html)
 - [Canton Storage Configuration](https://docs.digitalasset.com/operate/3.4/howtos/configure/storage/storage.html)
@@ -1021,9 +1037,11 @@ make start
 - [Splice LocalNet](https://docs.sync.global/app_dev/testing/localnet.html)
 
 ### GitHub Repositories
+
 - [Canton Quickstart](https://github.com/digital-asset/cn-quickstart)
 - [Splice](https://github.com/hyperledger-labs/splice)
 
 ---
 
-*Research compiled from cn-quickstart codebase analysis, Splice LocalNet documentation, Canton official docs, and mg-tokenization project structure.*
+_Research compiled from cn-quickstart codebase analysis, Splice LocalNet documentation, Canton
+official docs, and mg-tokenization project structure._

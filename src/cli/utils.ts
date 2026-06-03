@@ -1,6 +1,6 @@
 import { Table } from '@cliffy/table';
 import { LocalNet } from '../localnet.ts';
-import type { LocalNetStatus, ContainerInfo, ContainerState } from '../docker/types.ts';
+import type { ContainerInfo, ContainerState, LocalNetStatus } from '../docker/types.ts';
 
 const isColorSupported = Deno.stdout.isTerminal();
 

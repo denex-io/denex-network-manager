@@ -52,7 +52,11 @@ Deno.test('config recovery from running instance via Docker labels', async () =>
     const credentials = await attached.getCredentials();
     assertEquals(credentials.length > 0, true);
 
-    await localnet.start({ skipHealthChecks: true, skipInitialization: true });
+    await assertRejects(
+      () => localnet.start({ skipHealthChecks: true, skipInitialization: true }),
+      Error,
+      'LocalNet is already running',
+    );
   } finally {
     await localnet.destroy({ removeVolumes: true });
   }

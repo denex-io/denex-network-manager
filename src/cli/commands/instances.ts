@@ -1,7 +1,7 @@
 import { Command } from '@cliffy/command';
 import { Table } from '@cliffy/table';
 import { LocalNet } from '../../localnet.ts';
-import { printError, colors } from '../utils.ts';
+import { colors, printError } from '../utils.ts';
 import type { DiscoveredInstance } from '../../api/discovery-utils.ts';
 
 export const instancesCommand = new Command()
@@ -51,14 +51,13 @@ function renderInstancesTable(instances: DiscoveredInstance[]): void {
       hasUnsupported = true;
     }
 
-    const statusColor =
-      instance.status === 'running'
-        ? colors.green(instance.status)
-        : instance.status === 'stopped'
-          ? colors.gray(instance.status)
-          : instance.status === 'mixed'
-            ? colors.yellow(instance.status)
-            : colors.red(instance.status);
+    const statusColor = instance.status === 'running'
+      ? colors.green(instance.status)
+      : instance.status === 'stopped'
+      ? colors.gray(instance.status)
+      : instance.status === 'mixed'
+      ? colors.yellow(instance.status)
+      : colors.red(instance.status);
 
     const validatorNames = instance.validatorNames.length > 0
       ? instance.validatorNames.join(', ')

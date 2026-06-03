@@ -1,6 +1,6 @@
 import { Command } from '@cliffy/command';
-import { getRunningLocalNet, renderStatusTable, printError } from '../utils.ts';
-import { normalizeValidators, getRealmName } from '../../types/config.ts';
+import { getRunningLocalNet, printError, renderStatusTable } from '../utils.ts';
+import { getRealmName, normalizeValidators } from '../../types/config.ts';
 import { getKeycloakPort } from '../../utils/ports.ts';
 
 export const statusCommand = new Command()
@@ -17,7 +17,7 @@ export const statusCommand = new Command()
         const config = localnet.getConfig();
         const keycloakPort = getKeycloakPort(config.basePort);
         const validators = normalizeValidators(config.validators);
-        const realms = ['SV', ...validators.map(v => getRealmName(v.name))];
+        const realms = ['SV', ...validators.map((v) => getRealmName(v.name))];
 
         const output = {
           ...status,

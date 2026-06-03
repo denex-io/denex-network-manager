@@ -1,8 +1,8 @@
 import { assertEquals, assertExists } from '@std/assert';
 import {
+  cleanupTestResources,
   createTestDockerClient,
   generateTestInstanceId,
-  cleanupTestResources,
   TEST_IMAGES,
 } from './helpers.ts';
 import { NetworkManager } from '../../src/docker/network.ts';

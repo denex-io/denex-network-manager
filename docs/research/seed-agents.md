@@ -9,7 +9,8 @@ LocalNet management tooling for Canton Network development.
 
 ## Project Purpose
 
-This project provides simplified configuration and runtime discovery for Canton Network LocalNet, wrapping cn-quickstart with:
+This project provides simplified configuration and runtime discovery for Canton Network LocalNet,
+wrapping cn-quickstart with:
 
 1. A human-readable `localnet.yaml` config file (~50 lines vs 135+ config files)
 2. Automatic generation of low-level configs (Keycloak realms, .env files)
@@ -73,11 +74,11 @@ localnet-tools/
 
 **READ THESE FIRST before implementing:**
 
-| Document | Purpose |
-|----------|---------|
-| `localnet-tooling-specification.md` | Complete specification with schemas, CLI design, API design |
-| `localnet-simplification-research.md` | Deep analysis of cn-quickstart complexity |
-| `localnet-project-context.md` | Technical reference, constraints, patterns that work |
+| Document                              | Purpose                                                     |
+| ------------------------------------- | ----------------------------------------------------------- |
+| `localnet-tooling-specification.md`   | Complete specification with schemas, CLI design, API design |
+| `localnet-simplification-research.md` | Deep analysis of cn-quickstart complexity                   |
+| `localnet-project-context.md`         | Technical reference, constraints, patterns that work        |
 
 ### Submodules
 
@@ -141,13 +142,14 @@ deno task fmt
 
 ### LocalNet Port Scheme
 
-| Participant | JSON API | Ledger API | Admin API | Validator API |
-|-------------|----------|------------|-----------|---------------|
-| App User | 2975 | 2901 | 2902 | 2903 |
-| App Provider | 3975 | 3901 | 3902 | 3903 |
-| SV | 4975 | 4901 | 4902 | 4903 |
+| Participant  | JSON API | Ledger API | Admin API | Validator API |
+| ------------ | -------- | ---------- | --------- | ------------- |
+| App User     | 2975     | 2901       | 2902      | 2903          |
+| App Provider | 3975     | 3901       | 3902      | 3903          |
+| SV           | 4975     | 4901       | 4902      | 4903          |
 
 **Port Suffix Convention:**
+
 - `901` = Ledger API (gRPC)
 - `902` = Admin API (gRPC)
 - `903` = Validator Admin API (HTTP)
@@ -163,11 +165,11 @@ Audience:   https://canton.network.global
 
 ### Pre-configured Credentials (localhost only)
 
-| Realm | Client | Secret |
-|-------|--------|--------|
-| AppUser | app-user-validator | 6m12QyyGl81d9nABWQXMycZdXho6ejEX |
+| Realm       | Client                 | Secret                           |
+| ----------- | ---------------------- | -------------------------------- |
+| AppUser     | app-user-validator     | 6m12QyyGl81d9nABWQXMycZdXho6ejEX |
 | AppProvider | app-provider-validator | AL8648b9SfdTFImq7FV56Vd0KHifHBuC |
-| AppProvider | app-provider-backend | 05dmL9DAUmDnIlfoZ5EQ7pKskWmhBlNz |
+| AppProvider | app-provider-backend   | 05dmL9DAUmDnIlfoZ5EQ7pKskWmhBlNz |
 
 ### Party ID Format
 
@@ -219,7 +221,7 @@ Example: app_provider_quickstart-mgaare-1::1220e46903d02f76f0911c27dc2d29d4211b3
 **ALWAYS use Zod for external data validation:**
 
 ```typescript
-import { z } from "zod";
+import { z } from 'zod';
 
 const PartyResponseSchema = z.object({
   partyDetails: z.array(z.object({
@@ -230,7 +232,7 @@ const PartyResponseSchema = z.object({
 
 const response = await fetch(`${jsonApiUrl}/v2/parties`, { headers });
 const json = await response.json();
-const data = PartyResponseSchema.parse(json);  // Runtime validation
+const data = PartyResponseSchema.parse(json); // Runtime validation
 ```
 
 ### OAuth Token Caching
@@ -248,28 +250,28 @@ const tokenCache = new Map<string, TokenCache>();
 async function getToken(realm: string, clientId: string, clientSecret: string): Promise<string> {
   const key = `${realm}:${clientId}`;
   const cached = tokenCache.get(key);
-  
+
   // 30-second buffer before expiry
   if (cached && cached.expiresAt > Date.now() + 30000) {
     return cached.token;
   }
-  
+
   const response = await fetch(tokenUrl, {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams({
-      grant_type: "client_credentials",
+      grant_type: 'client_credentials',
       client_id: clientId,
       client_secret: clientSecret,
     }),
   });
-  
+
   const json = await response.json();
   tokenCache.set(key, {
     token: json.access_token,
     expiresAt: Date.now() + (json.expires_in * 1000),
   });
-  
+
   return json.access_token;
 }
 ```
@@ -281,7 +283,7 @@ async function getToken(realm: string, clientId: string, clientSecret: string): 
 ```typescript
 const response = await fetch(url, {
   headers: { Authorization: `Bearer ${token}` },
-  signal: AbortSignal.timeout(10000),  // 10 second timeout
+  signal: AbortSignal.timeout(10000), // 10 second timeout
 });
 
 // MUST consume body (Deno resource leak detection)
@@ -297,18 +299,18 @@ class LocalNetError extends Error {
   constructor(
     message: string,
     public readonly code: string,
-    public readonly cause?: unknown
+    public readonly cause?: unknown,
   ) {
     super(message);
-    this.name = "LocalNetError";
+    this.name = 'LocalNetError';
   }
 }
 
 // Usage
 throw new LocalNetError(
   `Failed to discover party for ${participant}`,
-  "PARTY_DISCOVERY_FAILED",
-  originalError
+  'PARTY_DISCOVERY_FAILED',
+  originalError,
 );
 ```
 
@@ -319,16 +321,16 @@ throw new LocalNetError(
 Test generation logic in isolation with fixture files:
 
 ```typescript
-import { assertEquals } from "@std/assert";
+import { assertEquals } from '@std/assert';
 
-Deno.test("generateKeycloakRealm creates minimal realm", () => {
-  const realm = generateKeycloakRealm("AppProvider", [
-    { name: "my-client", service_account: true, secret: "test-secret" }
+Deno.test('generateKeycloakRealm creates minimal realm', () => {
+  const realm = generateKeycloakRealm('AppProvider', [
+    { name: 'my-client', service_account: true, secret: 'test-secret' },
   ]);
-  
-  assertEquals(realm.realm, "AppProvider");
+
+  assertEquals(realm.realm, 'AppProvider');
   assertEquals(realm.clients.length, 1);
-  assertEquals(realm.clients[0].clientId, "my-client");
+  assertEquals(realm.clients[0].clientId, 'my-client');
 });
 ```
 
@@ -338,11 +340,11 @@ Use actual LocalNet for discovery tests (requires running services):
 
 ```typescript
 Deno.test({
-  name: "discover parties from running LocalNet",
-  ignore: Deno.env.get("LOCALNET_RUNNING") !== "true",
+  name: 'discover parties from running LocalNet',
+  ignore: Deno.env.get('LOCALNET_RUNNING') !== 'true',
   async fn() {
-    const parties = await discoverParties("http://localhost:3975");
-    assert(parties["app-provider"]?.party_id.includes("app_provider"));
+    const parties = await discoverParties('http://localhost:3975');
+    assert(parties['app-provider']?.party_id.includes('app_provider'));
   },
 });
 ```
@@ -360,14 +362,14 @@ Deno.test({
 
 Reference these when implementing generation:
 
-| File | Purpose |
-|------|---------|
-| `quickstart/docker/modules/localnet/compose.yaml` | Core services |
-| `quickstart/docker/modules/keycloak/compose.yaml` | OAuth2 |
+| File                                                          | Purpose                         |
+| ------------------------------------------------------------- | ------------------------------- |
+| `quickstart/docker/modules/localnet/compose.yaml`             | Core services                   |
+| `quickstart/docker/modules/keycloak/compose.yaml`             | OAuth2                          |
 | `quickstart/docker/modules/splice-onboarding/docker/utils.sh` | Party/user management functions |
-| `quickstart/docker/modules/keycloak/conf/data/*.json` | Keycloak realm exports |
-| `quickstart/docker/modules/localnet/env/common.env` | Port configuration |
-| `quickstart/Makefile` | Build/start/stop commands |
+| `quickstart/docker/modules/keycloak/conf/data/*.json`         | Keycloak realm exports          |
+| `quickstart/docker/modules/localnet/env/common.env`           | Port configuration              |
+| `quickstart/Makefile`                                         | Build/start/stop commands       |
 
 ## Dependencies (deno.json imports)
 
@@ -389,45 +391,45 @@ Reference these when implementing generation:
 ## Example localnet.yaml
 
 ```yaml
-version: "1.0"
+version: '1.0'
 
 participants:
   app-provider:
     enabled: true
     json_api_port: 3975
-    realm: "AppProvider"
-    party_hint: "app_provider"
-    
+    realm: 'AppProvider'
+    party_hint: 'app_provider'
+
   app-user:
     enabled: true
     json_api_port: 2975
-    realm: "AppUser"
-    party_hint: "app_user"
+    realm: 'AppUser'
+    party_hint: 'app_user'
 
 clients:
   app-provider-validator:
-    realm: "AppProvider"
+    realm: 'AppProvider'
     service_account: true
-    client_secret: "AL8648b9SfdTFImq7FV56Vd0KHifHBuC"
-    
+    client_secret: 'AL8648b9SfdTFImq7FV56Vd0KHifHBuC'
+
   app-user-validator:
-    realm: "AppUser"
+    realm: 'AppUser'
     service_account: true
-    client_secret: "6m12QyyGl81d9nABWQXMycZdXho6ejEX"
+    client_secret: '6m12QyyGl81d9nABWQXMycZdXho6ejEX'
 
 packages:
-  - name: "my-daml-package"
-    dar_path: "../daml/.daml/dist/my-package-1.0.0.dar"
+  - name: 'my-daml-package'
+    dar_path: '../daml/.daml/dist/my-package-1.0.0.dar'
     upload_to:
-      - "app-provider"
-      - "app-user"
+      - 'app-provider'
+      - 'app-user'
 
 discovery:
   port: 3100
-  host: "127.0.0.1"
+  host: '127.0.0.1'
   cache_ttl_seconds: 300
 ```
 
 ---
 
-*Seed AGENTS.md for localnet-tools project. Based on mg-tokenization research. January 2026.*
+_Seed AGENTS.md for localnet-tools project. Based on mg-tokenization research. January 2026._

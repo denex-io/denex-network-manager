@@ -51,7 +51,9 @@ export async function loadConfigFile(path: string): Promise<ParsedLocalNetConfig
   return parseLocalNetConfig(parsed);
 }
 
-export async function loadConfigFromDir(dir: string = process.cwd()): Promise<ParsedLocalNetConfig> {
+export async function loadConfigFromDir(
+  dir: string = process.cwd(),
+): Promise<ParsedLocalNetConfig> {
   const configPath = await findConfigFile(dir);
   if (!configPath) {
     throw new Error(

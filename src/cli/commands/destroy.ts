@@ -1,5 +1,11 @@
 import { Command } from '@cliffy/command';
-import { getDestroyableLocalNet, printSuccess, printError, printWarning, progress } from '../utils.ts';
+import {
+  getDestroyableLocalNet,
+  printError,
+  printSuccess,
+  printWarning,
+  progress,
+} from '../utils.ts';
 
 export const destroyCommand = new Command()
   .name('destroy')

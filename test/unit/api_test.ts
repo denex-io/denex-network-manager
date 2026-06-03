@@ -1,15 +1,15 @@
 import { assertEquals, assertExists } from '@std/assert';
-import { TokenManager, createAuthHeader } from '../../src/api/auth.ts';
+import { createAuthHeader, TokenManager } from '../../src/api/auth.ts';
 import type { AuthConfig, LocalNetConfig } from '../../src/types/config.ts';
 import {
   CantonClient,
   createCanActAs,
-  createCanReadAs,
-  createParticipantAdmin,
   createCanExecuteAs,
-  createCanReadAsAnyParty,
   createCanExecuteAsAnyParty,
+  createCanReadAs,
+  createCanReadAsAnyParty,
   createIdentityProviderAdmin,
+  createParticipantAdmin,
 } from '../../src/api/canton.ts';
 import { LocalNet } from '../../src/localnet.ts';
 

@@ -1,5 +1,5 @@
 import { Command } from '@cliffy/command';
-import { printSuccess, printError, progress } from '../utils.ts';
+import { printError, printSuccess, progress } from '../utils.ts';
 import { loadConfigFile, loadConfigFromDir } from '../../utils/yaml.ts';
 import { LocalNet } from '../../localnet.ts';
 
@@ -50,7 +50,9 @@ export const startCommand = new Command()
       console.log(`  Network:    ${status.network?.name ?? 'none'}`);
 
       if (config.discovery) {
-        console.warn('Warning: "discovery" config field is deprecated. Use "localnet discovery serve" for multi-instance discovery.');
+        console.warn(
+          'Warning: "discovery" config field is deprecated. Use "localnet discovery serve" for multi-instance discovery.',
+        );
       }
     } catch (error) {
       spin.stop();

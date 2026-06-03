@@ -1,13 +1,13 @@
 import { assertEquals, assertExists } from '@std/assert';
 import {
+  buildConfigEnvironmentInfo,
+  getSvPorts,
+  getValidatorPorts,
+  loadConfigFromString,
+  normalizeValidators,
   parseLocalNetConfig,
   validateLocalNetConfig,
   withDefaults,
-  normalizeValidators,
-  getValidatorPorts,
-  getSvPorts,
-  loadConfigFromString,
-  buildConfigEnvironmentInfo,
 } from '../../src/mod.ts';
 import { getRealmName } from '../../src/types/config.ts';
 
@@ -191,7 +191,15 @@ Deno.test('parseLocalNetConfig - new participant-wide rights accepted', () => {
       {
         name: 'test-validator',
         users: [
-          { id: 'super-admin', rights: ['ParticipantAdmin', 'CanReadAsAnyParty', 'CanExecuteAsAnyParty', 'IdentityProviderAdmin'] },
+          {
+            id: 'super-admin',
+            rights: [
+              'ParticipantAdmin',
+              'CanReadAsAnyParty',
+              'CanExecuteAsAnyParty',
+              'IdentityProviderAdmin',
+            ],
+          },
         ],
       },
     ],
@@ -200,7 +208,12 @@ Deno.test('parseLocalNetConfig - new participant-wide rights accepted', () => {
 
   if (Array.isArray(config.validators)) {
     const users = config.validators[0].users;
-    assertEquals(users?.[0].rights, ['ParticipantAdmin', 'CanReadAsAnyParty', 'CanExecuteAsAnyParty', 'IdentityProviderAdmin']);
+    assertEquals(users?.[0].rights, [
+      'ParticipantAdmin',
+      'CanReadAsAnyParty',
+      'CanExecuteAsAnyParty',
+      'IdentityProviderAdmin',
+    ]);
   }
 });
 
@@ -213,7 +226,7 @@ Deno.test('parseLocalNetConfig - user parties default rights', () => {
           {
             id: 'alice',
             primaryParty: 'alice',
-            parties: [{ hint: 'bob' }],  // No rights specified — should default to undefined (handled at runtime)
+            parties: [{ hint: 'bob' }], // No rights specified — should default to undefined (handled at runtime)
           },
         ],
         parties: [{ hint: 'alice' }, { hint: 'bob' }],
@@ -225,7 +238,7 @@ Deno.test('parseLocalNetConfig - user parties default rights', () => {
   if (Array.isArray(config.validators)) {
     const users = config.validators[0].users;
     assertEquals(users?.[0].parties?.[0].hint, 'bob');
-    assertEquals(users?.[0].parties?.[0].rights, undefined);  // Not specified in config
+    assertEquals(users?.[0].parties?.[0].rights, undefined); // Not specified in config
   }
 });
 
@@ -291,7 +304,11 @@ Deno.test('buildConfigEnvironmentInfo - default config has correct structure', (
 });
 
 Deno.test('buildConfigEnvironmentInfo - custom basePort', () => {
-  const config = { validators: 1, basePort: 6000, auth: { keycloak: { admin: 'admin', password: 'admin' } } };
+  const config = {
+    validators: 1,
+    basePort: 6000,
+    auth: { keycloak: { admin: 'admin', password: 'admin' } },
+  };
   const info = buildConfigEnvironmentInfo(config);
 
   assertEquals(info.validators.sv.endpoints.ledgerApi, 'http://localhost:6001');

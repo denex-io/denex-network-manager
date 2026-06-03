@@ -1,6 +1,6 @@
 import type { LocalNetConfig } from '../types/config.ts';
 import { normalizeValidators } from '../types/config.ts';
-import { DEFAULT_BASE_PORT, getValidatorPorts, getSvPorts } from '../utils/ports.ts';
+import { DEFAULT_BASE_PORT, getSvPorts, getValidatorPorts } from '../utils/ports.ts';
 
 export function generateNginxConfigString(config: LocalNetConfig): string {
   const validators = normalizeValidators(config.validators);

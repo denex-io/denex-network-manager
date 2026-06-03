@@ -23,6 +23,7 @@
     "npm:@types/node@*": "24.2.0",
     "npm:dockerode@4": "4.0.9",
     "npm:playwright@*": "1.57.0",
+    "npm:playwright@1.57.0": "1.57.0",
     "npm:yaml@^2.7.0": "2.8.2",
     "npm:zod@^3.23.0": "3.25.76"
   },

@@ -30,19 +30,10 @@
  * @module sdk/builder
  */
 
-import type {
-  PartyConfig,
-  UserConfig,
-  UserRight,
-  ValidatorConfig,
-} from '../types/config.ts';
+import type { PartyConfig, UserConfig, UserRight, ValidatorConfig } from '../types/config.ts';
 import type { ParsedLocalNetConfig } from '../schemas/mod.ts';
 import { withDefaults } from '../schemas/mod.ts';
-import type {
-  LocalNetBuilderConfig,
-  UserSpec,
-  ValidatorSpec,
-} from './types.ts';
+import type { LocalNetBuilderConfig, UserSpec, ValidatorSpec } from './types.ts';
 
 /**
  * Fluent builder for constructing LocalNet configurations programmatically.
@@ -226,10 +217,9 @@ export class LocalNetBuilder {
    * ```
    */
   build(): ParsedLocalNetConfig {
-    const validators: ValidatorConfig[] | number =
-      this.config.validators.length === 0
-        ? 2
-        : this.config.validators.map((spec) => this.specToConfig(spec));
+    const validators: ValidatorConfig[] | number = this.config.validators.length === 0
+      ? 2
+      : this.config.validators.map((spec) => this.specToConfig(spec));
 
     return withDefaults({
       validators,

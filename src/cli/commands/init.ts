@@ -1,5 +1,5 @@
 import { Command } from '@cliffy/command';
-import { getRunningLocalNet, printSuccess, printError, progress } from '../utils.ts';
+import { getRunningLocalNet, printError, printSuccess, progress } from '../utils.ts';
 
 export const initCommand = new Command()
   .name('init')
@@ -13,7 +13,9 @@ export const initCommand = new Command()
 
       const status = await localnet.status();
       if (status.state !== 'running') {
-        throw new Error(`LocalNet is not running (state: ${status.state}). Start it first with 'localnet start'.`);
+        throw new Error(
+          `LocalNet is not running (state: ${status.state}). Start it first with 'localnet start'.`,
+        );
       }
 
       await localnet.initializeResources((message) => spin.update(message));
@@ -22,7 +24,9 @@ export const initCommand = new Command()
       printSuccess('Resource initialization complete');
     } catch (error) {
       spin.stop();
-      printError(`Failed to initialize resources: ${error instanceof Error ? error.message : error}`);
+      printError(
+        `Failed to initialize resources: ${error instanceof Error ? error.message : error}`,
+      );
       Deno.exit(1);
     }
   });

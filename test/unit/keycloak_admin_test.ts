@@ -18,7 +18,12 @@ function installFetchMock(handler: (call: FetchCall) => Response | Promise<Respo
     calls.push(call);
     return Promise.resolve(handler(call));
   }) as typeof fetch;
-  return { calls, restore: () => { globalThis.fetch = original; } };
+  return {
+    calls,
+    restore: () => {
+      globalThis.fetch = original;
+    },
+  };
 }
 
 function tokenResponse(accessToken = 'test-token-abc', expiresIn = 300): Response {
@@ -61,7 +66,9 @@ Deno.test('KeycloakAdminClient - getToken caches across sequential calls', async
 Deno.test('KeycloakAdminClient - getToken dedupes 5 concurrent calls into 1 fetch', async () => {
   let tokenFetchCount = 0;
   let resolveFetch: (() => void) | null = null;
-  const fetchGate = new Promise<void>((resolve) => { resolveFetch = resolve; });
+  const fetchGate = new Promise<void>((resolve) => {
+    resolveFetch = resolve;
+  });
 
   const { restore } = installFetchMock(async (call) => {
     if (call.url.includes('/protocol/openid-connect/token')) {
@@ -117,7 +124,10 @@ Deno.test('KeycloakAdminClient - getToken refreshes after 401', async () => {
       if (auth === 'Bearer token-1') {
         return new Response('Unauthorized', { status: 401 });
       }
-      return new Response(JSON.stringify([]), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      return new Response(JSON.stringify([]), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
     }
     return new Response('not found', { status: 404 });
   });
@@ -162,7 +172,10 @@ Deno.test('KeycloakAdminClient - findUser returns null when no users match', asy
     if (call.url.includes('/protocol/openid-connect/token')) {
       return tokenResponse();
     }
-    return new Response(JSON.stringify([]), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    return new Response(JSON.stringify([]), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    });
   });
 
   try {
@@ -211,7 +224,10 @@ Deno.test('KeycloakAdminClient - createUser sends requiredActions:[] and enabled
     }
     if (call.init?.method === 'GET' && call.url.includes('/admin/realms/')) {
       // findUser returns empty -> user does not exist yet.
-      return new Response(JSON.stringify([]), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      return new Response(JSON.stringify([]), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
     }
     if (call.init?.method === 'POST' && call.url.endsWith('/users')) {
       return new Response(null, {

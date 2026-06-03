@@ -1,12 +1,12 @@
 /// <reference types="npm:@types/node" />
 import Dockerode from 'dockerode';
 import type {
-  ContainerSpec,
   ContainerInfo,
+  ContainerSpec,
   ContainerState,
   NetworkInfo,
-  VolumeInfo,
   PortBinding,
+  VolumeInfo,
 } from './types.ts';
 
 export interface DockerClientOptions {
@@ -94,19 +94,17 @@ export class DockerClient {
         NetworkMode: spec.networks?.[0],
         Memory: spec.memoryLimit,
         NanoCpus: spec.cpuLimit ? spec.cpuLimit * 1e9 : undefined,
-        RestartPolicy: spec.restart
-          ? { Name: spec.restart }
-          : undefined,
+        RestartPolicy: spec.restart ? { Name: spec.restart } : undefined,
       },
-      Healthcheck: spec.healthCheck
-        ? this.buildHealthCheck(spec.healthCheck)
-        : undefined,
+      Healthcheck: spec.healthCheck ? this.buildHealthCheck(spec.healthCheck) : undefined,
     });
 
     return container.id;
   }
 
-  private buildHealthCheck(config: ContainerSpec['healthCheck']): Dockerode.HealthConfig | undefined {
+  private buildHealthCheck(
+    config: ContainerSpec['healthCheck'],
+  ): Dockerode.HealthConfig | undefined {
     if (!config) return undefined;
 
     const interval = (config.interval ?? 10) * 1e9;
@@ -117,10 +115,16 @@ export class DockerClient {
     let test: string[];
     switch (config.type) {
       case 'http':
-        test = ['CMD-SHELL', `(wget -q --spider ${config.target} || curl -sf ${config.target} >/dev/null) || exit 1`];
+        test = [
+          'CMD-SHELL',
+          `(wget -q --spider ${config.target} || curl -sf ${config.target} >/dev/null) || exit 1`,
+        ];
         break;
       case 'tcp':
-        test = ['CMD-SHELL', `(nc -z localhost ${config.target} || (echo >/dev/tcp/localhost/${config.target})) 2>/dev/null || exit 1`];
+        test = [
+          'CMD-SHELL',
+          `(nc -z localhost ${config.target} || (echo >/dev/tcp/localhost/${config.target})) 2>/dev/null || exit 1`,
+        ];
         break;
       case 'exec':
         test = ['CMD-SHELL', config.target];
@@ -262,8 +266,14 @@ export class DockerClient {
     };
 
     const logStream = follow
-      ? await container.logs({ ...logOptions, follow: true as const }) as unknown as NodeJS.ReadableStream
-      : await container.logs({ ...logOptions, follow: false as const }) as unknown as NodeJS.ReadableStream;
+      ? await container.logs({
+        ...logOptions,
+        follow: true as const,
+      }) as unknown as NodeJS.ReadableStream
+      : await container.logs({
+        ...logOptions,
+        follow: false as const,
+      }) as unknown as NodeJS.ReadableStream;
 
     return new ReadableStream({
       start(controller) {
@@ -311,7 +321,11 @@ export class DockerClient {
     }
   }
 
-  async connectToNetwork(networkIdOrName: string, containerIdOrName: string, aliases?: string[]): Promise<void> {
+  async connectToNetwork(
+    networkIdOrName: string,
+    containerIdOrName: string,
+    aliases?: string[],
+  ): Promise<void> {
     await this.docker.getNetwork(networkIdOrName).connect({
       Container: containerIdOrName,
       EndpointConfig: aliases ? { Aliases: aliases } : undefined,

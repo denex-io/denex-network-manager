@@ -6,7 +6,7 @@ import {
   getValidatorClientId,
   normalizeValidators,
 } from '../types/config.ts';
-import { getValidatorPorts, getSvPorts, SV_INTERNAL_PORTS } from '../utils/ports.ts';
+import { getSvPorts, getValidatorPorts, SV_INTERNAL_PORTS } from '../utils/ports.ts';
 
 /**
  * Generate the auth block for Splice config.
@@ -185,13 +185,17 @@ canton {
       port = ${SV_INTERNAL_PORTS.scanAdmin}
     }
     participant-client = \${_sv_participant_client}
-    sequencer-admin-client = {
-      address = canton
-      port = ${SV_INTERNAL_PORTS.sequencerAdmin}
-    }
-    mediator-admin-client = {
-      address = canton
-      port = ${SV_INTERNAL_PORTS.mediatorAdmin}
+    synchronizer-nodes {
+      current {
+        sequencer = {
+          address = canton
+          port = ${SV_INTERNAL_PORTS.sequencerAdmin}
+        }
+        mediator = {
+          address = canton
+          port = ${SV_INTERNAL_PORTS.mediatorAdmin}
+        }
+      }
     }
     sv-user = "${svLedgerApiUser}"
     splice-instance-names = \${_splice-instance-names}
@@ -207,7 +211,7 @@ ${expectedOnboardings}
       public-url = "http://localhost:${SV_INTERNAL_PORTS.scanAdmin}"
       internal-url = "http://localhost:${SV_INTERNAL_PORTS.scanAdmin}"
     }
-    local-synchronizer-node {
+    local-synchronizer-nodes.current {
       sequencer {
         admin-api {
           address = canton
@@ -222,6 +226,10 @@ ${expectedOnboardings}
       mediator.admin-api {
         address = canton
         port = ${SV_INTERNAL_PORTS.mediatorAdmin}
+      }
+
+      comet-bft-config {
+        enabled = false
       }
     }
 
@@ -251,9 +259,6 @@ ${expectedOnboardings}
       is-dev-net = true
     }
 
-    comet-bft-config {
-      enabled = false
-    }
     contact-point = ""
     canton-identifier-config = {
       participant = sv
@@ -382,13 +387,13 @@ export function generateFullSpliceConfig(
     config += generateValidatorSpliceConfig(
       validator.name,
       i,
-        onboardingSecrets[i],
-        svAddress,
-        scanAddress,
-        partyHint,
-        resolvedAuthConfig,
-        basePort,
-      );
+      onboardingSecrets[i],
+      svAddress,
+      scanAddress,
+      partyHint,
+      resolvedAuthConfig,
+      basePort,
+    );
   }
 
   return config;

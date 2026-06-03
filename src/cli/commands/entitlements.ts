@@ -1,6 +1,6 @@
 import { Command } from '@cliffy/command';
 import { Table } from '@cliffy/table';
-import { getRunningLocalNet, printError, colors } from '../utils.ts';
+import { colors, getRunningLocalNet, printError } from '../utils.ts';
 import type { ApiUserRight } from '../../api/canton.ts';
 
 function formatRight(right: ApiUserRight): string {
@@ -61,7 +61,9 @@ export const entitlementsCommand = new Command()
         table.push([
           user.id,
           user.primaryParty
-            ? (user.primaryParty.length > 30 ? user.primaryParty.substring(0, 27) + '...' : user.primaryParty)
+            ? (user.primaryParty.length > 30
+              ? user.primaryParty.substring(0, 27) + '...'
+              : user.primaryParty)
             : colors.gray('-'),
           rightsDisplay,
           user.validator,

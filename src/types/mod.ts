@@ -10,7 +10,13 @@ export type {
   ValidatorConfig,
 } from './config.ts';
 
-export { CONFIG_DEFAULTS, DEFAULT_AUDIENCE, getKeycloakUrl, normalizeValidators, resolveRealmName } from './config.ts';
+export {
+  CONFIG_DEFAULTS,
+  DEFAULT_AUDIENCE,
+  getKeycloakUrl,
+  normalizeValidators,
+  resolveRealmName,
+} from './config.ts';
 
 export type {
   ContainerStatus,

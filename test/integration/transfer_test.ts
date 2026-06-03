@@ -1,8 +1,8 @@
 import { assertEquals, assertExists } from '@std/assert';
 import {
+  cleanupTestResources,
   createTestDockerClient,
   generateTestInstanceId,
-  cleanupTestResources,
   isDockerAvailable,
 } from './helpers.ts';
 import { LocalNet } from '../../src/localnet.ts';
@@ -50,7 +50,9 @@ Deno.test({
 
       assertEquals(localnet.currentState, 'running');
 
-      const initMessages = messages.filter((m) => m.includes('Initializing') || m.includes('party') || m.includes('user'));
+      const initMessages = messages.filter((m) =>
+        m.includes('Initializing') || m.includes('party') || m.includes('user')
+      );
       console.log('Initialization messages:', initMessages);
 
       const v1State = await localnet.getValidatorState('validator-1');
@@ -63,7 +65,6 @@ Deno.test({
 
       const parties = await localnet.getParties();
       console.log('All parties:', parties.map((p) => ({ hint: p.hint, validator: p.validator })));
-
     } finally {
       await localnet.destroy({ removeVolumes: true });
       await cleanupTestResources(client, instanceId);
@@ -81,12 +82,12 @@ Deno.test({
     const instanceId = generateTestInstanceId();
     const simpleConfig: LocalNetConfig = {
       validators: 1,
-     auth: {
-       keycloak: {
-         admin: 'admin',
-         password: 'admin',
-       },
-     },
+      auth: {
+        keycloak: {
+          admin: 'admin',
+          password: 'admin',
+        },
+      },
     };
     const localnet = new LocalNet(simpleConfig, { instanceId });
 
@@ -97,7 +98,6 @@ Deno.test({
 
       assertExists(dsoPartyId, 'DSO party ID should exist');
       console.log('DSO Party ID:', dsoPartyId);
-
     } finally {
       await localnet.destroy({ removeVolumes: true });
       await cleanupTestResources(client, instanceId);

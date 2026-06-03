@@ -1,12 +1,13 @@
 import { assertEquals, assertRejects } from '@std/assert';
-import { chromium } from 'npm:playwright';
+import { chromium } from 'npm:playwright@1.57.0';
 import { LocalNet } from '../../src/localnet.ts';
 import type { LocalNetConfig } from '../../src/types/config.ts';
 import { localnetFetch } from '../../src/utils/fetch.ts';
+import { getSvPorts, getValidatorPorts } from '../../src/utils/ports.ts';
 import {
+  cleanupTestResources,
   createTestDockerClient,
   generateTestInstanceId,
-  cleanupTestResources,
   isDockerAvailable,
 } from './helpers.ts';
 
@@ -33,35 +34,35 @@ interface WebUIConfig {
 const WEB_UIS: WebUIConfig[] = [
   {
     name: 'SV Management',
-    url: 'http://sv.localhost:4000',
+    url: `http://sv.localhost:${getSvPorts().webUi}`,
     username: 'sv',
     password: 'sv',
     screenshotName: 'e2e-sv-management.png',
   },
   {
     name: 'Scan Explorer',
-    url: 'http://scan.localhost:4000',
+    url: `http://scan.localhost:${getSvPorts().webUi}`,
     username: '',
     password: '',
     screenshotName: 'e2e-scan-explorer.png',
   },
   {
     name: 'SV Wallet',
-    url: 'http://wallet.localhost:4000',
+    url: `http://wallet.localhost:${getSvPorts().webUi}`,
     username: 'sv',
     password: 'sv',
     screenshotName: 'e2e-sv-wallet.png',
   },
   {
     name: 'Validator-1 Wallet',
-    url: 'http://wallet.localhost:3000',
+    url: `http://wallet.localhost:${getValidatorPorts(0).webUi}`,
     username: 'validator-1',
     password: 'validator-1',
     screenshotName: 'e2e-validator-1-wallet.png',
   },
   {
     name: 'Validator-2 Wallet',
-    url: 'http://wallet.localhost:2000',
+    url: `http://wallet.localhost:${getValidatorPorts(1).webUi}`,
     username: 'validator-2',
     password: 'validator-2',
     screenshotName: 'e2e-validator-2-wallet.png',
@@ -71,8 +72,6 @@ const WEB_UIS: WebUIConfig[] = [
 async function ensureEvidenceDir(): Promise<void> {
   await Deno.mkdir(EVIDENCE_DIR, { recursive: true });
 }
-
-
 
 Deno.test({
   name: 'E2E Browser: Full LocalNet with 2 validators, API verification, and UI login tests',
@@ -109,7 +108,9 @@ Deno.test({
 
       for (const state of validatorStates) {
         console.log(
-          `[E2E] Validator ${state.name}: healthy=${state.isHealthy}, party=${state.validatorParty?.substring(0, 30) ?? 'none'}...`,
+          `[E2E] Validator ${state.name}: healthy=${state.isHealthy}, party=${
+            state.validatorParty?.substring(0, 30) ?? 'none'
+          }...`,
         );
         assertEquals(state.isHealthy, true, `${state.name} should be healthy`);
         if (!state.validatorParty) {
@@ -124,7 +125,9 @@ Deno.test({
         console.log(`[E2E] SV users: ${svUsers.length}`);
       } catch (error) {
         console.log(
-          `[E2E] Warning: Could not get SV users: ${error instanceof Error ? error.message : error}`,
+          `[E2E] Warning: Could not get SV users: ${
+            error instanceof Error ? error.message : error
+          }`,
         );
       }
 
@@ -133,7 +136,9 @@ Deno.test({
         console.log(`[E2E] Validator-1 users: ${v1Users.length}`);
       } catch (error) {
         console.log(
-          `[E2E] Warning: Could not get validator-1 users: ${error instanceof Error ? error.message : error}`,
+          `[E2E] Warning: Could not get validator-1 users: ${
+            error instanceof Error ? error.message : error
+          }`,
         );
       }
 
@@ -142,7 +147,9 @@ Deno.test({
         console.log(`[E2E] Validator-2 users: ${v2Users.length}`);
       } catch (error) {
         console.log(
-          `[E2E] Warning: Could not get validator-2 users: ${error instanceof Error ? error.message : error}`,
+          `[E2E] Warning: Could not get validator-2 users: ${
+            error instanceof Error ? error.message : error
+          }`,
         );
       }
 
@@ -164,7 +171,9 @@ Deno.test({
           );
         } catch (error) {
           console.log(
-            `[E2E]   Warning: Could not reach ${ui.name}: ${error instanceof Error ? error.message : error}`,
+            `[E2E]   Warning: Could not reach ${ui.name}: ${
+              error instanceof Error ? error.message : error
+            }`,
           );
         }
       }
@@ -196,14 +205,18 @@ Deno.test({
               await page.click('#kc-login');
 
               console.log(`[E2E]   Waiting for redirect...`);
-              await page.waitForURL((url: URL) => !url.toString().includes('/realms/'), { timeout: 30000 });
+              await page.waitForURL((url: URL) => !url.toString().includes('/realms/'), {
+                timeout: 30000,
+              });
             } else {
               console.log(`[E2E]   No login button found, may already be logged in`);
             }
 
             const bodyText = await page.textContent('body');
             const hasError = ['error', 'failed', 'something went wrong']
-              .some(e => bodyText?.toLowerCase().includes(e) && !bodyText.toLowerCase().includes('no error'));
+              .some((e) =>
+                bodyText?.toLowerCase().includes(e) && !bodyText.toLowerCase().includes('no error')
+              );
 
             if (hasError) {
               console.log(`[E2E]   Warning: ${ui.name} may have errors`);
@@ -212,8 +225,12 @@ Deno.test({
             await page.screenshot({ path: `${EVIDENCE_DIR}/${ui.screenshotName}` });
             console.log(`[E2E]   ${ui.name} complete`);
           } catch (error) {
-            console.log(`[E2E]   Error testing ${ui.name}: ${error instanceof Error ? error.message : error}`);
-            await page.screenshot({ path: `${EVIDENCE_DIR}/${ui.screenshotName.replace('.png', '-error.png')}` });
+            console.log(
+              `[E2E]   Error testing ${ui.name}: ${error instanceof Error ? error.message : error}`,
+            );
+            await page.screenshot({
+              path: `${EVIDENCE_DIR}/${ui.screenshotName.replace('.png', '-error.png')}`,
+            });
           }
         }
       } finally {
@@ -245,11 +262,15 @@ Deno.test({
       const containersAfterDestroy = await client.listContainers({
         'localnet.instance': instanceId,
       });
-      assertEquals(containersAfterDestroy.length, 0, 'All containers should be removed after destroy');
+      assertEquals(
+        containersAfterDestroy.length,
+        0,
+        'All containers should be removed after destroy',
+      );
 
       console.log('[E2E] Starting LocalNet with new config (force recreate)...');
       await localnet2.start({
-        timeout: 300000,
+        timeout: 420000,
         onProgress: (msg) => console.log(`[progress] ${msg}`),
       });
 
@@ -283,4 +304,3 @@ Deno.test({
     }
   },
 });
-

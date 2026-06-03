@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { LocalNet } from '../../src/localnet.ts';
 import { createMinimalConfig } from '../../src/utils/yaml.ts';
-import type { UserRight, PerPartyRight } from '../../src/types/config.ts';
+import type { PerPartyRight, UserRight } from '../../src/types/config.ts';
 
 Deno.test('LocalNet.fromConfig accepts a config object', async () => {
   const config = createMinimalConfig(2);

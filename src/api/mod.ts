@@ -1,57 +1,57 @@
-export { TokenManager, createAuthHeader, type TokenInfo } from './auth.ts';
+export { createAuthHeader, type TokenInfo, TokenManager } from './auth.ts';
 
 export { KeycloakAdminClient } from './keycloak-admin.ts';
 
 export {
-  CantonClient,
+  type ApiUserRight,
   CantonApiError,
-  createCanActAs,
-  createCanReadAs,
-  createParticipantAdmin,
-  createCanExecuteAs,
-  createCanReadAsAnyParty,
-  createCanExecuteAsAnyParty,
-  createIdentityProviderAdmin,
+  CantonClient,
   type CantonClientOptions,
+  type ConnectedSynchronizer,
+  createCanActAs,
+  createCanExecuteAs,
+  createCanExecuteAsAnyParty,
+  createCanReadAs,
+  createCanReadAsAnyParty,
+  createIdentityProviderAdmin,
+  createParticipantAdmin,
+  type PackageDetails,
   type PartyDetails,
   type UserDetails,
-  type ApiUserRight,
-  type PackageDetails,
-  type ConnectedSynchronizer,
 } from './canton.ts';
 
 export {
   ValidatorAdminClient,
-  ValidatorApiError,
   type ValidatorAdminClientOptions,
+  ValidatorApiError,
   type ValidatorUserInfo,
   type WalletUserStatus,
 } from './validator.ts';
 
 export type {
+  ApiLocalNetSnapshot,
+  ApiPackageInfo,
   ApiPartyInfo,
   ApiUserInfo,
   ApiUserInfoWithRights,
-  ApiPackageInfo,
   ApiValidatorState,
-  ApiLocalNetSnapshot,
 } from './state-types.ts';
 
 export {
   MultiInstanceDiscoveryServer,
   type MultiInstanceDiscoveryServerOptions,
-  type StatusResponse,
-  type PartiesResponse,
   type PackagesResponse,
+  type PartiesResponse,
+  type StatusResponse,
 } from './discovery.ts';
 
 export {
-  reconstructConfigFromLabels,
-  discoverInstances,
-  LABEL_PREFIX,
-  LABEL_INSTANCE,
-  LABEL_CONFIG,
-  LABEL_SCHEMA,
-  type DiscoveredInstance,
   type ContainerListItem,
+  type DiscoveredInstance,
+  discoverInstances,
+  LABEL_CONFIG,
+  LABEL_INSTANCE,
+  LABEL_PREFIX,
+  LABEL_SCHEMA,
+  reconstructConfigFromLabels,
 } from './discovery-utils.ts';

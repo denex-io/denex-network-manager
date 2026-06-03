@@ -6,7 +6,7 @@ import {
   getValidatorClientId,
   normalizeValidators,
 } from '../types/config.ts';
-import { getValidatorPorts, getSvPorts, SV_INTERNAL_PORTS } from '../utils/ports.ts';
+import { getSvPorts, getValidatorPorts, SV_INTERNAL_PORTS } from '../utils/ports.ts';
 
 function generateLedgerApiAuthServices(realmName: string): string {
   const jwksUrl = `http://keycloak:8080/realms/${realmName}/protocol/openid-connect/certs`;

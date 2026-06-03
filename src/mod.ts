@@ -24,6 +24,6 @@ export * from './docker/mod.ts';
 
 export * from './api/mod.ts';
 
-export { getCredentials, type CredentialInfo } from './utils/credentials.ts';
+export { type CredentialInfo, getCredentials } from './utils/credentials.ts';
 
-export { LocalNet, createLocalNet, type LocalNetOptions } from './localnet.ts';
+export { createLocalNet, LocalNet, type LocalNetOptions } from './localnet.ts';

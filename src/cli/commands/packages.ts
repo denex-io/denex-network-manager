@@ -1,6 +1,6 @@
 import { Command } from '@cliffy/command';
 import { Table } from '@cliffy/table';
-import { getRunningLocalNet, printError, colors } from '../utils.ts';
+import { colors, getRunningLocalNet, printError } from '../utils.ts';
 
 export const packagesCommand = new Command()
   .name('packages')

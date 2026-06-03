@@ -1,9 +1,9 @@
 import { Command } from '@cliffy/command';
 import { Table } from '@cliffy/table';
-import { getRunningLocalNet, printError, colors } from '../utils.ts';
+import { colors, getRunningLocalNet, printError } from '../utils.ts';
 import { getKeycloakPort } from '../../utils/ports.ts';
 
-export { getCredentials, type CredentialInfo } from '../../utils/credentials.ts';
+export { type CredentialInfo, getCredentials } from '../../utils/credentials.ts';
 
 export const credentialsCommand = new Command()
   .name('credentials')

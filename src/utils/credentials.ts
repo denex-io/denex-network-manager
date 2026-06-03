@@ -1,5 +1,5 @@
-import { normalizeValidators, getRealmName, type ValidatorConfig } from '../types/config.ts';
-import { getSvPorts, getValidatorPorts, DEFAULT_BASE_PORT } from './ports.ts';
+import { getRealmName, normalizeValidators, type ValidatorConfig } from '../types/config.ts';
+import { DEFAULT_BASE_PORT, getSvPorts, getValidatorPorts } from './ports.ts';
 
 export interface CredentialInfo {
   realm: string;
@@ -9,7 +9,10 @@ export interface CredentialInfo {
   purpose: string;
 }
 
-export function getCredentials(validatorsConfig: number | ValidatorConfig[], basePort: number = DEFAULT_BASE_PORT): CredentialInfo[] {
+export function getCredentials(
+  validatorsConfig: number | ValidatorConfig[],
+  basePort: number = DEFAULT_BASE_PORT,
+): CredentialInfo[] {
   const validators = normalizeValidators(validatorsConfig);
   const credentials: CredentialInfo[] = [];
 

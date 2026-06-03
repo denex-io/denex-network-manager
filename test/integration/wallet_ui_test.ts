@@ -33,7 +33,7 @@ function uniqueInstanceId(): string {
 // deno-lint-ignore no-explicit-any
 async function loadPlaywrightOrThrow(): Promise<any> {
   try {
-    const pw = await import('npm:playwright');
+    const pw = await import('npm:playwright@1.57.0');
     return pw;
   } catch (err) {
     throw new Error(
@@ -71,7 +71,7 @@ async function loginAndAssertWalletWorks(
   await page.waitForURL(
     // deno-lint-ignore no-explicit-any
     (url: any) => !url.toString().includes('/realms/'),
-    { timeout: PAGE_TIMEOUT_MS },
+    { timeout: PAGE_TIMEOUT_MS, waitUntil: 'commit' },
   );
   await page.waitForLoadState('networkidle', { timeout: PAGE_TIMEOUT_MS }).catch(() => undefined);
 
@@ -93,7 +93,8 @@ async function loginAndAssertWalletWorks(
 }
 
 Deno.test({
-  name: 'wallet UI Class 1 — Splice-auto-onboarded user (validator_1-wallet-admin) regression-protect',
+  name:
+    'wallet UI Class 1 — Splice-auto-onboarded user (validator_1-wallet-admin) regression-protect',
   ignore: !(await isDockerAvailable()),
   sanitizeOps: false,
   sanitizeResources: false,
@@ -127,7 +128,8 @@ Deno.test({
 });
 
 Deno.test({
-  name: 'wallet UI Class 2 — Operator user (validator-1) OAuth-only check (documented expected state)',
+  name:
+    'wallet UI Class 2 — Operator user (validator-1) OAuth-only check (documented expected state)',
   ignore: !(await isDockerAvailable()),
   sanitizeOps: false,
   sanitizeResources: false,

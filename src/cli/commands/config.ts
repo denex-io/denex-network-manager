@@ -1,8 +1,8 @@
 import { Command } from '@cliffy/command';
-import { Input, Number, Confirm } from '@cliffy/prompt';
+import { Confirm, Input, Number } from '@cliffy/prompt';
 import { stringify } from '@std/yaml';
 import { CONFIG_DEFAULTS } from '../../types/config.ts';
-import { getKeycloakPort, DEFAULT_BASE_PORT } from '../../utils/ports.ts';
+import { DEFAULT_BASE_PORT, getKeycloakPort } from '../../utils/ports.ts';
 
 export const configCommand = new Command()
   .description('Generate a localnet.yaml configuration file')
@@ -79,39 +79,39 @@ async function generateInteractive(outputPath: string): Promise<void> {
     }
   }
 
-   const keycloakPort = getKeycloakPort(DEFAULT_BASE_PORT);
-   const useDefaultKeycloak = await Confirm.prompt({
-     message: `Use default Keycloak settings? (localhost:${keycloakPort}, admin/admin)`,
-     default: true,
-   });
+  const keycloakPort = getKeycloakPort(DEFAULT_BASE_PORT);
+  const useDefaultKeycloak = await Confirm.prompt({
+    message: `Use default Keycloak settings? (localhost:${keycloakPort}, admin/admin)`,
+    default: true,
+  });
 
-   let auth: Record<string, unknown>;
+  let auth: Record<string, unknown>;
 
-   if (useDefaultKeycloak) {
-     auth = {
-       keycloak: {
-         admin: CONFIG_DEFAULTS.auth.keycloak.admin,
-         password: CONFIG_DEFAULTS.auth.keycloak.password,
-       },
-     };
-   } else {
-     const keycloakAdmin = await Input.prompt({
-       message: 'Keycloak admin username',
-       default: CONFIG_DEFAULTS.auth.keycloak.admin,
-     });
+  if (useDefaultKeycloak) {
+    auth = {
+      keycloak: {
+        admin: CONFIG_DEFAULTS.auth.keycloak.admin,
+        password: CONFIG_DEFAULTS.auth.keycloak.password,
+      },
+    };
+  } else {
+    const keycloakAdmin = await Input.prompt({
+      message: 'Keycloak admin username',
+      default: CONFIG_DEFAULTS.auth.keycloak.admin,
+    });
 
-     const keycloakPassword = await Input.prompt({
-       message: 'Keycloak admin password',
-       default: CONFIG_DEFAULTS.auth.keycloak.password,
-     });
+    const keycloakPassword = await Input.prompt({
+      message: 'Keycloak admin password',
+      default: CONFIG_DEFAULTS.auth.keycloak.password,
+    });
 
-     auth = {
-       keycloak: {
-         admin: keycloakAdmin,
-         password: keycloakPassword,
-       },
-     };
-   }
+    auth = {
+      keycloak: {
+        admin: keycloakAdmin,
+        password: keycloakPassword,
+      },
+    };
+  }
 
   const config: Record<string, unknown> = {
     version: CONFIG_DEFAULTS.version,
