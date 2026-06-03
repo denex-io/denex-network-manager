@@ -33,16 +33,22 @@ export async function cleanupTestResources(
   for (const container of containers) {
     try {
       await client.stopContainer(container.id, 5);
-    } catch { }
+    } catch {
+      // Best-effort cleanup.
+    }
     try {
       await client.removeContainer(container.id, true);
-    } catch { }
+    } catch {
+      // Best-effort cleanup.
+    }
   }
 
   const networkName = `localnet-${instanceId}`;
   try {
     await client.removeNetwork(networkName);
-  } catch { }
+  } catch {
+    // Best-effort cleanup.
+  }
 
   const volumes = await client.listVolumes({
     'localnet.instance': instanceId,
@@ -51,23 +57,27 @@ export async function cleanupTestResources(
   for (const volume of volumes) {
     try {
       await client.removeVolume(volume.name);
-    } catch { }
+    } catch {
+      // Best-effort cleanup.
+    }
   }
 }
 
 export async function cleanupAllTestResources(client: DockerClient): Promise<void> {
   const containers = await client.listContainers();
-  const testContainers = containers.filter((c) =>
-    c.name.includes(INTEGRATION_TEST_PREFIX)
-  );
+  const testContainers = containers.filter((c) => c.name.includes(INTEGRATION_TEST_PREFIX));
 
   for (const container of testContainers) {
     try {
       await client.stopContainer(container.id, 5);
-    } catch { }
+    } catch {
+      // Best-effort cleanup.
+    }
     try {
       await client.removeContainer(container.id, true);
-    } catch { }
+    } catch {
+      // Best-effort cleanup.
+    }
   }
 }
 

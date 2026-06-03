@@ -1,6 +1,6 @@
 import { assert, assertEquals, assertExists } from '@std/assert';
-import { chromium } from 'npm:playwright';
-import { TokenManager, createAuthHeader } from '../../src/api/auth.ts';
+import { chromium } from 'npm:playwright@1.57.0';
+import { createAuthHeader, TokenManager } from '../../src/api/auth.ts';
 import { CantonClient } from '../../src/api/canton.ts';
 
 import { ValidatorAdminClient } from '../../src/api/validator.ts';
@@ -13,7 +13,12 @@ import {
   getValidatorClientId,
 } from '../../src/types/config.ts';
 import { localnetFetch } from '../../src/utils/fetch.ts';
-import { getKeycloakPort, getSvPorts, getValidatorPorts, SV_INTERNAL_PORTS } from '../../src/utils/ports.ts';
+import {
+  getKeycloakPort,
+  getSvPorts,
+  getValidatorPorts,
+  SV_INTERNAL_PORTS,
+} from '../../src/utils/ports.ts';
 import {
   cleanupTestResources,
   createTestDockerClient,
@@ -45,7 +50,10 @@ const AUTH_CONFIDENCE_CONFIG: LocalNetConfig = {
 async function assertUnauthorized(url: string): Promise<void> {
   const response = await fetch(url);
   assertEquals(response.ok, false);
-  assert([401, 403].includes(response.status), `Expected unauthorized status for ${url}, got ${response.status}`);
+  assert(
+    [401, 403].includes(response.status),
+    `Expected unauthorized status for ${url}, got ${response.status}`,
+  );
 }
 
 async function assertOkWithToken(url: string, token: string): Promise<Response> {
@@ -53,7 +61,9 @@ async function assertOkWithToken(url: string, token: string): Promise<Response> 
     headers: createAuthHeader(token),
   });
   if (!response.ok) {
-    throw new Error(`Expected authorized response for ${url}, got ${response.status}: ${await response.text()}`);
+    throw new Error(
+      `Expected authorized response for ${url}, got ${response.status}: ${await response.text()}`,
+    );
   }
   return response;
 }
@@ -84,18 +94,27 @@ async function loginAndObserveApi(
     await page.fill('#username', username);
     await page.fill('#password', password);
     await page.click('#kc-login');
-    await page.waitForURL((currentUrl) => !currentUrl.toString().includes('/realms/'), { timeout: 60000 });
+    await page.waitForURL((currentUrl) => !currentUrl.toString().includes('/realms/'), {
+      timeout: 60000,
+    });
     await page.waitForLoadState('networkidle', { timeout: 60000 }).catch(() => undefined);
 
     const currentUrl = page.url();
-    assertEquals(currentUrl.includes('/realms/'), false, `Expected login to return from Keycloak realm flow for ${url}`);
+    assertEquals(
+      currentUrl.includes('/realms/'),
+      false,
+      `Expected login to return from Keycloak realm flow for ${url}`,
+    );
     const matchedSelector = await Promise.any(
       successSelectors.map(async (selector) => {
         await page.waitForSelector(selector, { timeout: 60000 });
         return selector;
       }),
     ).catch(() => null);
-    assert(matchedSelector !== null, `Expected one of ${successSelectors.join(', ')} after login for ${url}`);
+    assert(
+      matchedSelector !== null,
+      `Expected one of ${successSelectors.join(', ')} after login for ${url}`,
+    );
 
     await context.close();
   } finally {
@@ -104,7 +123,8 @@ async function loginAndObserveApi(
 }
 
 Deno.test({
-  name: 'Auth confidence: Keycloak tokens work across Canton, validator, scan, sv, and UI login flows',
+  name:
+    'Auth confidence: Keycloak tokens work across Canton, validator, scan, sv, and UI login flows',
   ignore: !(await isDockerAvailable()),
   sanitizeOps: false,
   sanitizeResources: false,
@@ -172,7 +192,9 @@ Deno.test({
       assert(validatorAdminUserToken.length > 20);
 
       await assertUnauthorized(`http://localhost:${svPorts.jsonApi}/v2/users`);
-      await assertUnauthorized(`http://localhost:${validatorPorts.validatorAdminApi}/api/validator/v0/wallet/user-status`);
+      await assertUnauthorized(
+        `http://localhost:${validatorPorts.validatorAdminApi}/api/validator/v0/wallet/user-status`,
+      );
 
       const svCantonClient = new CantonClient({
         baseUrl: `http://localhost:${svPorts.jsonApi}`,
@@ -276,7 +298,10 @@ Deno.test({
       ];
       for (const url of uiUrls) {
         const response = await localnetFetch(url, { redirect: 'manual' });
-        assert([200, 302, 303, 307, 308].includes(response.status), `Expected UI response for ${url}, got ${response.status}`);
+        assert(
+          [200, 302, 303, 307, 308].includes(response.status),
+          `Expected UI response for ${url}, got ${response.status}`,
+        );
       }
 
       const scanUiResponse = await localnetFetch(`http://scan.localhost:${svPorts.webUi}`);
