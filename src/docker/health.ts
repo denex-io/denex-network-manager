@@ -46,10 +46,14 @@ async function checkHttp(url: string, timeout: number): Promise<HealthCheckResul
   }
 }
 
-async function checkTcp(host: string, port: number, timeout: number): Promise<HealthCheckResult> {
+function checkTcp(host: string, port: number, timeout: number): Promise<HealthCheckResult> {
   const start = Date.now();
   if (port < 0 || port >= 65536 || !Number.isInteger(port)) {
-    return { healthy: false, message: `Invalid port: ${port}`, duration: Date.now() - start };
+    return Promise.resolve({
+      healthy: false,
+      message: `Invalid port: ${port}`,
+      duration: Date.now() - start,
+    });
   }
   return new Promise((resolve) => {
     const socket = createConnection({ host, port });
@@ -75,7 +79,7 @@ async function checkTcp(host: string, port: number, timeout: number): Promise<He
   });
 }
 
-async function checkGrpc(host: string, port: number, timeout: number): Promise<HealthCheckResult> {
+function checkGrpc(host: string, port: number, timeout: number): Promise<HealthCheckResult> {
   return checkTcp(host, port, timeout);
 }
 
@@ -83,7 +87,7 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-export async function checkHealth(
+export function checkHealth(
   config: HealthCheckConfig,
   options?: HealthCheckerOptions,
 ): Promise<HealthCheckResult> {
@@ -106,10 +110,18 @@ export async function checkHealth(
     }
 
     case 'exec':
-      return { healthy: false, message: 'Exec health checks not supported externally', duration: 0 };
+      return Promise.resolve({
+        healthy: false,
+        message: 'Exec health checks not supported externally',
+        duration: 0,
+      });
 
     default:
-      return { healthy: false, message: `Unknown health check type: ${config.type}`, duration: 0 };
+      return Promise.resolve({
+        healthy: false,
+        message: `Unknown health check type: ${config.type}`,
+        duration: 0,
+      });
   }
 }
 
@@ -153,18 +165,26 @@ export class HealthChecker {
     this.checks.delete(name);
   }
 
-  async check(name: string): Promise<HealthCheckResult> {
+  check(name: string): Promise<HealthCheckResult> {
     const config = this.checks.get(name);
     if (!config) {
-      return { healthy: false, message: `No health check registered for ${name}`, duration: 0 };
+      return Promise.resolve({
+        healthy: false,
+        message: `No health check registered for ${name}`,
+        duration: 0,
+      });
     }
     return checkHealth(config, this.options);
   }
 
-  async waitFor(name: string, options?: HealthCheckerOptions): Promise<HealthCheckResult> {
+  waitFor(name: string, options?: HealthCheckerOptions): Promise<HealthCheckResult> {
     const config = this.checks.get(name);
     if (!config) {
-      return { healthy: false, message: `No health check registered for ${name}`, duration: 0 };
+      return Promise.resolve({
+        healthy: false,
+        message: `No health check registered for ${name}`,
+        duration: 0,
+      });
     }
     return waitForHealthy(config, { ...this.options, ...options });
   }

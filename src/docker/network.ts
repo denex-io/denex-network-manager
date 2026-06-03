@@ -36,7 +36,7 @@ export class NetworkManager {
     await this.client.removeNetwork(name);
   }
 
-  async get(instanceId: string): Promise<NetworkInfo | null> {
+  get(instanceId: string): Promise<NetworkInfo | null> {
     const name = this.getNetworkName(instanceId);
     return this.client.getNetworkInfo(name);
   }
