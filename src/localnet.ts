@@ -1521,7 +1521,13 @@ export class LocalNet {
     return specs;
   }
 
-  private async generateConfigs(): Promise<void> {
+  /**
+   * Write all container config files (canton/splice/nginx/keycloak app configs,
+   * merged env, and the postgres init script) into configDir. Called during
+   * start() before containers are built; also usable standalone to materialize
+   * configs without bringing up the network.
+   */
+  async generateConfigs(): Promise<void> {
     const configDir = this.options.configDir;
     const dataDir = this.options.dataDir;
 
