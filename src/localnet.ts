@@ -1320,11 +1320,13 @@ export class LocalNet {
     let delay = initialDelay;
     let lastError: Error | null = null;
 
+    const scanHost = this.inDockerNetwork ? 'splice' : 'localhost';
+
     for (let i = 0; i < maxRetries; i++) {
       try {
         onProgress?.('Checking Scan readiness...');
         const response = await fetch(
-          `http://localhost:${SV_INTERNAL_PORTS.scanAdmin}/api/scan/status`,
+          `http://${scanHost}:${SV_INTERNAL_PORTS.scanAdmin}/api/scan/status`,
         );
         if (!response.ok) {
           throw new Error(`Scan status returned ${response.status}`);
