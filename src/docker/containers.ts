@@ -15,6 +15,20 @@ import {
   getValidatorPorts,
   SV_INTERNAL_PORTS,
 } from '../utils/ports.ts';
+import { readdirSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
+
+function composeServiceLabels(
+  serviceName: string,
+  composeLabels?: Record<string, string>,
+): Record<string, string> {
+  if (!composeLabels || Object.keys(composeLabels).length === 0) return {};
+  return {
+    ...composeLabels,
+    'com.docker.compose.service': serviceName,
+    'com.docker.compose.container-number': '1',
+  };
+}
 
 function portServiceLabels(ports: PortBinding[], labelPrefix: string): Record<string, string> {
   const labels: Record<string, string> = {};
@@ -90,9 +104,11 @@ export interface ContainerBuilderOptions {
   configDir: string;
   dataDir: string;
   labelPrefix: string;
+  instanceId?: string;
   images?: Partial<ContainerImages>;
   dbUser?: string;
   dbPassword?: string;
+  composeLabels?: Record<string, string>;
 }
 
 const DEFAULT_DB_USER = 'cnadmin';
@@ -104,6 +120,7 @@ export function buildPostgresContainer(
 ): ContainerSpec {
   const normalizedValidators = normalizeValidators(config.validators);
   const images = { ...DEFAULT_IMAGES, ...options.images };
+  const initScript = readFileSync(`${options.configDir}/postgres-entrypoint.sh`, 'utf-8');
 
   const databases = [
     'participant-sv',
@@ -122,21 +139,27 @@ export function buildPostgresContainer(
     name: 'postgres',
     image: images.postgres,
     hostname: 'postgres',
-    command: ['postgres', '-c', 'max_connections=1000'],
+    entrypoint: [
+      'sh',
+      '-c',
+      `printf "%s" "$POSTGRES_INIT_SCRIPT" > /docker-entrypoint-initdb.d/init.sh && \
+chmod +x /docker-entrypoint-initdb.d/init.sh && \
+exec /usr/local/bin/docker-entrypoint.sh postgres -c max_connections=1000`,
+    ],
     environment: {
       POSTGRES_USER: options.dbUser ?? DEFAULT_DB_USER,
       POSTGRES_PASSWORD: options.dbPassword ?? DEFAULT_DB_PASSWORD,
       POSTGRES_DB: 'postgres',
+      POSTGRES_INIT_SCRIPT: initScript,
       ...Object.fromEntries(
         databases.map((db, i) => [`CREATE_DATABASE_${String(i + 1).padStart(2, '0')}`, db]),
       ),
     },
     ports: [{ container: 5432 }],
     volumes: [
-      { source: `${options.dataDir}/postgres`, target: '/var/lib/postgresql/data' },
       {
-        source: `${options.configDir}/postgres-entrypoint.sh`,
-        target: '/docker-entrypoint-initdb.d/init.sh',
+        source: `${options.instanceId ?? options.labelPrefix}-postgres-data`,
+        target: '/var/lib/postgresql/data',
       },
     ],
     networks: [options.networkName],
@@ -152,6 +175,7 @@ export function buildPostgresContainer(
     labels: {
       [`${options.labelPrefix}.service`]: 'postgres',
       [`${options.labelPrefix}.role`]: 'database',
+      ...composeServiceLabels('postgres', options.composeLabels),
     },
   };
 }
@@ -163,6 +187,7 @@ export function buildCantonContainer(
   const normalizedValidators = normalizeValidators(config.validators);
   const images = { ...DEFAULT_IMAGES, ...options.images };
   const svPorts = getSvPorts(config.basePort);
+  const appConfig = readFileSync(`${options.configDir}/canton/app.conf`, 'utf-8');
 
   const ports = [
     { container: svPorts.ledgerApi, host: svPorts.ledgerApi, service: 'SV Ledger API' },
@@ -189,11 +214,9 @@ export function buildCantonContainer(
       DB_USER: options.dbUser ?? DEFAULT_DB_USER,
       DB_PASSWORD: options.dbPassword ?? DEFAULT_DB_PASSWORD,
       SPLICE_APP_VALIDATOR_AUTH_AUDIENCE: DEFAULT_AUDIENCE,
+      ADDITIONAL_CONFIG_LOCALNET: appConfig,
     },
     ports,
-    volumes: [
-      { source: `${options.configDir}/canton/app.conf`, target: '/app/app.conf' },
-    ],
     networks: [options.networkName],
     healthCheck: {
       type: 'http',
@@ -209,6 +232,7 @@ export function buildCantonContainer(
       [`${options.labelPrefix}.service`]: 'canton',
       [`${options.labelPrefix}.role`]: 'participant',
       ...portServiceLabels(ports, options.labelPrefix),
+      ...composeServiceLabels('canton', options.composeLabels),
     },
   };
 }
@@ -220,6 +244,7 @@ export function buildSpliceContainer(
   const normalizedValidators = normalizeValidators(config.validators);
   const images = { ...DEFAULT_IMAGES, ...options.images };
   const svPorts = getSvPorts(config.basePort);
+  const appConfig = readFileSync(`${options.configDir}/splice/app.conf`, 'utf-8');
 
   const ports = [
     {
@@ -256,11 +281,9 @@ export function buildSpliceContainer(
       SPLICE_APP_VALIDATOR_AUTH_AUDIENCE: DEFAULT_AUDIENCE,
       SPLICE_APP_VALIDATOR_LEDGER_API_AUTH_AUDIENCE: DEFAULT_AUDIENCE,
       SPLICE_SV_IS_DEVNET: 'true',
+      ADDITIONAL_CONFIG_LOCALNET: appConfig,
     },
     ports,
-    volumes: [
-      { source: `${options.configDir}/splice/app.conf`, target: '/app/app.conf' },
-    ],
     networks: [options.networkName],
     healthCheck: {
       type: 'http',
@@ -276,6 +299,7 @@ export function buildSpliceContainer(
       [`${options.labelPrefix}.service`]: 'splice',
       [`${options.labelPrefix}.role`]: 'validator',
       ...portServiceLabels(ports, options.labelPrefix),
+      ...composeServiceLabels('splice', options.composeLabels),
     },
   };
 }
@@ -287,31 +311,50 @@ export function buildKeycloakContainer(
   const images = { ...DEFAULT_IMAGES, ...options.images };
   const basePort = config.basePort ?? DEFAULT_BASE_PORT;
 
+  const keycloakEnv: Record<string, string> = {
+    // Use a fixed sentinel name for the Keycloak bootstrap admin to avoid colliding
+    // with the user-facing admin imported from master-realm.json (keycloak#34286).
+    // The user-facing admin (config.auth.keycloak.{admin,password}) is provisioned
+    // via realm import; this bootstrap account is deleted post-startup by
+    // LocalNet.deleteBootstrapAdmin().
+    KC_BOOTSTRAP_ADMIN_USERNAME: BOOTSTRAP_ADMIN_USERNAME,
+    KC_BOOTSTRAP_ADMIN_PASSWORD: 'localnet-internal-bootstrap-password-not-used',
+    KC_HEALTH_ENABLED: 'true',
+    KC_HTTP_ENABLED: 'true',
+    KC_HOSTNAME_STRICT: 'false',
+  };
+
+  // Pass Keycloak config files as env vars for injection at startup.
+  // The filename is preserved verbatim after the LOCALNET_INIT_ prefix (case,
+  // dots, and dashes intact) so the entrypoint can recover it exactly by
+  // stripping the prefix — no lossy name mangling. Such names aren't valid
+  // shell identifiers, but they live in the process environment and are read
+  // back via env/printenv, which don't care.
+  const keycloakConfigDir = join(options.configDir, 'keycloak');
+  const files = readdirSync(keycloakConfigDir);
+  const jsonFiles = files.filter((f) => f.endsWith('.json'));
+  for (const file of jsonFiles) {
+    const filePath = join(keycloakConfigDir, file);
+    const content = readFileSync(filePath, 'utf-8');
+    keycloakEnv[`LOCALNET_INIT_${file}`] = content;
+  }
+
   return {
     name: 'keycloak',
     image: images.keycloak,
     hostname: 'keycloak',
-    environment: {
-      // Use a fixed sentinel name for the Keycloak bootstrap admin to avoid colliding
-      // with the user-facing admin imported from master-realm.json (keycloak#34286).
-      // The user-facing admin (config.auth.keycloak.{admin,password}) is provisioned
-      // via realm import; this bootstrap account is deleted post-startup by
-      // LocalNet.deleteBootstrapAdmin().
-      KC_BOOTSTRAP_ADMIN_USERNAME: BOOTSTRAP_ADMIN_USERNAME,
-      KC_BOOTSTRAP_ADMIN_PASSWORD: 'localnet-internal-bootstrap-password-not-used',
-      KC_HEALTH_ENABLED: 'true',
-      KC_HTTP_ENABLED: 'true',
-      KC_HOSTNAME_STRICT: 'false',
-    },
-    command: ['start-dev', '--import-realm', '--proxy-headers=forwarded'],
-    ports: [{ container: 8080, host: getKeycloakPort(basePort) }],
-    volumes: [
-      {
-        source: `${options.configDir}/keycloak`,
-        target: '/opt/keycloak/data/import',
-        readonly: true,
-      },
+    environment: keycloakEnv,
+    entrypoint: [
+      'bash',
+      '-c',
+      `CONFIG_DIR="/opt/keycloak/data/import" && mkdir -p "$CONFIG_DIR" && ` +
+      `for var in $(env | grep '^LOCALNET_INIT_' | cut -d= -f1); do ` +
+      `filename="${'${var#LOCALNET_INIT_}'}"; ` +
+      `printenv "$var" > "$CONFIG_DIR/$filename"; ` +
+      `done && ` +
+      `exec /opt/keycloak/bin/kc.sh start-dev --import-realm --proxy-headers=forwarded`,
     ],
+    ports: [{ container: 8080, host: getKeycloakPort(basePort) }],
     networks: [options.networkName],
     healthCheck: {
       // Use bash /dev/tcp instead of curl (curl not available in Keycloak UBI image)
@@ -329,6 +372,7 @@ export function buildKeycloakContainer(
     labels: {
       [`${options.labelPrefix}.service`]: 'keycloak',
       [`${options.labelPrefix}.role`]: 'auth',
+      ...composeServiceLabels('keycloak', options.composeLabels),
     },
   };
 }
@@ -341,6 +385,7 @@ export function buildNginxContainer(
   const images = { ...DEFAULT_IMAGES, ...options.images };
   const basePort = localNetConfig.basePort ?? DEFAULT_BASE_PORT;
   const svWebUiPort = getSvPorts(basePort).webUi;
+  const configContent = readFileSync(`${options.configDir}/nginx/nginx.conf`, 'utf-8');
 
   const ports: PortBinding[] = [
     { container: svWebUiPort, host: svWebUiPort, service: 'SV Web UIs (sv/scan/wallet.localhost)' },
@@ -356,14 +401,14 @@ export function buildNginxContainer(
     name: 'nginx',
     image: images.nginx,
     hostname: 'nginx',
-    environment: {},
+    environment: {
+      NGINX_CONFIG: configContent,
+    },
     ports,
-    volumes: [
-      {
-        source: `${options.configDir}/nginx/nginx.conf`,
-        target: '/etc/nginx/nginx.conf',
-        readonly: true,
-      },
+    command: [
+      'sh',
+      '-c',
+      'printf "%s" "$NGINX_CONFIG" > /etc/nginx/nginx.conf && nginx -g "daemon off;"',
     ],
     networks: [options.networkName],
     healthCheck: {
@@ -379,6 +424,7 @@ export function buildNginxContainer(
       [`${options.labelPrefix}.service`]: 'nginx',
       [`${options.labelPrefix}.role`]: 'proxy',
       ...portServiceLabels(ports, options.labelPrefix),
+      ...composeServiceLabels('nginx', options.composeLabels),
     },
   };
 }
@@ -393,6 +439,7 @@ function buildWebUiContainer(
   const labels: Record<string, string> = {
     [`${options.labelPrefix}.service`]: name,
     [`${options.labelPrefix}.role`]: 'web-ui',
+    ...composeServiceLabels(name, options.composeLabels),
   };
   if (accessUrl) {
     labels[`${options.labelPrefix}.access-url`] = accessUrl;

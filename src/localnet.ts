@@ -97,6 +97,7 @@ export class LocalNet {
   private config: LocalNetConfig;
   private options: Required<LocalNetOptions>;
   private internalState: LocalNetState = 'stopped';
+  private selfComposeLabels: Record<string, string> = {};
   private startedAt?: Date;
   private containerIds: Map<string, string> = new Map();
   private cantonClients: Map<string, CantonClient> = new Map();
@@ -104,7 +105,8 @@ export class LocalNet {
   private keycloakAdminClient: KeycloakAdminClient | null = null;
   private apiCache: Map<string, CacheEntry<unknown>> = new Map();
   private cacheTtlMs = 30_000;
-  private baseHost = 'localhost';
+  private inDockerNetwork = false;
+  private selfContainerId: string | null = null;
   private attachedToRunning = false;
 
   constructor(config: LocalNetConfig, options?: LocalNetOptions) {
@@ -255,11 +257,35 @@ export class LocalNet {
         throw new Error('Docker daemon is not available');
       }
 
-      await this.validatePortAvailability();
+      const selfInfo = await this.client.inspectSelf();
+      if (selfInfo) {
+        this.selfComposeLabels = selfInfo.composeLabels;
+        this.options.instanceId = selfInfo.name;
+        this.selfContainerId = selfInfo.id;
+      }
 
       await this.generateConfigs();
 
+      await this.validatePortAvailability();
+
       await this.networkManager.create(this.options.instanceId);
+
+      if (this.selfContainerId) {
+        await this.networkManager.connectContainer(
+          this.options.instanceId,
+          this.selfContainerId,
+        );
+        this.inDockerNetwork = true;
+        this.initializeApiClients();
+      }
+
+      await this.client.createVolume(`${this.options.instanceId}-postgres-data`, {
+        [`${this.options.labelPrefix}.instance`]: this.options.instanceId,
+        ...this.selfComposeLabels,
+        ...(this.selfComposeLabels['com.docker.compose.project']
+          ? { 'com.docker.compose.volume': 'postgres-data' }
+          : {}),
+      });
 
       const containerSpecs = this.buildContainerSpecs();
       const layers = getStartupOrder(containerSpecs);
@@ -796,8 +822,11 @@ export class LocalNet {
 
   private getKeycloakAdminClient(): KeycloakAdminClient {
     if (!this.keycloakAdminClient) {
+      const keycloakUrl = this.inDockerNetwork
+        ? 'http://keycloak:8080'
+        : getKeycloakUrl(this.config);
       this.keycloakAdminClient = new KeycloakAdminClient(
-        getKeycloakUrl(this.config),
+        keycloakUrl,
         this.config.auth.keycloak.admin,
         this.config.auth.keycloak.password,
       );
@@ -1014,12 +1043,14 @@ export class LocalNet {
   private initializeApiClients(): void {
     const normalizedValidators = normalizeValidators(this.config.validators);
     const svPorts = getSvPorts(this.config.basePort);
-    const keycloakUrl = getKeycloakUrl(this.config);
+    const keycloakUrl = this.inDockerNetwork ? 'http://keycloak:8080' : getKeycloakUrl(this.config);
+    const cantonHost = this.inDockerNetwork ? 'canton' : 'localhost';
+    const spliceHost = this.inDockerNetwork ? 'splice' : 'localhost';
 
     this.cantonClients.set(
       'sv',
       new CantonClient({
-        baseUrl: `http://${this.baseHost}:${svPorts.jsonApi}`,
+        baseUrl: `http://${cantonHost}:${svPorts.jsonApi}`,
         keycloakUrl,
         realm: 'SV',
         clientId: getValidatorClientId('sv'),
@@ -1030,7 +1061,7 @@ export class LocalNet {
     this.validatorClients.set(
       'sv',
       new ValidatorAdminClient({
-        baseUrl: `http://${this.baseHost}:${svPorts.validatorAdminApi}`,
+        baseUrl: `http://${spliceHost}:${svPorts.validatorAdminApi}`,
         authConfig: this.config.auth,
         keycloakUrl,
         realm: 'SV',
@@ -1046,7 +1077,7 @@ export class LocalNet {
       this.cantonClients.set(
         validator.name,
         new CantonClient({
-          baseUrl: `http://${this.baseHost}:${ports.jsonApi}`,
+          baseUrl: `http://${cantonHost}:${ports.jsonApi}`,
           keycloakUrl,
           realm: realmName,
           clientId: getValidatorClientId(validator.name),
@@ -1057,7 +1088,7 @@ export class LocalNet {
       this.validatorClients.set(
         validator.name,
         new ValidatorAdminClient({
-          baseUrl: `http://${this.baseHost}:${ports.validatorAdminApi}`,
+          baseUrl: `http://${spliceHost}:${ports.validatorAdminApi}`,
           authConfig: this.config.auth,
           keycloakUrl,
           realm: realmName,
@@ -1142,9 +1173,10 @@ export class LocalNet {
       }
 
       const token = await adminClient.getToken();
-      const url = `${getKeycloakUrl(this.config)}/admin/realms/master/users/${
-        encodeURIComponent(existing.id)
-      }`;
+      const keycloakUrl = this.inDockerNetwork
+        ? 'http://keycloak:8080'
+        : getKeycloakUrl(this.config);
+      const url = `${keycloakUrl}/admin/realms/master/users/${encodeURIComponent(existing.id)}`;
       const resp = await globalThis.fetch(url, {
         method: 'DELETE',
         headers: { Authorization: `Bearer ${token}` },
@@ -1288,11 +1320,13 @@ export class LocalNet {
     let delay = initialDelay;
     let lastError: Error | null = null;
 
+    const scanHost = this.inDockerNetwork ? 'splice' : 'localhost';
+
     for (let i = 0; i < maxRetries; i++) {
       try {
         onProgress?.('Checking Scan readiness...');
         const response = await fetch(
-          `http://localhost:${SV_INTERNAL_PORTS.scanAdmin}/api/scan/status`,
+          `http://${scanHost}:${SV_INTERNAL_PORTS.scanAdmin}/api/scan/status`,
         );
         if (!response.ok) {
           throw new Error(`Scan status returned ${response.status}`);
@@ -1446,9 +1480,13 @@ export class LocalNet {
       configDir: this.options.configDir,
       dataDir: this.options.dataDir,
       labelPrefix: this.options.labelPrefix,
+      instanceId: this.options.instanceId,
       images: this.options.images,
       dbUser: this.options.dbUser,
       dbPassword: this.options.dbPassword,
+      composeLabels: Object.keys(this.selfComposeLabels).length > 0
+        ? this.selfComposeLabels
+        : undefined,
     };
 
     const specs = buildAllContainers(this.config, builderOptions);
@@ -1485,7 +1523,13 @@ export class LocalNet {
     return specs;
   }
 
-  private async generateConfigs(): Promise<void> {
+  /**
+   * Write all container config files (canton/splice/nginx/keycloak app configs,
+   * merged env, and the postgres init script) into configDir. Called during
+   * start() before containers are built; also usable standalone to materialize
+   * configs without bringing up the network.
+   */
+  async generateConfigs(): Promise<void> {
     const configDir = this.options.configDir;
     const dataDir = this.options.dataDir;
 

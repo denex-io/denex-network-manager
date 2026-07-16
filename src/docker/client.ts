@@ -1,5 +1,6 @@
 /// <reference types="npm:@types/node" />
 import Dockerode from 'dockerode';
+import { readFile } from 'node:fs/promises';
 import type {
   ContainerInfo,
   ContainerSpec,
@@ -23,6 +24,23 @@ export class DockerClient {
   constructor(options?: DockerClientOptions) {
     this.docker = new Dockerode(options?.dockerOptions);
     this.labelPrefix = options?.labelPrefix ?? DEFAULT_LABEL_PREFIX;
+  }
+
+  async inspectSelf(): Promise<
+    { id: string; name: string; composeLabels: Record<string, string> } | null
+  > {
+    try {
+      const hostname = (await readFile('/etc/hostname', 'utf-8')).trim();
+      const data = await this.docker.getContainer(hostname).inspect();
+      const labels = data.Config?.Labels ?? {};
+      const composeLabels: Record<string, string> = {};
+      for (const [k, v] of Object.entries(labels)) {
+        if (k.startsWith('com.docker.compose.')) composeLabels[k] = v;
+      }
+      return { id: hostname, name: data.Name.replace(/^\//, ''), composeLabels };
+    } catch {
+      return null;
+    }
   }
 
   async ping(): Promise<boolean> {

@@ -18,6 +18,7 @@ import {
 import { checkHealth } from '../../src/docker/health.ts';
 import { type ConfigMismatch, generateNginxConfigString } from '../../src/docker/mod.ts';
 import { BOOTSTRAP_ADMIN_USERNAME } from '../../src/generator/keycloak.ts';
+import { LocalNet } from '../../src/localnet.ts';
 
 const TEST_CONFIG: LocalNetConfig = {
   validators: 2,
@@ -35,6 +36,18 @@ const TEST_OPTIONS: ContainerBuilderOptions = {
   dataDir: '/tmp/test-data',
   labelPrefix: 'localnet',
 };
+
+// The container builders read generated config files back from `configDir` (the
+// canton/splice/nginx/keycloak app configs and the postgres init script). At
+// runtime LocalNet.start() writes these via generateConfigs() before building
+// container specs; these unit tests call the builders directly, so we run the
+// same generateConfigs() step once here against the test configDir. This keeps
+// a single source of truth for config generation rather than duplicating it.
+await new LocalNet(TEST_CONFIG, {
+  configDir: TEST_OPTIONS.configDir,
+  dataDir: TEST_OPTIONS.dataDir,
+  labelPrefix: TEST_OPTIONS.labelPrefix,
+}).generateConfigs();
 
 Deno.test('buildPostgresContainer - correct structure', () => {
   const container = buildPostgresContainer(TEST_CONFIG, TEST_OPTIONS);

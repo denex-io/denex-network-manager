@@ -58,6 +58,35 @@ deno task cli destroy --force
 `destroy` removes containers, networks, volumes, and `.localnet/<instance>` data. Without `--force`,
 it asks for confirmation.
 
+### Using Docker
+
+Alternatively, the localnet can be launched using docker-in-docker. This allows for inclusion within
+docker-compose stacks without manual intervention
+
+```bash
+docker build -t denex-localnet .
+docker run \
+  -v /var/run/docker.sock:/var/run/docker.sock \
+  -v ./localnet.yaml:/localnet.yaml \
+  denex-localnet /localnet.yaml
+```
+
+To use with Docker compose, specify the localnet as a single service, binding the both the docker
+socket, and the desired localnet config.
+
+```yaml
+services:
+  localnet:
+    build:
+      context: ../denex-localnet
+      dockerfile: Dockerfile
+    container_name: derivnex-localnet
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./localnet.yaml:/localnet.yaml
+    command: /localnet.yaml
+```
+
 ## CLI
 
 Run the CLI from this repository with:

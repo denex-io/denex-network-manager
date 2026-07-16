@@ -1,0 +1,6 @@
+node_modules/
+.localnet/
+*.yaml
+test/
+docs/
+.git/
