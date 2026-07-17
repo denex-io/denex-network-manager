@@ -106,12 +106,14 @@ export class LocalNet {
   private cacheTtlMs = 30_000;
   private baseHost = 'localhost';
   private attachedToRunning = false;
+  private readonly instanceCwd: string;
 
   constructor(config: LocalNetConfig, options?: LocalNetOptions) {
     this.config = config;
     const instanceId = options?.instanceId ?? DEFAULT_INSTANCE_ID;
     const labelPrefix = options?.labelPrefix ?? DEFAULT_LABEL_PREFIX;
     const cwd = process.cwd();
+    this.instanceCwd = cwd;
     this.options = {
       instanceId,
       labelPrefix,
@@ -185,6 +187,9 @@ export class LocalNet {
 
     const localnet = new LocalNet(config, { ...options, instanceId: id });
     localnet.markAttachedToRunning();
+    for (const container of containers) {
+      localnet.containerIds.set(container.name, container.id);
+    }
     return localnet;
   }
 
@@ -232,7 +237,14 @@ export class LocalNet {
       throw new Error('LocalNet is already starting');
     }
 
-    await this.detectConfigMismatch();
+    const mismatch = await this.detectConfigMismatch();
+    if (mismatch.hasMismatch) {
+      throw new Error(
+        mismatch.message ||
+          `Instance '${this.options.instanceId}' is already running with a different config. ` +
+          `Stop and destroy first, or use a different instanceId.`,
+      );
+    }
 
     const existing = await this.client.listContainers({
       [`${this.options.labelPrefix}.instance`]: this.options.instanceId,
@@ -246,6 +258,7 @@ export class LocalNet {
 
     const timeout = options?.timeout ?? 300000;
     const startTime = Date.now();
+    let containersCreated = false;
 
     try {
       this.internalState = 'starting';
@@ -297,7 +310,7 @@ export class LocalNet {
         `LocalNet ready (total ${((Date.now() - startTime) / 1000).toFixed(1)}s)`,
       );
     } catch (error) {
-      this.internalState = 'error';
+      this.internalState = containersCreated ? 'error' : 'stopped';
       throw error;
     }
   }
@@ -307,7 +320,7 @@ export class LocalNet {
       throw new Error('LocalNet is already stopping');
     }
 
-    const timeout = options?.timeout ?? 30;
+    const timeout = (options?.timeout ?? 30_000) / 1000;
 
     try {
       this.internalState = 'stopping';
@@ -330,8 +343,8 @@ export class LocalNet {
     }
   }
 
-  async destroy(_options?: StopOptions): Promise<void> {
-    await this.stop({ timeout: 5 });
+  async destroy(options?: StopOptions): Promise<void> {
+    await this.stop({ timeout: 30_000, ...options });
 
     const containers = await this.client.listContainers({
       [`${this.options.labelPrefix}.instance`]: this.options.instanceId,
@@ -351,8 +364,7 @@ export class LocalNet {
       volumes.map((volume) => this.client.removeVolume(volume.name)),
     );
 
-    const cwd = process.cwd();
-    const instanceDir = `${cwd}/.localnet/${this.options.instanceId}`;
+    const instanceDir = `${this.instanceCwd}/.localnet/${this.options.instanceId}`;
     await rm(instanceDir, { recursive: true, force: true }).catch(() => {});
 
     this.containerIds.clear();
@@ -401,13 +413,19 @@ export class LocalNet {
       };
     }
 
+    const mismatchMessage =
+      `Instance '${this.options.instanceId}' is already running with a different config. Stop and destroy first, or use a different instanceId.`;
+
     const firstContainer = containers[0];
     const configJson = firstContainer.labels[`${this.options.labelPrefix}.config`];
 
     if (!configJson) {
-      throw new Error(
-        `Instance '${this.options.instanceId}' is already running with a different config. Stop and destroy first, or use a different instanceId.`,
-      );
+      return {
+        hasMismatch: true,
+        expected: { validators: normalizeValidators(this.config.validators).map((v) => v.name) },
+        actual: { validators: [] },
+        message: mismatchMessage,
+      };
     }
 
     let runningConfig: LocalNetConfig;
@@ -415,18 +433,24 @@ export class LocalNet {
       const parsed = JSON.parse(configJson);
       runningConfig = parseLocalNetConfig(parsed);
     } catch {
-      throw new Error(
-        `Instance '${this.options.instanceId}' is already running with a different config. Stop and destroy first, or use a different instanceId.`,
-      );
+      return {
+        hasMismatch: true,
+        expected: { validators: normalizeValidators(this.config.validators).map((v) => v.name) },
+        actual: { validators: [] },
+        message: mismatchMessage,
+      };
     }
 
     const currentConfigJson = JSON.stringify(parseLocalNetConfig(this.config));
     const runningConfigJson = JSON.stringify(runningConfig);
 
     if (currentConfigJson !== runningConfigJson) {
-      throw new Error(
-        `Instance '${this.options.instanceId}' is already running with a different config. Stop and destroy first, or use a different instanceId.`,
-      );
+      return {
+        hasMismatch: true,
+        expected: { validators: normalizeValidators(this.config.validators).map((v) => v.name) },
+        actual: { validators: normalizeValidators(runningConfig.validators).map((v) => v.name) },
+        message: mismatchMessage,
+      };
     }
 
     return {
@@ -848,6 +872,7 @@ export class LocalNet {
       ['sv', ...normalizeValidators(this.config.validators).map((v) => v.name)];
 
     let mainPackageId = '';
+    const errors = new Map<string, Error>();
 
     for (const name of targets) {
       const client = this.cantonClients.get(name);
@@ -857,11 +882,17 @@ export class LocalNet {
         mainPackageId = await client.uploadDarFromFile(filePath);
         this.invalidateCache(`packages:${name}`);
       } catch (error) {
-        console.error(`Failed to upload DAR to ${name}:`, error);
+        errors.set(name, error instanceof Error ? error : new Error(String(error)));
       }
     }
 
     this.invalidateCache('packages:all');
+
+    if (errors.size > 0) {
+      const details = [...errors.entries()].map(([n, e]) => `${n}: ${e.message}`).join('; ');
+      throw new Error(`DAR upload failed for ${errors.size} validator(s): ${details}`);
+    }
+
     return mainPackageId;
   }
 
@@ -1316,6 +1347,14 @@ export class LocalNet {
     }
   }
 
+  /**
+   * Run post-startup initialization: allocate configured parties, create users,
+   * and onboard wallets. Called automatically by start() unless skipInitialization
+   * is set. Also exposed for the `dnm init` CLI command on already-running instances.
+   *
+   * @internal Do not call directly in application code — use start() instead.
+   * Calling this on an already-initialized instance will create duplicate users.
+   */
   async initializeResources(onProgress?: (msg: string) => void): Promise<void> {
     onProgress?.('Initializing resources...');
 

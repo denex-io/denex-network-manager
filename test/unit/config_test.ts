@@ -61,7 +61,24 @@ Deno.test('withDefaults - creates config with defaults', () => {
 
   assertEquals(config.validators, 3);
   assertEquals(config.auth.keycloak.admin, 'admin');
-  assertEquals(config.discovery?.port, 3100);
+  // discovery is deprecated and must not be injected unless explicitly configured.
+  assertEquals(config.discovery, undefined);
+});
+
+Deno.test('parseLocalNetConfig - auth.mode: oauth2 is preserved, not stripped', () => {
+  const config = parseLocalNetConfig({
+    validators: 1,
+    auth: {
+      mode: 'oauth2',
+      keycloak: {
+        admin: 'admin',
+        password: 'admin',
+      },
+    },
+  });
+
+  assertEquals(config.auth.mode, 'oauth2');
+  assertEquals(config.auth.keycloak.admin, 'admin');
 });
 
 Deno.test('normalizeValidators - number to array', () => {
