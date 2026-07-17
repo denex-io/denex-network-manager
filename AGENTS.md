@@ -61,8 +61,12 @@ test/
 Empty or historical directories exist in the repo. Do not treat `examples/*` as current reference
 material until populated. `src/canton-client/`, `src/discovery-server/`, `src/orchestrator/`, and
 `src/state/` may exist as empty or legacy stubs; ignore them unless populated. Treat
-`docs/research/` and `docs/plans/implementation-plan.md` as historical/supporting context, not
-current implementation specs.
+`docs/research/` and `docs/plans/` as historical/supporting context, not current implementation
+specs — they are not tracked in the public git repository.
+
+The npm release pipeline lives in `scripts/build_npm.ts` (SDK + CLI binaries via `dnt`) and
+`.github/workflows/publish.yml` (tag-triggered, compiles five platform binaries). These are not
+covered by a dedicated `agents/*.md` file; read those files directly when doing release work.
 
 ## Subject-specific context
 
@@ -87,6 +91,7 @@ deno task check
 deno task fmt:check
 deno task lint
 deno task test:unit
+deno task test:smoke
 deno task test:integration
 deno task test
 ```
@@ -111,8 +116,8 @@ deno task cli <command> --help
 - Run targeted unit tests for the affected subsystem.
 - Run integration tests when changing Docker orchestration, startup, auth, Keycloak, LocalNet
   lifecycle, browser/UI routing, or live Canton/Splice behavior.
-- Run `test/smoke/node-compat.mjs` when changing cross-runtime imports, exports, SDK entry points,
-  or anything that might leak Deno-only APIs.
+- Run `deno task test:smoke` when changing cross-runtime imports, exports, SDK entry points, or
+  anything that might leak Deno-only APIs.
 - For CLI behavior, drive the CLI through `deno task cli ...` after tests.
 
 ## Operational gotchas

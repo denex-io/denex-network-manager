@@ -22,6 +22,7 @@ deno task check
 deno task fmt:check
 deno task lint
 deno task test:unit
+deno task test:smoke
 deno task test:integration
 deno task test
 deno task playwright:install
@@ -55,6 +56,7 @@ deno task playwright:install
 - `test/integration/postgres_test.ts`
 - `test/integration/runtime_user_test.ts`
 - `test/integration/transfer_test.ts`
+- `test/integration/multi_instance_test.ts`
 - `test/integration/wallet_ui_test.ts`
 - `test/integration/helpers.ts`
 
@@ -66,7 +68,8 @@ deno task playwright:install
 - Use `localnetFetch()` for `*.localhost` URLs in Deno tests when DNS or Host header behavior
   matters.
 - Browser tests require Playwright Chromium; install with `deno task playwright:install`.
-- The smoke test guards cross-runtime boundaries and should run after export/import changes.
+- The smoke test guards cross-runtime boundaries and should run after export/import changes:
+  `deno task test:smoke` (runs `test/smoke/node-compat.mjs`).
 
 ## Critical gotchas
 

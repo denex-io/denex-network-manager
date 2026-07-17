@@ -32,8 +32,11 @@ produce the complete Canton, Splice, Keycloak, environment, and Nginx setup need
 ## Critical gotchas
 
 - Nginx API location blocks include `rewrite ^/(.*) /$1 break;`; preserve it when editing routes.
-- Some Nginx upstream ports are currently hardcoded (`5014` for SV admin and `5012` for Scan), not
-  derived from `SV_INTERNAL_PORTS`.
+- **Nginx proxy targets for SV admin and Scan are hardcoded** (`5014` and `5012` respectively) in
+  `src/docker/nginx.ts` and are not derived from `getSvInternalPorts()`. These values are only
+  correct at the default `basePort=5000`. A LocalNet started on a non-default basePort will have
+  Nginx proxying to the wrong host ports for those two paths. This is an open correctness issue; fix
+  it before adding production-non-default-basePort Nginx support.
 - Splice `target-throughput = 0` is intentional for LocalNet: it avoids reserved traffic
   preconditions and lets local operations proceed without amulets.
 - `canton.features.enable-testing-commands = yes` is intentionally enabled for local/test behavior.
