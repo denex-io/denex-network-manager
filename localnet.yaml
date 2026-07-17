@@ -13,7 +13,6 @@ validators:
         primaryParty: bob
 
 auth:
-  mode: oauth2
   keycloak:
     admin: admin
     password: admin
