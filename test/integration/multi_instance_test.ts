@@ -1,12 +1,14 @@
 /**
  * Multi-instance integration tests for denex-network-manager.
  *
- * Tests that two LocalNets with different instanceIds and basePorts have
- * correct resource isolation (containers, networks, volumes, port conflict
- * detection). Tests run sequentially — one instance is fully destroyed before
- * the next starts — because SV_INTERNAL_PORTS (sequencerPublic, scanAdmin,
- * etc.) are absolute port numbers shared by all instances regardless of
- * basePort, so true concurrent operation on one host is not supported.
+ * Verifies that two LocalNets with different instanceIds and basePorts can
+ * run concurrently without interfering with each other, and that destroying
+ * one does not affect the other's containers, network, or postgres volume.
+ *
+ * This is possible because host-published SV ports (scanAdmin, svAdmin) are
+ * now derived from basePort via getSvInternalPorts(). Container-to-container
+ * ports (sequencer, mediator) remain fixed absolute values since they only
+ * communicate within each instance's isolated Docker network.
  */
 
 import { assertEquals, assertNotEquals } from '@std/assert';
@@ -19,9 +21,10 @@ import {
 import { LocalNet } from '../../src/localnet.ts';
 import type { LocalNetConfig } from '../../src/types/config.ts';
 
-// High port ranges, well clear of any developer's default (5000) localnet
-// and each other. Each instance uses (validators+1)*100 ports from its base,
-// so basePort+0..+182 for 1 validator. 17000 and 18000 give 818-port clearance.
+// High port ranges, well clear of any developer's default (5000) localnet.
+// Port layout per instance: SV at basePort+0..+82, validator at (basePort+100)+0..+82,
+// SV internal host ports at basePort+12 (scanAdmin) and basePort+14 (svAdmin).
+// 17000 and 18000 give 818-port clearance — no overlap.
 const BASE_PORT_A = 17000;
 const BASE_PORT_B = 18000;
 
@@ -38,11 +41,11 @@ const INSTANCE_CONFIG_B: LocalNetConfig = {
 };
 
 // ============================================================================
-// Sequential isolation — start A, verify it, destroy A, start B, verify B.
+// Concurrent startup isolation
 // ============================================================================
 
 Deno.test({
-  name: 'Multi-instance: sequential instances have isolated containers and networks',
+  name: 'Multi-instance: two localnets with different basePorts start concurrently',
   ignore: !(await isDockerAvailable()),
   sanitizeOps: false,
   sanitizeResources: false,
@@ -50,92 +53,159 @@ Deno.test({
     const client = createTestDockerClient();
     const idA = generateTestInstanceId();
     const idB = generateTestInstanceId();
-    assertNotEquals(idA, idB);
-
-    // --- Instance A ---
     const netA = new LocalNet(INSTANCE_CONFIG_A, { instanceId: idA });
+    const netB = new LocalNet(INSTANCE_CONFIG_B, { instanceId: idB });
+
     try {
-      await netA.start({ skipHealthChecks: true, skipInitialization: true, timeout: 120_000 });
+      // Start both concurrently — must not port-conflict.
+      await Promise.all([
+        netA.start({ skipHealthChecks: true, skipInitialization: true, timeout: 120_000 }),
+        netB.start({ skipHealthChecks: true, skipInitialization: true, timeout: 120_000 }),
+      ]);
+
       assertEquals(netA.currentState, 'running');
+      assertEquals(netB.currentState, 'running');
 
       const containersA = await client.listContainers({ 'denex.localnet.instance': idA });
-      assertNotEquals(containersA.length, 0, 'Instance A has no containers');
+      const containersB = await client.listContainers({ 'denex.localnet.instance': idB });
 
-      // All containers are prefixed with idA
+      assertNotEquals(containersA.length, 0, 'Instance A has no containers');
+      assertNotEquals(containersB.length, 0, 'Instance B has no containers');
+      assertEquals(
+        containersA.length,
+        containersB.length,
+        'Instances have different container counts',
+      );
+
+      // No container ID overlap between instances.
+      const idsA = new Set(containersA.map((c) => c.id));
+      for (const c of containersB) {
+        assertEquals(idsA.has(c.id), false, `Container ${c.id} leaked across instances`);
+      }
+
+      // Container names are prefixed with their respective instanceId.
       for (const c of containersA) {
         assertEquals(c.name.startsWith(idA), true, `Container '${c.name}' not prefixed with idA`);
       }
-    } finally {
-      await netA.destroy();
-      await cleanupTestResources(client, idA);
-    }
-
-    // A is gone — no containers or volumes remain
-    const afterA = await client.listContainers({ 'denex.localnet.instance': idA });
-    assertEquals(afterA.length, 0, 'Instance A containers remain after destroy');
-    const volsAfterA = await client.listVolumes({ 'denex.localnet.instance': idA });
-    assertEquals(volsAfterA.length, 0, 'Instance A volumes remain after destroy');
-
-    // --- Instance B (starts clean, A is gone) ---
-    const netB = new LocalNet(INSTANCE_CONFIG_B, { instanceId: idB });
-    try {
-      await netB.start({ skipHealthChecks: true, skipInitialization: true, timeout: 120_000 });
-      assertEquals(netB.currentState, 'running');
-
-      const containersB = await client.listContainers({ 'denex.localnet.instance': idB });
-      assertNotEquals(containersB.length, 0, 'Instance B has no containers');
-
       for (const c of containersB) {
         assertEquals(c.name.startsWith(idB), true, `Container '${c.name}' not prefixed with idB`);
       }
     } finally {
-      await netB.destroy();
-      await cleanupTestResources(client, idB);
+      await Promise.allSettled([netA.destroy(), netB.destroy()]);
+      await Promise.allSettled([
+        cleanupTestResources(client, idA),
+        cleanupTestResources(client, idB),
+      ]);
     }
   },
 });
 
 // ============================================================================
-// Named postgres volume — each instance gets its own, destroy cleans it up.
+// Volume isolation
 // ============================================================================
 
 Deno.test({
-  name: 'Multi-instance: each instance creates a distinct named postgres volume',
+  name: 'Multi-instance: each instance gets its own named postgres volume',
   ignore: !(await isDockerAvailable()),
   sanitizeOps: false,
   sanitizeResources: false,
   async fn() {
     const client = createTestDockerClient();
     const idA = generateTestInstanceId();
+    const idB = generateTestInstanceId();
     const netA = new LocalNet(INSTANCE_CONFIG_A, { instanceId: idA });
+    const netB = new LocalNet(INSTANCE_CONFIG_B, { instanceId: idB });
 
     try {
-      await netA.start({ skipHealthChecks: true, skipInitialization: true, timeout: 120_000 });
+      await Promise.all([
+        netA.start({ skipHealthChecks: true, skipInitialization: true, timeout: 120_000 }),
+        netB.start({ skipHealthChecks: true, skipInitialization: true, timeout: 120_000 }),
+      ]);
 
-      const vols = await client.listVolumes({ 'denex.localnet.instance': idA });
-      assertEquals(vols.length, 1, `Expected 1 volume for instance, got ${vols.length}`);
-      assertEquals(
-        vols[0].name,
-        `${idA}-postgres-data`,
-        `Volume name unexpected: ${vols[0].name}`,
-      );
+      const volsA = await client.listVolumes({ 'denex.localnet.instance': idA });
+      const volsB = await client.listVolumes({ 'denex.localnet.instance': idB });
+
+      assertEquals(volsA.length, 1, `Expected 1 volume for A, got ${volsA.length}`);
+      assertEquals(volsB.length, 1, `Expected 1 volume for B, got ${volsB.length}`);
+
+      assertNotEquals(volsA[0].name, volsB[0].name, 'Both instances share the same volume name');
+      assertEquals(volsA[0].name, `${idA}-postgres-data`);
+      assertEquals(volsB[0].name, `${idB}-postgres-data`);
     } finally {
-      await netA.destroy();
-      await cleanupTestResources(client, idA);
+      await Promise.allSettled([netA.destroy(), netB.destroy()]);
+      await Promise.allSettled([
+        cleanupTestResources(client, idA),
+        cleanupTestResources(client, idB),
+      ]);
     }
-
-    // Volume is cleaned up by destroy()
-    const volsAfter = await client.listVolumes({ 'denex.localnet.instance': idA });
-    assertEquals(volsAfter.length, 0, 'Postgres volume not removed by destroy()');
   },
 });
 
 // ============================================================================
-// Port conflict detection — same basePort on two instances should be rejected.
+// Destroy isolation — tearing down one must not affect the other
 // ============================================================================
 
 Deno.test({
-  name: 'Multi-instance: starting a second instance on the same basePort throws',
+  name: 'Multi-instance: destroying one instance leaves the other intact',
+  ignore: !(await isDockerAvailable()),
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    const client = createTestDockerClient();
+    const idA = generateTestInstanceId();
+    const idB = generateTestInstanceId();
+    const netA = new LocalNet(INSTANCE_CONFIG_A, { instanceId: idA });
+    const netB = new LocalNet(INSTANCE_CONFIG_B, { instanceId: idB });
+
+    try {
+      await Promise.all([
+        netA.start({ skipHealthChecks: true, skipInitialization: true, timeout: 120_000 }),
+        netB.start({ skipHealthChecks: true, skipInitialization: true, timeout: 120_000 }),
+      ]);
+
+      const containerCountB = (await client.listContainers({ 'denex.localnet.instance': idB }))
+        .length;
+      const volumeCountB = (await client.listVolumes({ 'denex.localnet.instance': idB })).length;
+
+      // Destroy only A.
+      await netA.destroy();
+
+      // A's resources must be gone.
+      const containersAfterA = await client.listContainers({ 'denex.localnet.instance': idA });
+      assertEquals(containersAfterA.length, 0, 'Instance A containers remain after destroy');
+      const volsAfterA = await client.listVolumes({ 'denex.localnet.instance': idA });
+      assertEquals(volsAfterA.length, 0, 'Instance A volumes remain after destroy');
+
+      // B must be completely unaffected.
+      const containersAfterB = await client.listContainers({ 'denex.localnet.instance': idB });
+      assertEquals(
+        containersAfterB.length,
+        containerCountB,
+        'Instance B container count changed after A was destroyed',
+      );
+      const volsAfterB = await client.listVolumes({ 'denex.localnet.instance': idB });
+      assertEquals(
+        volsAfterB.length,
+        volumeCountB,
+        'Instance B volume count changed after A was destroyed',
+      );
+      assertEquals(netB.currentState, 'running', 'Instance B is no longer running');
+    } finally {
+      await Promise.allSettled([netA.destroy(), netB.destroy()]);
+      await Promise.allSettled([
+        cleanupTestResources(client, idA),
+        cleanupTestResources(client, idB),
+      ]);
+    }
+  },
+});
+
+// ============================================================================
+// Port conflict detection
+// ============================================================================
+
+Deno.test({
+  name: 'Multi-instance: starting two instances on the same basePort throws',
   ignore: !(await isDockerAvailable()),
   sanitizeOps: false,
   sanitizeResources: false,
@@ -152,7 +222,7 @@ Deno.test({
     };
     const configB: LocalNetConfig = {
       validators: 1,
-      basePort: sharedPort, // same — should be rejected by validatePortAvailability
+      basePort: sharedPort, // same — must be rejected
       auth: { keycloak: { admin: 'admin', password: 'admin' } },
     };
 
@@ -175,8 +245,11 @@ Deno.test({
         );
       }
       assertEquals(threw, true, 'Expected netB.start() to throw a port conflict error');
-      // After the throw, netB state should be 'stopped' (pre-container failure)
-      assertEquals(netB.currentState, 'stopped');
+      assertEquals(
+        netB.currentState,
+        'stopped',
+        'netB state should reset to stopped after pre-container failure',
+      );
     } finally {
       await Promise.allSettled([netA.destroy(), netB.destroy()]);
       await Promise.allSettled([

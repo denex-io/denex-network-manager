@@ -34,7 +34,7 @@ import {
   generateFullSpliceConfig,
   generateMergedEnv,
 } from './generator/mod.ts';
-import { getSvPorts, getValidatorPorts, SV_INTERNAL_PORTS } from './utils/ports.ts';
+import { getSvInternalPorts, getSvPorts, getValidatorPorts } from './utils/ports.ts';
 import { loadConfigFile } from './utils/yaml.ts';
 import { buildConfigEnvironmentInfo } from './utils/env-info.ts';
 import { type CredentialInfo, getCredentials as getCredentialsList } from './utils/credentials.ts';
@@ -1328,8 +1328,9 @@ export class LocalNet {
     for (let i = 0; i < maxRetries; i++) {
       try {
         onProgress?.('Checking Scan readiness...');
+        const scanPort = getSvInternalPorts(this.config.basePort).scanAdmin;
         const response = await fetch(
-          `http://localhost:${SV_INTERNAL_PORTS.scanAdmin}/api/scan/status`,
+          `http://localhost:${scanPort}/api/scan/status`,
         );
         if (!response.ok) {
           throw new Error(`Scan status returned ${response.status}`);
