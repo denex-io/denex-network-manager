@@ -67,13 +67,15 @@ health, and labels resources for discovery and cleanup.
 - Keycloak 26 health uses management port `9000` inside the container and `/dev/tcp`, not `curl`.
 - Nginx uses `restart: 'always'`; most other containers use `unless-stopped`.
 - `ansWebUi` exists in `ContainerImages` but no ANS web UI container is currently built.
-- **Nginx proxy targets for scanAdmin/svAdmin are hardcoded** (`5014` for SV admin, `5012` for Scan)
-  in `src/docker/nginx.ts`. These are only correct at default `basePort=5000`. If using a
-  non-default basePort, Nginx will proxy to the wrong host ports. See `config-generation.md` for
-  details and the open issue.
-- `getSvInternalPorts()` is the right function for host-side port values; do not read `scanAdmin`/
-  `svAdmin` from `SV_INTERNAL_PORTS` directly in code that runs on the host (use it only for
-  container-internal config generation where the port is always absolute).
+- `getSvInternalPorts()` is the right function for host-side port values (e.g. in
+  `waitForScanActive`, `env.ts`, container port bindings). Do not read `scanAdmin`/`svAdmin` from
+  `SV_INTERNAL_PORTS` directly in code that runs on the host. Container-internal config (HOCON,
+  app.conf, Nginx `proxy_pass`) may still use `SV_INTERNAL_PORTS` directly since those ports are
+  fixed inside the container regardless of basePort.
+- Nginx `proxy_pass http://splice:5012` and `http://splice:5014` are correct — these are
+  container-to-container references within the instance's isolated Docker network. The splice
+  container always listens on those fixed internal ports; concurrent instances are isolated by
+  separate Docker networks, so there is no collision.
 
 ## Editing guidance
 
