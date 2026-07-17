@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright Cumberland Applications LLC 2026
 import { Command } from '@cliffy/command';
 import { startCommand } from './commands/start.ts';
 import { stopCommand } from './commands/stop.ts';
