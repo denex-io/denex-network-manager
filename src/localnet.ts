@@ -273,6 +273,12 @@ export class LocalNet {
       await this.generateConfigs();
 
       await this.networkManager.create(this.options.instanceId);
+      containersCreated = true;
+
+      const postgresVolumeName = `${this.options.instanceId}-postgres-data`;
+      await this.client.createVolume(postgresVolumeName, {
+        [`${this.options.labelPrefix}.instance`]: this.options.instanceId,
+      });
 
       const containerSpecs = this.buildContainerSpecs();
       const layers = getStartupOrder(containerSpecs);
@@ -1485,6 +1491,7 @@ export class LocalNet {
       configDir: this.options.configDir,
       dataDir: this.options.dataDir,
       labelPrefix: this.options.labelPrefix,
+      instanceId: this.options.instanceId,
       images: this.options.images,
       dbUser: this.options.dbUser,
       dbPassword: this.options.dbPassword,
@@ -1526,14 +1533,12 @@ export class LocalNet {
 
   private async generateConfigs(): Promise<void> {
     const configDir = this.options.configDir;
-    const dataDir = this.options.dataDir;
 
     await mkdir(configDir, { recursive: true });
     await mkdir(`${configDir}/canton`, { recursive: true });
     await mkdir(`${configDir}/splice`, { recursive: true });
     await mkdir(`${configDir}/nginx`, { recursive: true });
     await mkdir(`${configDir}/keycloak`, { recursive: true });
-    await mkdir(`${dataDir}/postgres`, { recursive: true });
 
     const cantonConfig = generateFullCantonConfig(this.config);
     await writeFile(`${configDir}/canton/app.conf`, cantonConfig, 'utf-8');

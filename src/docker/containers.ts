@@ -90,6 +90,7 @@ export interface ContainerBuilderOptions {
   configDir: string;
   dataDir: string;
   labelPrefix: string;
+  instanceId?: string;
   images?: Partial<ContainerImages>;
   dbUser?: string;
   dbPassword?: string;
@@ -133,7 +134,10 @@ export function buildPostgresContainer(
     },
     ports: [{ container: 5432 }],
     volumes: [
-      { source: `${options.dataDir}/postgres`, target: '/var/lib/postgresql/data' },
+      {
+        source: `${options.instanceId ?? options.labelPrefix}-postgres-data`,
+        target: '/var/lib/postgresql/data',
+      },
       {
         source: `${options.configDir}/postgres-entrypoint.sh`,
         target: '/docker-entrypoint-initdb.d/init.sh',
