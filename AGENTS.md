@@ -1,12 +1,12 @@
-# denex-localnet Agent Notes
+# denex-network-manager Agent Notes
 
 This file is for coding agents working in this repository. It is intentionally not a user manual.
 
-## What denex-localnet is
+## What denex-network-manager is
 
-`denex-localnet` is a Testcontainers-style SDK and Deno CLI for running Canton Network LocalNets
-from one YAML file. It starts a Super Validator, regular validators, Canton, Splice, Keycloak,
-PostgreSQL, Nginx, and web UIs using the Docker API directly, not Docker Compose.
+`denex-network-manager` is a Testcontainers-style SDK and Deno CLI for running Canton Network
+LocalNets from one YAML file. It starts a Super Validator, regular validators, Canton, Splice,
+Keycloak, PostgreSQL, Nginx, and web UIs using the Docker API directly, not Docker Compose.
 
 ## Repo-level rules
 

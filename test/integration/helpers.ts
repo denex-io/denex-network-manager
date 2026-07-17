@@ -1,5 +1,5 @@
 /**
- * Integration test helpers for denex-localnet.
+ * Integration test helpers for denex-network-manager.
  * Provides utilities for tests requiring Docker daemon access.
  */
 

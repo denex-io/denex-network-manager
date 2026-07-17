@@ -36,8 +36,8 @@ requiring a config file.
 
 ## Critical gotchas
 
-- Error messages still mention `denex-localnet` in some places while the local command name is
-  `localnet`; check existing command style before changing wording.
+- Error messages use `dnm` as the command name; check existing command style before changing
+  wording.
 - Do not add `--config` back to state-2 commands.
 - Terminal color output depends on `Deno.stdout.isTerminal()`.
 - `destroy --force` behavior should protect users from accidental deletion.

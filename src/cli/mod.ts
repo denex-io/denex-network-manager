@@ -18,7 +18,7 @@ import { discoveryCommand } from './commands/discovery.ts';
 const VERSION = '0.1.0';
 
 export const cli = new Command()
-  .name('localnet')
+  .name('dnm')
   .version(VERSION)
   .description('Canton LocalNet management CLI')
   .action(function () {

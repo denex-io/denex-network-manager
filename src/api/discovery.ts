@@ -91,7 +91,7 @@ export class MultiInstanceDiscoveryServer {
           {
             error: 'Instance uses unsupported schema',
             instanceId: id,
-            remediation: `Run \`denex-localnet destroy --instance ${id}\` and start it again.`,
+            remediation: `Run \`dnm destroy --instance ${id}\` and start it again.`,
           },
           410,
         );
@@ -136,7 +136,7 @@ export class MultiInstanceDiscoveryServer {
           {
             error: 'Instance uses unsupported schema',
             instanceId: id,
-            remediation: `Run \`denex-localnet destroy --instance ${id}\` and start it again.`,
+            remediation: `Run \`dnm destroy --instance ${id}\` and start it again.`,
           },
           410,
         );
@@ -164,7 +164,7 @@ export class MultiInstanceDiscoveryServer {
           {
             error: 'Instance uses unsupported schema',
             instanceId: id,
-            remediation: `Run \`denex-localnet destroy --instance ${id}\` and start it again.`,
+            remediation: `Run \`dnm destroy --instance ${id}\` and start it again.`,
           },
           410,
         );
@@ -192,7 +192,7 @@ export class MultiInstanceDiscoveryServer {
           {
             error: 'Instance uses unsupported schema',
             instanceId: id,
-            remediation: `Run \`denex-localnet destroy --instance ${id}\` and start it again.`,
+            remediation: `Run \`dnm destroy --instance ${id}\` and start it again.`,
           },
           410,
         );
@@ -219,7 +219,7 @@ export class MultiInstanceDiscoveryServer {
           {
             error: 'Instance uses unsupported schema',
             instanceId: id,
-            remediation: `Run \`denex-localnet destroy --instance ${id}\` and start it again.`,
+            remediation: `Run \`dnm destroy --instance ${id}\` and start it again.`,
           },
           410,
         );

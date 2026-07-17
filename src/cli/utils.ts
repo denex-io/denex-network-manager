@@ -36,7 +36,7 @@ export async function getRunningLocalNet(instanceId?: string): Promise<LocalNet>
   const running = instances.filter((i) => i.status === 'running');
   if (running.length === 0) {
     throw new Error(
-      'No running LocalNet instances found. Start one with `denex-localnet start`.',
+      'No running LocalNet instances found. Start one with `dnm start`.',
     );
   }
   if (running.length > 1) {
