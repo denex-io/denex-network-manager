@@ -15,9 +15,9 @@ import {
 import { localnetFetch } from '../../src/utils/fetch.ts';
 import {
   getKeycloakPort,
+  getSvInternalPorts,
   getSvPorts,
   getValidatorPorts,
-  SV_INTERNAL_PORTS,
 } from '../../src/utils/ports.ts';
 import {
   cleanupTestResources,
@@ -137,6 +137,7 @@ Deno.test({
     const keycloakUrl = getKeycloakUrl(AUTH_CONFIDENCE_CONFIG);
     const keycloakPort = getKeycloakPort(basePort);
     const svPorts = getSvPorts(basePort);
+    const svInternalPorts = getSvInternalPorts(basePort);
     const validatorPorts = getValidatorPorts(0, basePort);
     const validatorRealm = getRealmName('validator-1');
     const validatorClientId = getValidatorClientId('validator-1');
@@ -278,14 +279,14 @@ Deno.test({
       assert(dsoPartyId.length > 0);
 
       const scanResponse = await assertOkWithToken(
-        `http://localhost:${SV_INTERNAL_PORTS.scanAdmin}/api/scan/v0/splice-instance-names`,
+        `http://localhost:${svInternalPorts.scanAdmin}/api/scan/v0/splice-instance-names`,
         svUserToken,
       );
       const scanJson = await scanResponse.json();
       assertExists(scanJson);
 
       const svAuthorizationResponse = await assertOkWithToken(
-        `http://localhost:${SV_INTERNAL_PORTS.svAdmin}/api/sv/v0/admin/authorization`,
+        `http://localhost:${svInternalPorts.svAdmin}/api/sv/v0/admin/authorization`,
         svServiceToken,
       );
       const svAuthorizationText = await svAuthorizationResponse.text();

@@ -57,6 +57,7 @@ export const PackageConfigSchema = z.object({
 });
 
 export const OAuth2ConfigSchema = z.object({
+  mode: z.literal('oauth2').optional(),
   keycloak: z.object({
     admin: z.string().min(1),
     password: z.string().min(1),
@@ -119,7 +120,7 @@ export function withDefaults(config: Partial<ParsedLocalNetConfig>): ParsedLocal
     validators: config.validators ?? CONFIG_DEFAULTS.validatorCount,
     auth: defaultAuth,
     packages: config.packages,
-    discovery: config.discovery ?? CONFIG_DEFAULTS.discovery,
+    discovery: config.discovery,
     basePort,
   });
 }

@@ -46,3 +46,6 @@ jobs:
 
       - name: Unit Tests
         run: deno task test:unit
+
+      - name: Smoke Tests
+        run: deno task test:smoke

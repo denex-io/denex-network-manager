@@ -42,10 +42,28 @@ initialization, and runtime operations.
 - The API cache TTL is 30 seconds; mutation methods invalidate relevant keys.
 - `createUser()` is not atomic but is intentionally convergent: ledger user, Keycloak user, and
   wallet onboarding may partially succeed and retry cleanly.
-- `destroy()` accepts options but currently always removes volumes and `.localnet/<instance>` data.
-- `StopOptions.removeVolumes` is not honored by `destroy()` today.
+- `destroy()` unconditionally removes named volumes (postgres data) and `.localnet/<instance>`
+  config data. The `StopOptions` parameter is forwarded to the internal `stop()` call (for timeout
+  control) but does not gate volume removal.
+- `destroy()` uses the cwd captured at construction time (`instanceCwd`), not `process.cwd()` at
+  call time — safe to call after a directory change.
 - `validatePortAvailability()` checks Docker-published ports, not all host processes.
 - `waitForApisReady()` retries before resource initialization.
+- `StartOptions.timeout` and `StopOptions.timeout` are both in **milliseconds** at the public API.
+  `stop()` converts internally to seconds for the Docker API. Default: `start()` 300,000 ms,
+  `stop()` 30,000 ms.
+- `start()` sets `internalState = 'error'` only when containers were actually created before the
+  failure. Pre-container failures (Docker unavailable, port conflict, config gen error) reset state
+  to `'stopped'` so the instance can be started again without reconstruction.
+- `detectConfigMismatch()` returns `{ hasMismatch: true, ... }` on mismatch rather than throwing.
+  `start()` reads the return value and throws from there. Callers that call `detectConfigMismatch()`
+  directly for diagnostics should check `hasMismatch`, not catch exceptions.
+- `logs()` and `exec()` work after `fromInstanceId()` — `containerIds` is populated from the
+  container list fetched during attach.
+- `initializeResources()` carries `@internal` JSDoc and should not be called by application code —
+  use `start()`. It remains public because the CLI `init` command depends on it.
+- `uploadDar()` throws an aggregate error listing all failed validators; it does not swallow
+  individual upload failures silently.
 
 ## Editing guidance
 

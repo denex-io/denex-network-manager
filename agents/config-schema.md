@@ -30,13 +30,20 @@ user-facing schema, fills defaults, and feeds the generator and lifecycle layers
 - `basePort` defaults to `5000` and must be between `1024` and `60000`.
 - OAuth2 with Keycloak is the only auth mode; config stores `auth.keycloak.admin` and
   `auth.keycloak.password`.
-- `discovery` is deprecated and kept only for backward compatibility.
+- `discovery` is deprecated; kept only for backward compatibility. The field is accepted and
+  preserved if provided, but `withDefaults()` no longer injects a default value — `discovery` is
+  `undefined` in configs that don't include it explicitly.
+- `auth.mode: 'oauth2'` is accepted by the schema as an optional literal field and round-trips
+  correctly. Previously it was silently stripped by Zod. OAuth2 with Keycloak remains the only
+  supported auth mode.
 
 ## Critical gotchas
 
 - `packages:` is parsed and validated, but startup does not currently auto-upload those DARs. Use
   `LocalNet.uploadDar()` for runtime uploads.
-- `withDefaults()` currently includes default `discovery` config for backward compatibility.
+- `withDefaults()` does **not** inject a default `discovery` value. If `config.discovery` is absent,
+  the output has `discovery: undefined`. Old code that relied on `withDefaults()` always producing a
+  `discovery` object will see `undefined` now.
 - `PartyConfig.hint` and `ValidatorConfig.name` must match `/^[a-z][a-z0-9-]*$/i`.
 - `UserConfig.rights` accepts all rights for backward compatibility, but per-party rights should be
   modeled with `UserConfig.parties`.

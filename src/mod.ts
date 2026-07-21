@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright Cumberland Applications LLC 2026
 export * from './types/mod.ts';
 export * from './schemas/mod.ts';
 export {

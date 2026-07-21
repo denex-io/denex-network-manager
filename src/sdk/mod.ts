@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright Cumberland Applications LLC 2026
 /** @module sdk */
 
 export { createLocalNet, LocalNet, type LocalNetOptions } from '../localnet.ts';

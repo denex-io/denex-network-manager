@@ -1,0 +1,148 @@
+name: Publish
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+
+jobs:
+  compile-linux-win:
+    name: Compile Binaries (Linux + Windows)
+    runs-on: ubuntu-latest
+    steps:
+      # @v7.0.0
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+
+      # @v2.0.5
+      - uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed
+        name: Setup Deno
+        with:
+          deno-version: v2.x
+
+      - name: Compile linux/x64
+        run: deno compile --allow-all --target x86_64-unknown-linux-gnu --output dnm-linux-x64 src/cli/mod.ts
+
+      - name: Compile linux/arm64
+        run: deno compile --allow-all --target aarch64-unknown-linux-gnu --output dnm-linux-arm64 src/cli/mod.ts
+
+      - name: Compile windows/x64
+        run: deno compile --allow-all --target x86_64-pc-windows-msvc --output dnm-win-x64.exe src/cli/mod.ts
+
+      # @v4.3.3
+      - uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0aba2995
+        name: Upload linux/win binaries
+        with:
+          name: binaries-linux-win
+          path: |
+            dnm-linux-x64
+            dnm-linux-arm64
+            dnm-win-x64.exe
+
+  compile-macos:
+    name: Compile Binaries (macOS)
+    runs-on: macos-latest
+    steps:
+      # @v7.0.0
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+
+      # @v2.0.5
+      - uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed
+        name: Setup Deno
+        with:
+          deno-version: v2.x
+
+      - name: Compile darwin/x64
+        run: deno compile --allow-all --target x86_64-apple-darwin --output dnm-darwin-x64 src/cli/mod.ts
+
+      - name: Compile darwin/arm64
+        run: deno compile --allow-all --target aarch64-apple-darwin --output dnm-darwin-arm64 src/cli/mod.ts
+
+      # @v4.3.3
+      - uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0aba2995
+        name: Upload macOS binaries
+        with:
+          name: binaries-macos
+          path: |
+            dnm-darwin-x64
+            dnm-darwin-arm64
+
+  publish:
+    name: Build and Publish to npm
+    runs-on: ubuntu-latest
+    needs: [compile-linux-win, compile-macos]
+    permissions:
+      contents: read
+    steps:
+      # @v7.0.0
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+
+      # @v2.0.5
+      - uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed
+        name: Setup Deno
+        with:
+          deno-version: v2.x
+
+      # @v4.0.2
+      - uses: actions/setup-node@60edb5dd545a775178f52524783378180af0d1f8
+        name: Setup Node.js
+        with:
+          node-version: '20'
+          registry-url: 'https://registry.npmjs.org'
+
+      # @v6.1.0 (same cache action as ci.yml)
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        name: Cache Deno Dependencies
+        with:
+          path: |
+            ~/.cache/deno
+            node_modules
+          key: ${{ runner.os }}-deno-${{ hashFiles('deno.lock', 'deno.json') }}
+          restore-keys: |
+            ${{ runner.os }}-deno-
+
+      - name: Check Types
+        run: deno task check
+
+      - name: Lint
+        run: deno task lint
+
+      - name: Unit Tests
+        run: deno task test:unit
+
+      - name: Smoke Tests
+        run: deno task test:smoke
+
+      # @v4.1.7
+      - uses: actions/download-artifact@65a9edc5881444af0b9093a5e628f2fe47ea3b2f
+        name: Download linux/win binaries
+        with:
+          name: binaries-linux-win
+
+      # @v4.1.7
+      - uses: actions/download-artifact@65a9edc5881444af0b9093a5e628f2fe47ea3b2f
+        name: Download macOS binaries
+        with:
+          name: binaries-macos
+
+      - name: Build npm package
+        run: deno run --allow-all scripts/build_npm.ts ${GITHUB_REF_NAME#v}
+
+      - name: Stage binaries
+        run: |
+          cp dnm-linux-x64 npm/bin/dnm-linux-x64
+          cp dnm-linux-arm64 npm/bin/dnm-linux-arm64
+          cp dnm-darwin-x64 npm/bin/dnm-darwin-x64
+          cp dnm-darwin-arm64 npm/bin/dnm-darwin-arm64
+          cp dnm-win-x64.exe npm/bin/dnm-win-x64.exe
+          chmod +x npm/bin/dnm-linux-x64
+          chmod +x npm/bin/dnm-linux-arm64
+          chmod +x npm/bin/dnm-darwin-x64
+          chmod +x npm/bin/dnm-darwin-arm64
+
+      - name: Publish to npm
+        run: cd npm && npm publish --access public --tag beta
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

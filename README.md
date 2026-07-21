@@ -1,11 +1,14 @@
-# denex-localnet
+# denex-network-manager
 
 A Testcontainers-style SDK and Deno CLI for running Canton Network LocalNets from a single YAML
 file.
 
-`denex-localnet` is for local Canton/Splice development: start a Super Validator, one or more
+`denex-network-manager` is for local Canton/Splice development: start a Super Validator, one or more
 regular validators, Keycloak, PostgreSQL, Nginx, and the web UIs without maintaining the upstream
 LocalNet config tree yourself.
+
+> **Pre-1.0 beta:** This is a beta release. The API may change in minor versions (0.x). Check the
+> [CHANGELOG](./CHANGELOG.md) before upgrading.
 
 ## Requirements
 
@@ -18,6 +21,46 @@ built-ins and are intended to work on Deno, Node.js, and Bun.
 
 **Bun caveat:** Bun does not support Docker Unix sockets reliably through `node:http`. If you use
 the SDK from Bun, configure Docker to listen on a TCP socket.
+
+> This release targets Splice/Canton version **0.6.6**. To use a different version, pass `images` to
+> `LocalNetOptions` or `LocalNetBuilder`.
+
+## Installation
+
+### CLI
+
+Install the `dnm` binary for your platform (Linux x64/arm64, macOS x64/arm64, Windows x64). No Deno
+required:
+
+```bash
+npm install -g @denex/network-manager@beta
+```
+
+Or run from source (requires Deno 2.0+ and a repo checkout):
+
+```bash
+deno install --global --allow-all --config deno.json --name dnm src/cli/mod.ts
+```
+
+### SDK
+
+**Node.js / npm:**
+
+```bash
+npm install @denex/network-manager@beta
+```
+
+**Bun:**
+
+```bash
+bun add @denex/network-manager@beta
+```
+
+Then import:
+
+```typescript
+import { LocalNet, LocalNetBuilder } from '@denex/network-manager/sdk';
+```
 
 ## Quick Start
 
@@ -37,22 +80,22 @@ auth:
 Start the LocalNet:
 
 ```bash
-deno task cli start
+dnm start
 ```
 
 Check status and endpoints:
 
 ```bash
-deno task cli status
-deno task cli env
-deno task cli credentials
+dnm status
+dnm env
+dnm credentials
 ```
 
 Stop or destroy it:
 
 ```bash
-deno task cli stop
-deno task cli destroy --force
+dnm stop
+dnm destroy --force
 ```
 
 `destroy` removes containers, networks, volumes, and `.localnet/<instance>` data. Without `--force`,
@@ -60,11 +103,9 @@ it asks for confirmation.
 
 ## CLI
 
-Run the CLI from this repository with:
-
 ```bash
-deno task cli --help
-deno task cli <command> --help
+dnm --help
+dnm <command> --help
 ```
 
 Commands:
@@ -91,13 +132,13 @@ containers through labels. If multiple instances are running, pass `--instance <
 Useful options:
 
 ```bash
-deno task cli config -y -o localnet.yaml
-deno task cli start --instance demo --timeout 300000
-deno task cli start --skip-init
-deno task cli start --skip-health-checks
-deno task cli env --json
-deno task cli env --shell
-deno task cli credentials --json
+dnm config -y -o localnet.yaml
+dnm start --instance demo --timeout 300000
+dnm start --skip-init
+dnm start --skip-health-checks
+dnm env --json
+dnm env --shell
+dnm credentials --json
 ```
 
 ## Web UIs And Credentials
@@ -200,10 +241,10 @@ With `basePort: 6000`, the same layout starts at `6000`, `6100`, `6200`, and so 
 
 ## SDK Usage
 
-Use `@denex/localnet/sdk` for the common surface:
+Use `@denex/network-manager/sdk` for the common surface:
 
 ```typescript
-import { LocalNet, LocalNetBuilder } from '@denex/localnet/sdk';
+import { LocalNet, LocalNetBuilder } from '@denex/network-manager/sdk';
 
 const net = await LocalNet.fromConfig('./localnet.yaml', {
   instanceId: 'demo',
@@ -255,11 +296,30 @@ const packageId = await net.uploadDar('./my-app.dar');
 await net.uploadDar('./my-app.dar', ['app', 'users-val']);
 ```
 
+> **Note:** DAR packages listed in the `packages:` config field are validated on load but are
+> **not** uploaded automatically on startup. Call `net.uploadDar(path)` after start, or use `dnm` to
+> upload after the network is running.
+
 `createUser` provisions the ledger user, Keycloak user, and wallet onboarding. It is idempotent per
 side, so retries converge after partial failures.
 
-Advanced users can import the full API from `@denex/localnet`, including `CantonClient`,
+Advanced users can import the full API from `@denex/network-manager`, including `CantonClient`,
 `ValidatorAdminClient`, generators, schemas, Docker helpers, and discovery utilities.
+
+## SDK Quick Start
+
+```typescript
+import { LocalNetBuilder } from '@denex/network-manager/sdk';
+
+const net = await new LocalNetBuilder()
+  .withValidators(1)
+  .build();
+
+await net.start({ onProgress: console.log });
+const env = await net.getEnvironment();
+console.log(env.sv.endpoints);
+await net.destroy();
+```
 
 ## Discovery Server
 
@@ -267,7 +327,7 @@ The discovery server is a separate foreground process for querying running insta
 is not started from `localnet.yaml`; the `discovery` config field is deprecated.
 
 ```bash
-deno task cli discovery serve --port 3100 --host 127.0.0.1
+dnm discovery serve --port 3100 --host 127.0.0.1
 ```
 
 Useful routes:
@@ -287,15 +347,39 @@ curl http://127.0.0.1:3100/instances
 curl http://127.0.0.1:3100/instances/demo/env
 ```
 
+## Troubleshooting
+
+Container names are prefixed with the instance ID (default: `default`). Use `dnm status` to list
+running container names.
+
+**502 Bad Gateway on API routes:** the `splice` container is likely crash-looping. Check
+`docker logs default-splice` for fatal errors. A bad validator config can take all Splice APIs
+offline because SV, Scan, and validator apps run in one process.
+
+**401 Unauthorized from wallet APIs:** verify Keycloak realm names. Validator realm names are
+title-cased from validator names, for example `validator-1` becomes `Validator1` and
+`alice-validator` becomes `AliceValidator`. Check `docker logs default-keycloak` for realm import
+errors.
+
+**Web UI loads but spins forever:** the static UI is reachable but the backend API is unhealthy or
+unreachable. Check `dnm status` and the relevant container logs.
+
+**Splice reports "Node name is too long":** use shorter validator names. Splice limits generated
+node names to 30 characters.
+
 ## Development
 
+Working from a source checkout requires [Deno 2.0+](https://deno.com).
+
 ```bash
+# Run CLI from source
+deno task cli start
+
+# Type-check, lint, test
 deno task check
-deno task fmt:check
 deno task lint
 deno task test:unit
-deno task test:integration
-deno task test
+deno task test:smoke
 ```
 
 Integration tests require Docker and may start containers. Unit tests do not require Docker.
@@ -315,22 +399,7 @@ git clone https://github.com/digital-asset/cn-quickstart .references/cn-quicksta
 
 `.references/` is ignored by git.
 
-## Troubleshooting
-
-**502 Bad Gateway on API routes:** the `splice` container is likely crash-looping. Check
-`docker logs splice` for fatal errors. A bad validator config can take all Splice APIs offline
-because SV, Scan, and validator apps run in one process.
-
-**401 Unauthorized from wallet APIs:** verify Keycloak realm names. Validator realm names are
-title-cased from validator names, for example `validator-1` becomes `Validator1` and
-`alice-validator` becomes `AliceValidator`.
-
-**Web UI loads but spins forever:** the static UI is reachable but the backend API is unhealthy or
-unreachable. Check `deno task cli status` and the relevant container logs.
-
-**Splice reports "Node name is too long":** use shorter validator names. Splice limits generated
-node names to 30 characters.
-
 ## License
 
-MIT
+Copyright Cumberland Applications LLC 2026. Licensed under the
+[Apache License, Version 2.0](./LICENSE).

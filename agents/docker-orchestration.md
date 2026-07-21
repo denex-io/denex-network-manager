@@ -38,9 +38,25 @@ health, and labels resources for discovery and cleanup.
 
 - Suffixes: `httpHealth +0`, `ledgerApi +1`, `adminApi +2`, `validatorAdminApi +3`,
   `grpcHealth +61`, `jsonApi +75`, `webUi +80`, `keycloak +82`.
-- SV internal ports include `mediatorAdmin: 5007`, `sequencerPublic: 5008`, `sequencerAdmin: 5009`,
-  `scanAdmin: 5012`, `svAdmin: 5014`, `sequencerGrpcHealth: 5062`, `mediatorGrpcHealth: 5063`.
 - Regular validator ports are `basePort + ((index + 1) * 100) + suffix`.
+- **SV host-published ports** are basePort-relative via `getSvInternalPorts(basePort)` in
+  `src/utils/ports.ts`: `scanAdmin: basePort+12`, `svAdmin: basePort+14`. These must be distinct
+  across concurrent instances, which is what makes true concurrent multi-instance work.
+- **SV container-to-container ports** are fixed absolute values (never published to the host —
+  containers communicate within their isolated Docker network only): `mediatorAdmin: 5007`,
+  `sequencerPublic: 5008`, `sequencerAdmin: 5009`, `sequencerGrpcHealth: 5062`,
+  `mediatorGrpcHealth: 5063`.
+
+## Volumes
+
+- Postgres data lives in the named Docker volume `<instanceId>-postgres-data`, created in
+  `LocalNet.start()` before `buildContainerSpecs()` is called and labelled with
+  `denex.localnet.instance`. `destroy()` removes it via the existing instance-label volume query —
+  no special handling needed.
+- Config files (canton/splice app.conf, Keycloak realms, nginx.conf, postgres entrypoint script)
+  remain as host bind mounts written to `configDir` by `generateConfigs()`.
+- `ContainerBuilderOptions.instanceId` is used to derive the volume name in
+  `buildPostgresContainer()`; falls back to `labelPrefix` if not provided.
 
 ## Critical gotchas
 
@@ -51,6 +67,15 @@ health, and labels resources for discovery and cleanup.
 - Keycloak 26 health uses management port `9000` inside the container and `/dev/tcp`, not `curl`.
 - Nginx uses `restart: 'always'`; most other containers use `unless-stopped`.
 - `ansWebUi` exists in `ContainerImages` but no ANS web UI container is currently built.
+- `getSvInternalPorts()` is the right function for host-side port values (e.g. in
+  `waitForScanActive`, `env.ts`, container port bindings). Do not read `scanAdmin`/`svAdmin` from
+  `SV_INTERNAL_PORTS` directly in code that runs on the host. Container-internal config (HOCON,
+  app.conf, Nginx `proxy_pass`) may still use `SV_INTERNAL_PORTS` directly since those ports are
+  fixed inside the container regardless of basePort.
+- Nginx `proxy_pass http://splice:5012` and `http://splice:5014` are correct — these are
+  container-to-container references within the instance's isolated Docker network. The splice
+  container always listens on those fixed internal ports; concurrent instances are isolated by
+  separate Docker networks, so there is no collision.
 
 ## Editing guidance
 

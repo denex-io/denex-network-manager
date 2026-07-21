@@ -1,7 +1,14 @@
+# Build output
+npm/
+
 .DS_Store
 node_modules/
 .localnet/
+reference/
 .references/
+
+# OMC tooling state
+.omc/
 
 # Local secrets and ad-hoc environment files
 .env
@@ -11,3 +18,7 @@ node_modules/
 *.log
 tmp/
 temp/
+
+# Editor
+.vscode/
+.idea/

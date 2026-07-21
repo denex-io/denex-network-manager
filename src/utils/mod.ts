@@ -10,6 +10,7 @@ export {
 
 export {
   DEFAULT_BASE_PORT,
+  getSvInternalPorts,
   getSvPort,
   getSvPorts,
   getValidatorPort,
@@ -18,7 +19,7 @@ export {
   SV_INTERNAL_PORTS,
 } from './ports.ts';
 
-export type { ValidatorPorts } from './ports.ts';
+export type { SvInternalPorts, ValidatorPorts } from './ports.ts';
 
 export { buildConfigEnvironmentInfo } from './env-info.ts';
 

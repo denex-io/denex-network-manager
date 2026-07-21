@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright Cumberland Applications LLC 2026
 import { Command } from '@cliffy/command';
 import { startCommand } from './commands/start.ts';
 import { stopCommand } from './commands/stop.ts';
@@ -16,7 +18,7 @@ import { discoveryCommand } from './commands/discovery.ts';
 const VERSION = '0.1.0';
 
 export const cli = new Command()
-  .name('localnet')
+  .name('dnm')
   .version(VERSION)
   .description('Canton LocalNet management CLI')
   .action(function () {

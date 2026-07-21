@@ -78,7 +78,7 @@ function renderInstancesTable(instances: DiscoveredInstance[]): void {
     console.log();
     console.log(
       colors.yellow(
-        'Note: Some instances use an unsupported schema. Run `denex-localnet destroy --instance <id>` to clean up.',
+        'Note: Some instances use an unsupported schema. Run `dnm destroy --instance <id>` to clean up.',
       ),
     );
   }

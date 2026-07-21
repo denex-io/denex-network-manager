@@ -11,6 +11,7 @@ import type { PortBinding } from './types.ts';
 import {
   DEFAULT_BASE_PORT,
   getKeycloakPort,
+  getSvInternalPorts,
   getSvPorts,
   getValidatorPorts,
   SV_INTERNAL_PORTS,
@@ -90,6 +91,7 @@ export interface ContainerBuilderOptions {
   configDir: string;
   dataDir: string;
   labelPrefix: string;
+  instanceId?: string;
   images?: Partial<ContainerImages>;
   dbUser?: string;
   dbPassword?: string;
@@ -133,7 +135,10 @@ export function buildPostgresContainer(
     },
     ports: [{ container: 5432 }],
     volumes: [
-      { source: `${options.dataDir}/postgres`, target: '/var/lib/postgresql/data' },
+      {
+        source: `${options.instanceId ?? options.labelPrefix}-postgres-data`,
+        target: '/var/lib/postgresql/data',
+      },
       {
         source: `${options.configDir}/postgres-entrypoint.sh`,
         target: '/docker-entrypoint-initdb.d/init.sh',
@@ -220,6 +225,7 @@ export function buildSpliceContainer(
   const normalizedValidators = normalizeValidators(config.validators);
   const images = { ...DEFAULT_IMAGES, ...options.images };
   const svPorts = getSvPorts(config.basePort);
+  const svInternalPorts = getSvInternalPorts(config.basePort);
 
   const ports = [
     {
@@ -228,11 +234,15 @@ export function buildSpliceContainer(
       service: 'SV Validator Admin',
     },
     {
-      container: SV_INTERNAL_PORTS.scanAdmin,
-      host: SV_INTERNAL_PORTS.scanAdmin,
+      container: svInternalPorts.scanAdmin,
+      host: svInternalPorts.scanAdmin,
       service: 'Scan Admin',
     },
-    { container: SV_INTERNAL_PORTS.svAdmin, host: SV_INTERNAL_PORTS.svAdmin, service: 'SV Admin' },
+    {
+      container: svInternalPorts.svAdmin,
+      host: svInternalPorts.svAdmin,
+      service: 'SV Admin',
+    },
   ];
 
   for (let i = 0; i < normalizedValidators.length; i++) {

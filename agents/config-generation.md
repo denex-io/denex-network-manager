@@ -32,8 +32,11 @@ produce the complete Canton, Splice, Keycloak, environment, and Nginx setup need
 ## Critical gotchas
 
 - Nginx API location blocks include `rewrite ^/(.*) /$1 break;`; preserve it when editing routes.
-- Some Nginx upstream ports are currently hardcoded (`5014` for SV admin and `5012` for Scan), not
-  derived from `SV_INTERNAL_PORTS`.
+- Nginx `proxy_pass` targets for SV admin (`5014`) and Scan (`5012`) are hardcoded in
+  `src/docker/nginx.ts` and intentionally so — these are container-to-container references. Nginx
+  proxies to `splice:5014` and `splice:5012` within the instance's isolated Docker network; the
+  splice container always listens on those fixed internal ports regardless of `basePort`. Concurrent
+  instances don't collide because each has its own Docker network.
 - Splice `target-throughput = 0` is intentional for LocalNet: it avoids reserved traffic
   preconditions and lets local operations proceed without amulets.
 - `canton.features.enable-testing-commands = yes` is intentionally enabled for local/test behavior.

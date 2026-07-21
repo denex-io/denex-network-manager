@@ -318,3 +318,105 @@ Deno.test('discoverInstances - mixed running and stopped containers', () => {
   assertEquals(instances[0].containerCount, 3);
   assertEquals(instances[0].status, 'mixed');
 });
+
+Deno.test('discoverInstances - single stopped container reports status "stopped", not "mixed"', () => {
+  const config = {
+    version: '1.0',
+    basePort: 5000,
+    validators: [{ name: 'validator-1' }],
+    auth: { keycloak: { admin: 'admin', password: 'admin' } },
+  };
+
+  const containers: ContainerListItem[] = [
+    {
+      name: 'postgres',
+      state: 'exited',
+      labels: {
+        [LABEL_INSTANCE]: 'test-1',
+        [LABEL_SCHEMA]: '2',
+        [LABEL_CONFIG]: JSON.stringify(config),
+      },
+    },
+  ];
+
+  const instances = discoverInstances(containers);
+
+  assertEquals(instances.length, 1);
+  assertEquals(instances[0].id, 'test-1');
+  assertEquals(instances[0].containerCount, 1);
+  assertEquals(instances[0].status, 'stopped');
+});
+
+Deno.test('discoverInstances - all containers running reports status "running"', () => {
+  const config = {
+    version: '1.0',
+    basePort: 5000,
+    validators: [{ name: 'validator-1' }],
+    auth: { keycloak: { admin: 'admin', password: 'admin' } },
+  };
+
+  const containers: ContainerListItem[] = [
+    {
+      name: 'postgres',
+      state: 'running',
+      labels: {
+        [LABEL_INSTANCE]: 'test-1',
+        [LABEL_SCHEMA]: '2',
+        [LABEL_CONFIG]: JSON.stringify(config),
+      },
+    },
+    {
+      name: 'canton',
+      state: 'running',
+      labels: {
+        [LABEL_INSTANCE]: 'test-1',
+        [LABEL_SCHEMA]: '2',
+        [LABEL_CONFIG]: JSON.stringify(config),
+      },
+    },
+  ];
+
+  const instances = discoverInstances(containers);
+
+  assertEquals(instances.length, 1);
+  assertEquals(instances[0].id, 'test-1');
+  assertEquals(instances[0].containerCount, 2);
+  assertEquals(instances[0].status, 'running');
+});
+
+Deno.test('discoverInstances - all containers stopped reports status "stopped"', () => {
+  const config = {
+    version: '1.0',
+    basePort: 5000,
+    validators: [{ name: 'validator-1' }],
+    auth: { keycloak: { admin: 'admin', password: 'admin' } },
+  };
+
+  const containers: ContainerListItem[] = [
+    {
+      name: 'postgres',
+      state: 'exited',
+      labels: {
+        [LABEL_INSTANCE]: 'test-1',
+        [LABEL_SCHEMA]: '2',
+        [LABEL_CONFIG]: JSON.stringify(config),
+      },
+    },
+    {
+      name: 'canton',
+      state: 'exited',
+      labels: {
+        [LABEL_INSTANCE]: 'test-1',
+        [LABEL_SCHEMA]: '2',
+        [LABEL_CONFIG]: JSON.stringify(config),
+      },
+    },
+  ];
+
+  const instances = discoverInstances(containers);
+
+  assertEquals(instances.length, 1);
+  assertEquals(instances[0].id, 'test-1');
+  assertEquals(instances[0].containerCount, 2);
+  assertEquals(instances[0].status, 'stopped');
+});

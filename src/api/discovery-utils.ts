@@ -122,7 +122,7 @@ export function discoverInstances(containers: ContainerListItem[]): DiscoveredIn
         instanceMap.set(instanceId, {
           id: instanceId,
           containerCount: 0,
-          status: 'running',
+          status: 'stopped', // will be updated as containers are processed
           basePort: config.basePort ?? 5000,
           validatorNames,
         });
@@ -137,11 +137,16 @@ export function discoverInstances(containers: ContainerListItem[]): DiscoveredIn
     }
 
     if (container.state === 'running') {
-      if (instance.status !== 'mixed') {
+      if (instance.status === 'stopped') {
         instance.status = 'running';
+      } else if (instance.status !== 'running') {
+        instance.status = 'mixed';
       }
     } else {
-      instance.status = instance.status === 'running' ? 'mixed' : 'stopped';
+      if (instance.status === 'running') {
+        instance.status = 'mixed';
+      }
+      // if already 'stopped' (or 'mixed'), stay as-is
     }
   }
 

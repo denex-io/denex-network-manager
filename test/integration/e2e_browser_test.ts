@@ -1,4 +1,4 @@
-import { assertEquals, assertRejects } from '@std/assert';
+import { assertEquals } from '@std/assert';
 import { chromium } from 'npm:playwright@1.57.0';
 import { LocalNet } from '../../src/localnet.ts';
 import type { LocalNetConfig } from '../../src/types/config.ts';
@@ -248,12 +248,9 @@ Deno.test({
       };
       localnet2 = new LocalNet(config2, { instanceId });
 
-      console.log('[E2E] Testing config mismatch detection (throws on mismatch)...');
-      await assertRejects(
-        () => localnet2!.detectConfigMismatch(),
-        Error,
-        'different config',
-      );
+      console.log('[E2E] Testing config mismatch detection (returns hasMismatch: true)...');
+      const mismatchResult = await localnet2!.detectConfigMismatch();
+      assertEquals(mismatchResult.hasMismatch, true, 'Should detect mismatch when config differs');
 
       console.log('[E2E] Testing force recreate flow...');
 
