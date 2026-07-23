@@ -153,9 +153,17 @@ export class DockerClient {
     }
   }
 
+  /**
+   * Stop a container. `timeout` is the grace period in **seconds** before the
+   * daemon escalates to SIGKILL (Docker's `t` query param). Docker parses `t`
+   * with an integer-only parser, so a fractional value (e.g. `0.03`) is
+   * rejected with `strconv.Atoi ... invalid syntax` (HTTP 500). Coerce to a
+   * non-negative integer so a bad caller can never produce that error.
+   */
   async stopContainer(idOrName: string, timeout = 10): Promise<void> {
+    const t = Math.max(0, Math.round(timeout));
     try {
-      await this.docker.getContainer(idOrName).stop({ t: timeout });
+      await this.docker.getContainer(idOrName).stop({ t });
     } catch (err) {
       if ((err as { statusCode?: number }).statusCode !== 304) throw err;
     }

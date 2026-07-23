@@ -28,8 +28,9 @@ export const destroyCommand = new Command()
     try {
       const localnet = await getDestroyableLocalNet(options.instance);
 
+      // StopOptions.timeout is milliseconds; the CLI flag is seconds.
       await localnet.destroy({
-        timeout: options.timeout,
+        timeout: options.timeout * 1000,
       });
 
       spin.stop();
