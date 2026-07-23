@@ -98,6 +98,7 @@ export interface StartOptions {
 }
 
 export interface StopOptions {
+  /** Grace period in **milliseconds** before containers are force-killed. Defaults to 30_000. */
   timeout?: number;
   removeVolumes?: boolean;
 }

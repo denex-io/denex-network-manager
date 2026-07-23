@@ -16,7 +16,7 @@
  * @example
  * ```typescript
  * const validator: ValidatorSpec = {
- *   name: 'alice-validator',
+ *   name: 'alice',
  *   parties: ['alice', 'alice-trading'],
  *   users: [
  *     { id: 'alice-user', primaryParty: 'alice' },
@@ -30,11 +30,13 @@ export interface ValidatorSpec {
    * Validator name.
    *
    * Used for identification, port allocation, and Keycloak realm naming.
-   * Examples: 'alice', 'bob-validator', 'validator-1'.
+   * Examples: 'alice', 'bob-val', 'validator-1'.
    *
-   * Must be unique across all validators in the LocalNet.
+   * Must be unique across all validators in the LocalNet, and at most 12
+   * characters (Splice appends "-validator_backend" to form a node name, which
+   * has a 30-character limit).
    * Keycloak realm name is derived by title-casing each dash-separated segment.
-   * Example: 'alice-validator' → realm 'AliceValidator'.
+   * Example: 'alice-val' → realm 'AliceVal'.
    */
   name: string;
 

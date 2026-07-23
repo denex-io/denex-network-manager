@@ -29,8 +29,8 @@ Deno.test('parseLocalNetConfig - minimal config with validator count', () => {
 Deno.test('parseLocalNetConfig - detailed validator configs', () => {
   const config = parseLocalNetConfig({
     validators: [
-      { name: 'alice-validator', parties: [{ hint: 'alice' }] },
-      { name: 'bob-validator', parties: [{ hint: 'bob' }] },
+      { name: 'alice-val', parties: [{ hint: 'alice' }] },
+      { name: 'bob-val', parties: [{ hint: 'bob' }] },
     ],
     auth: {
       keycloak: {
@@ -43,7 +43,7 @@ Deno.test('parseLocalNetConfig - detailed validator configs', () => {
   assertEquals(Array.isArray(config.validators), true);
   if (Array.isArray(config.validators)) {
     assertEquals(config.validators.length, 2);
-    assertEquals(config.validators[0].name, 'alice-validator');
+    assertEquals(config.validators[0].name, 'alice-val');
   }
 });
 
@@ -54,6 +54,48 @@ Deno.test('validateLocalNetConfig - returns errors for invalid config', () => {
   });
 
   assertEquals(result.success, false);
+});
+
+Deno.test('validateLocalNetConfig - rejects validator name longer than 12 chars', () => {
+  const result = validateLocalNetConfig({
+    validators: [{ name: 'thirteenchars' }], // 13 chars
+    auth: { keycloak: { admin: 'admin', password: 'admin' } },
+  });
+
+  assertEquals(result.success, false);
+});
+
+Deno.test('validateLocalNetConfig - accepts validator name of exactly 12 chars', () => {
+  const result = validateLocalNetConfig({
+    validators: [{ name: 'twelvecharss' }], // 12 chars
+    auth: { keycloak: { admin: 'admin', password: 'admin' } },
+  });
+
+  assertEquals(result.success, true);
+});
+
+Deno.test('validateLocalNetConfig - rejects duplicate user ids within a validator', () => {
+  const result = validateLocalNetConfig({
+    validators: [{
+      name: 'alice',
+      users: [{ id: 'dup' }, { id: 'dup' }],
+    }],
+    auth: { keycloak: { admin: 'admin', password: 'admin' } },
+  });
+
+  assertEquals(result.success, false);
+});
+
+Deno.test('validateLocalNetConfig - allows config user id matching validator name', () => {
+  const result = validateLocalNetConfig({
+    validators: [{
+      name: 'alice',
+      users: [{ id: 'alice' }],
+    }],
+    auth: { keycloak: { admin: 'admin', password: 'admin' } },
+  });
+
+  assertEquals(result.success, true);
 });
 
 Deno.test('withDefaults - creates config with defaults', () => {
@@ -134,7 +176,7 @@ Deno.test('parseLocalNetConfig - old format backward compat: rights with CanActA
   const config = parseLocalNetConfig({
     validators: [
       {
-        name: 'test-validator',
+        name: 'test-val',
         users: [
           { id: 'alice', primaryParty: 'alice', rights: ['CanActAs', 'CanReadAs'] },
         ],
@@ -157,7 +199,7 @@ Deno.test('parseLocalNetConfig - new format: multi-party user', () => {
   const config = parseLocalNetConfig({
     validators: [
       {
-        name: 'test-validator',
+        name: 'test-val',
         users: [
           {
             id: 'alice',
@@ -184,7 +226,7 @@ Deno.test('parseLocalNetConfig - participant-admin-only user (no primaryParty)',
   const config = parseLocalNetConfig({
     validators: [
       {
-        name: 'test-validator',
+        name: 'test-val',
         users: [
           { id: 'admin', rights: ['ParticipantAdmin'] },
         ],
@@ -206,7 +248,7 @@ Deno.test('parseLocalNetConfig - new participant-wide rights accepted', () => {
   const config = parseLocalNetConfig({
     validators: [
       {
-        name: 'test-validator',
+        name: 'test-val',
         users: [
           {
             id: 'super-admin',
@@ -238,7 +280,7 @@ Deno.test('parseLocalNetConfig - user parties default rights', () => {
   const config = parseLocalNetConfig({
     validators: [
       {
-        name: 'test-validator',
+        name: 'test-val',
         users: [
           {
             id: 'alice',

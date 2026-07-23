@@ -281,6 +281,30 @@ Deno.test('generateValidatorRealm - creates default user', () => {
   assertEquals(realm.users?.[1].username, 'alice-wallet-admin');
 });
 
+Deno.test('generateValidatorRealm - config user matching validator name is not duplicated', () => {
+  const realm = generateValidatorRealm(
+    { name: 'alice', users: [{ id: 'alice' }] },
+    0,
+    TEST_CONFIG,
+  );
+
+  const usernames = realm.users?.map((user) => user.username) ?? [];
+  assertEquals(usernames.filter((name) => name === 'alice').length, 1);
+  // Default user + wallet admin, config 'alice' collapses into the default user.
+  assertEquals(realm.users?.length, 2);
+});
+
+Deno.test('generateValidatorRealm - distinct config users are all added', () => {
+  const realm = generateValidatorRealm(
+    { name: 'alice', users: [{ id: 'carol' }, { id: 'dave' }] },
+    0,
+    TEST_CONFIG,
+  );
+
+  const usernames = realm.users?.map((user) => user.username) ?? [];
+  assertEquals(usernames, ['alice', 'alice-wallet-admin', 'carol', 'dave']);
+});
+
 Deno.test('generateMasterRealm - returns realm named "master"', () => {
   const realm = generateMasterRealm(TEST_CONFIG);
   assertEquals(realm.realm, 'master');

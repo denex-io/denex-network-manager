@@ -45,6 +45,7 @@ deno task playwright:install
 ## Integration tests
 
 - `test/integration/auth_confidence_test.ts`
+- `test/integration/cli_test.ts`
 - `test/integration/config_recovery_test.ts`
 - `test/integration/docker_client_test.ts`
 - `test/integration/e2e_browser_test.ts`

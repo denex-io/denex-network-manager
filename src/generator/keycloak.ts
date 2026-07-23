@@ -367,14 +367,25 @@ export function generateValidatorRealm(
 
   const participantName = validator.name.replace(/-/g, '_');
   const walletAdminUser = `${participantName}-wallet-admin`;
-  const users: KeycloakUser[] = [
-    createUser(validator.name),
-    createUser(walletAdminUser),
-  ];
+  const users: KeycloakUser[] = [];
+  // A config user whose id matches an auto-generated user (the validator default
+  // user or wallet admin) is intentional — it attaches config-defined rights to
+  // that user at runtime. Emit the Keycloak realm user only once so realm import
+  // does not reject a duplicate username. Duplicate config user ids are rejected
+  // earlier by ValidatorConfigSchema validation.
+  const seenUsernames = new Set<string>();
+  const addUser = (username: string) => {
+    if (seenUsernames.has(username)) return;
+    seenUsernames.add(username);
+    users.push(createUser(username));
+  };
+
+  addUser(validator.name);
+  addUser(walletAdminUser);
 
   if (validator.users) {
     for (const userConfig of validator.users) {
-      users.push(createUser(userConfig.id));
+      addUser(userConfig.id);
     }
   }
 

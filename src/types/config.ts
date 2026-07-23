@@ -80,7 +80,12 @@ export interface UserConfig {
  * Note: This is NOT for the Super Validator - the SV is created automatically.
  */
 export interface ValidatorConfig {
-  /** Name of this validator. Used for identification and port allocation. */
+  /**
+   * Name of this validator. Used for identification and port allocation.
+   *
+   * Must be at most 12 characters: Splice node names have a 30-character limit
+   * and the validator backend appends "-validator_backend" (18 chars).
+   */
   name: string;
 
   /** Parties to allocate on this validator's Participant. */
@@ -152,8 +157,8 @@ export interface DiscoveryConfig {
  * ```typescript
  * const config: LocalNetConfig = {
  *   validators: [
- *     { name: 'alice-validator', parties: [{ hint: 'alice' }] },
- *     { name: 'bob-validator', parties: [{ hint: 'bob' }] },
+ *     { name: 'alice', parties: [{ hint: 'alice' }] },
+ *     { name: 'bob', parties: [{ hint: 'bob' }] },
  *   ],
  *   auth: { mode: 'oauth2', keycloak: { ... } }
  * };

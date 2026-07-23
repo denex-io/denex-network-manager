@@ -12,7 +12,8 @@ export const stopCommand = new Command()
     try {
       const localnet = await getRunningLocalNet(options.instance);
 
-      await localnet.stop({ timeout: options.timeout });
+      // StopOptions.timeout is milliseconds; the CLI flag is seconds.
+      await localnet.stop({ timeout: options.timeout * 1000 });
 
       spin.stop();
       printSuccess(`LocalNet stopped (instance: ${localnet.instanceId})`);
