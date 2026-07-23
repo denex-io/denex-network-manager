@@ -17,7 +17,8 @@ import {
 } from '../../src/docker/containers.ts';
 import { checkHealth } from '../../src/docker/health.ts';
 import { type ConfigMismatch, generateNginxConfigString } from '../../src/docker/mod.ts';
-import { BOOTSTRAP_ADMIN_USERNAME } from '../../src/generator/keycloak.ts';
+import { BOOTSTRAP_ADMIN_USERNAME, generateAllRealmsJson } from '../../src/generator/keycloak.ts';
+import { generateFullCantonConfig, generateFullSpliceConfig } from '../../src/generator/mod.ts';
 
 const TEST_CONFIG: LocalNetConfig = {
   validators: 2,
@@ -29,11 +30,21 @@ const TEST_CONFIG: LocalNetConfig = {
   },
 };
 
+// Config is delivered to containers via environment variables (no host bind
+// mounts). Build the same generated content the SDK does so the builders have
+// real strings to inject.
+const TEST_GENERATED_CONFIGS = {
+  cantonConfig: generateFullCantonConfig(TEST_CONFIG),
+  spliceConfig: generateFullSpliceConfig(TEST_CONFIG),
+  nginxConfig: generateNginxConfigString(TEST_CONFIG),
+  postgresInitScript: '#!/bin/bash\n# test init script\n',
+  keycloakRealms: Object.fromEntries(generateAllRealmsJson(TEST_CONFIG)),
+};
+
 const TEST_OPTIONS: ContainerBuilderOptions = {
   networkName: 'test-network',
-  configDir: '/tmp/test-config',
-  dataDir: '/tmp/test-data',
   labelPrefix: 'localnet',
+  generatedConfigs: TEST_GENERATED_CONFIGS,
 };
 
 Deno.test('buildPostgresContainer - correct structure', () => {
@@ -170,6 +181,58 @@ Deno.test('buildNginxContainer - correct health check params', () => {
   assertEquals(container.healthCheck?.interval, 5);
   assertEquals(container.healthCheck?.timeout, 5);
   assertEquals(container.healthCheck?.retries, 3);
+});
+
+Deno.test('config injection - canton/splice receive config via ADDITIONAL_CONFIG_LOCALNET env', () => {
+  const canton = buildCantonContainer(TEST_CONFIG, TEST_OPTIONS);
+  const splice = buildSpliceContainer(TEST_CONFIG, TEST_OPTIONS);
+
+  assertEquals(canton.environment?.ADDITIONAL_CONFIG_LOCALNET, TEST_GENERATED_CONFIGS.cantonConfig);
+  assertEquals(splice.environment?.ADDITIONAL_CONFIG_LOCALNET, TEST_GENERATED_CONFIGS.spliceConfig);
+});
+
+Deno.test('config injection - nginx receives config via NGINX_CONFIG env + writes it before start', () => {
+  const container = buildNginxContainer(TEST_CONFIG, TEST_OPTIONS);
+
+  assertEquals(container.environment?.NGINX_CONFIG, TEST_GENERATED_CONFIGS.nginxConfig);
+  assertExists(container.command);
+  assertStringIncludes(container.command.join(' '), '$NGINX_CONFIG');
+});
+
+Deno.test('config injection - postgres receives init script via env + writes it before start', () => {
+  const container = buildPostgresContainer(TEST_CONFIG, TEST_OPTIONS);
+
+  assertEquals(
+    container.environment?.POSTGRES_INIT_SCRIPT,
+    TEST_GENERATED_CONFIGS.postgresInitScript,
+  );
+  assertExists(container.entrypoint);
+  assertStringIncludes(container.entrypoint.join(' '), '$POSTGRES_INIT_SCRIPT');
+});
+
+Deno.test('config injection - keycloak receives each realm as a LOCALNET_INIT_<file> env var', () => {
+  const container = buildKeycloakContainer(TEST_CONFIG, TEST_OPTIONS);
+
+  for (const [filename, content] of Object.entries(TEST_GENERATED_CONFIGS.keycloakRealms)) {
+    assertEquals(container.environment?.[`LOCALNET_INIT_${filename}`], content);
+  }
+  assertExists(container.entrypoint);
+  assertStringIncludes(container.entrypoint.join(' '), 'LOCALNET_INIT_');
+});
+
+Deno.test('config injection - no container uses a host-path bind mount', () => {
+  const containers = buildAllContainers(TEST_CONFIG, TEST_OPTIONS);
+
+  for (const container of containers) {
+    for (const volume of container.volumes ?? []) {
+      // A bare volume name (named Docker volume) has no leading '/'. A host bind
+      // mount would be an absolute path. We must have zero of the latter.
+      assert(
+        !volume.source.startsWith('/') && !volume.source.startsWith('.'),
+        `${container.name} still uses a host-path bind mount: ${volume.source} -> ${volume.target}`,
+      );
+    }
+  }
 });
 
 Deno.test('buildWalletWebUiContainers - correct health check params', () => {

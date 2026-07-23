@@ -176,43 +176,48 @@ Deno.test({
 });
 
 Deno.test({
-  name: 'Lifecycle: config files are generated on start',
+  name: 'Lifecycle: config is delivered via env vars, not host files',
   ignore: !(await isDockerAvailable()),
   sanitizeOps: false,
   sanitizeResources: false,
   async fn() {
     const client = createTestDockerClient();
     const instanceId = generateTestInstanceId();
-    const configDir = `/tmp/${instanceId}/config`;
-    const dataDir = `/tmp/${instanceId}/data`;
 
-    const localnet = new LocalNet(LIFECYCLE_TEST_CONFIG, {
-      instanceId,
-      configDir,
-      dataDir,
-    });
+    // Run from a scratch cwd so we can assert nothing is written there.
+    const originalCwd = Deno.cwd();
+    const scratchCwd = await Deno.makeTempDir({ prefix: 'localnet-cwd-' });
+    Deno.chdir(scratchCwd);
+
+    const localnet = new LocalNet(LIFECYCLE_TEST_CONFIG, { instanceId });
 
     try {
       await localnet.start({ skipHealthChecks: true, skipInitialization: true, timeout: 60000 });
 
-      const cantonConfigExists = await Deno.stat(`${configDir}/canton/app.conf`)
+      // No `.localnet` directory should be created in the working directory.
+      const localnetDirExists = await Deno.stat(`${scratchCwd}/.localnet`)
         .then(() => true)
         .catch(() => false);
-      assertEquals(cantonConfigExists, true);
+      assertEquals(localnetDirExists, false, '.localnet must not be written to the host');
 
-      const spliceConfigExists = await Deno.stat(`${configDir}/splice/app.conf`)
-        .then(() => true)
-        .catch(() => false);
-      assertEquals(spliceConfigExists, true);
-
-      const envFileExists = await Deno.stat(`${configDir}/.env`)
-        .then(() => true)
-        .catch(() => false);
-      assertEquals(envFileExists, true);
+      // Config reaches canton via the ADDITIONAL_CONFIG_LOCALNET env var.
+      const cantonInfo = await client.getContainerInfo(`${instanceId}-canton`);
+      assertEquals(cantonInfo !== null, true);
+      const inspected = await new Deno.Command('docker', {
+        args: ['inspect', '--format', '{{json .Config.Env}}', `${instanceId}-canton`],
+        stdout: 'piped',
+      }).output();
+      const env: string[] = JSON.parse(new TextDecoder().decode(inspected.stdout));
+      assertEquals(
+        env.some((e) => e.startsWith('ADDITIONAL_CONFIG_LOCALNET=')),
+        true,
+        'canton should receive its config via ADDITIONAL_CONFIG_LOCALNET',
+      );
     } finally {
       await localnet.destroy();
       await cleanupTestResources(client, instanceId);
-      await Deno.remove(`/tmp/${instanceId}`, { recursive: true }).catch(() => {});
+      Deno.chdir(originalCwd);
+      await Deno.remove(scratchCwd, { recursive: true }).catch(() => {});
     }
   },
 });
