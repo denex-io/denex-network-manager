@@ -43,7 +43,11 @@ parties on participant nodes.
 - User-visible party and validator names are schema-constrained to start with a letter and contain
   only letters, numbers, and hyphens.
 - Splice node names have a 30-character max. The validator backend name appends
-  `-validator_backend`, so long validator names can crash Splice.
+  `-validator_backend` (18 chars), so validator names are capped at 12 characters by
+  `ValidatorConfigSchema` to avoid crashing Splice.
+- A config `users[].id` may match the validator's auto-generated default user or wallet-admin
+  user; `generateValidatorRealm` emits that Keycloak user only once. Duplicate `users[].id`
+  within one validator is rejected by schema validation.
 - `getRealmName('validator-1')` returns `Validator1`; the SV realm is `SV`, not `Sv`.
 
 ## User rights

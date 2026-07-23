@@ -42,12 +42,35 @@ export const UserConfigSchema = z.object({
 });
 
 export const ValidatorConfigSchema = z.object({
-  name: z.string().min(1).regex(
+  name: z.string().min(1).max(
+    12,
+    // Splice node names have a 30-character max. The validator backend appends
+    // "-validator_backend" (18 chars), so names longer than 12 crash Splice.
+    'Validator name must be at most 12 characters (Splice appends "-validator_backend", which has a 30-character node-name limit)',
+  ).regex(
     /^[a-z][a-z0-9-]*$/i,
     'Validator name must start with a letter and contain only letters, numbers, and hyphens',
   ),
   parties: z.array(PartyConfigSchema).optional(),
   users: z.array(UserConfigSchema).optional(),
+}).superRefine((validator, ctx) => {
+  // Reject duplicate user ids within a validator. Two entries with the same id
+  // have no sensible merge and would produce a duplicate Keycloak realm user.
+  // (A config user whose id matches the validator's auto-generated default user
+  // is allowed — that intentionally attaches config rights to the default user.)
+  if (!validator.users) return;
+  const seen = new Set<string>();
+  for (let i = 0; i < validator.users.length; i++) {
+    const id = validator.users[i].id;
+    if (seen.has(id)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: `Duplicate user id '${id}' in validator '${validator.name}'`,
+        path: ['users', i, 'id'],
+      });
+    }
+    seen.add(id);
+  }
 });
 
 export const PackageConfigSchema = z.object({
