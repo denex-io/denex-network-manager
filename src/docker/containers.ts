@@ -88,13 +88,34 @@ export const DEFAULT_IMAGES: ContainerImages = {
 
 export interface ContainerBuilderOptions {
   networkName: string;
-  configDir: string;
-  dataDir: string;
   labelPrefix: string;
   instanceId?: string;
   images?: Partial<ContainerImages>;
   dbUser?: string;
   dbPassword?: string;
+  /**
+   * Generated configuration content, delivered to containers via environment
+   * variables rather than host bind mounts (so nothing is written to the host
+   * filesystem and the SDK works over a remote Docker socket).
+   */
+  generatedConfigs: GeneratedConfigs;
+}
+
+/**
+ * In-memory generated configuration for the containers. Produced by
+ * `LocalNet.buildGeneratedConfigs()` and injected as environment variables.
+ */
+export interface GeneratedConfigs {
+  /** Canton HOCON config (delivered via ADDITIONAL_CONFIG_LOCALNET). */
+  cantonConfig: string;
+  /** Splice HOCON config (delivered via ADDITIONAL_CONFIG_LOCALNET). */
+  spliceConfig: string;
+  /** nginx.conf content (written to /etc/nginx/nginx.conf at startup). */
+  nginxConfig: string;
+  /** Postgres init script (written to /docker-entrypoint-initdb.d/init.sh). */
+  postgresInitScript: string;
+  /** Keycloak realm import files, keyed by filename (e.g. "SV-realm.json"). */
+  keycloakRealms: Record<string, string>;
 }
 
 const DEFAULT_DB_USER = 'cnadmin';
@@ -124,11 +145,20 @@ export function buildPostgresContainer(
     name: 'postgres',
     image: images.postgres,
     hostname: 'postgres',
-    command: ['postgres', '-c', 'max_connections=1000'],
+    // Write the init script from an env var into the image's init dir, then hand
+    // off to the stock entrypoint. Avoids a host bind mount for the script.
+    entrypoint: [
+      'sh',
+      '-c',
+      'printf "%s" "$POSTGRES_INIT_SCRIPT" > /docker-entrypoint-initdb.d/init.sh && ' +
+      'chmod +x /docker-entrypoint-initdb.d/init.sh && ' +
+      'exec /usr/local/bin/docker-entrypoint.sh postgres -c max_connections=1000',
+    ],
     environment: {
       POSTGRES_USER: options.dbUser ?? DEFAULT_DB_USER,
       POSTGRES_PASSWORD: options.dbPassword ?? DEFAULT_DB_PASSWORD,
       POSTGRES_DB: 'postgres',
+      POSTGRES_INIT_SCRIPT: options.generatedConfigs.postgresInitScript,
       ...Object.fromEntries(
         databases.map((db, i) => [`CREATE_DATABASE_${String(i + 1).padStart(2, '0')}`, db]),
       ),
@@ -138,10 +168,6 @@ export function buildPostgresContainer(
       {
         source: `${options.instanceId ?? options.labelPrefix}-postgres-data`,
         target: '/var/lib/postgresql/data',
-      },
-      {
-        source: `${options.configDir}/postgres-entrypoint.sh`,
-        target: '/docker-entrypoint-initdb.d/init.sh',
       },
     ],
     networks: [options.networkName],
@@ -194,11 +220,11 @@ export function buildCantonContainer(
       DB_USER: options.dbUser ?? DEFAULT_DB_USER,
       DB_PASSWORD: options.dbPassword ?? DEFAULT_DB_PASSWORD,
       SPLICE_APP_VALIDATOR_AUTH_AUDIENCE: DEFAULT_AUDIENCE,
+      // The image entrypoint concatenates all ADDITIONAL_CONFIG* env vars into a
+      // file it passes via --config, so no host bind mount is needed.
+      ADDITIONAL_CONFIG_LOCALNET: options.generatedConfigs.cantonConfig,
     },
     ports,
-    volumes: [
-      { source: `${options.configDir}/canton/app.conf`, target: '/app/app.conf' },
-    ],
     networks: [options.networkName],
     healthCheck: {
       type: 'http',
@@ -266,11 +292,11 @@ export function buildSpliceContainer(
       SPLICE_APP_VALIDATOR_AUTH_AUDIENCE: DEFAULT_AUDIENCE,
       SPLICE_APP_VALIDATOR_LEDGER_API_AUTH_AUDIENCE: DEFAULT_AUDIENCE,
       SPLICE_SV_IS_DEVNET: 'true',
+      // The image entrypoint concatenates all ADDITIONAL_CONFIG* env vars into a
+      // file it passes via --config, so no host bind mount is needed.
+      ADDITIONAL_CONFIG_LOCALNET: options.generatedConfigs.spliceConfig,
     },
     ports,
-    volumes: [
-      { source: `${options.configDir}/splice/app.conf`, target: '/app/app.conf' },
-    ],
     networks: [options.networkName],
     healthCheck: {
       type: 'http',
@@ -297,31 +323,45 @@ export function buildKeycloakContainer(
   const images = { ...DEFAULT_IMAGES, ...options.images };
   const basePort = config.basePort ?? DEFAULT_BASE_PORT;
 
+  const environment: Record<string, string> = {
+    // Use a fixed sentinel name for the Keycloak bootstrap admin to avoid colliding
+    // with the user-facing admin imported from master-realm.json (keycloak#34286).
+    // The user-facing admin (config.auth.keycloak.{admin,password}) is provisioned
+    // via realm import; this bootstrap account is deleted post-startup by
+    // LocalNet.deleteBootstrapAdmin().
+    KC_BOOTSTRAP_ADMIN_USERNAME: BOOTSTRAP_ADMIN_USERNAME,
+    KC_BOOTSTRAP_ADMIN_PASSWORD: 'localnet-internal-bootstrap-password-not-used',
+    KC_HEALTH_ENABLED: 'true',
+    KC_HTTP_ENABLED: 'true',
+    KC_HOSTNAME_STRICT: 'false',
+  };
+
+  // Deliver each realm import file as an env var. The filename is preserved
+  // verbatim after the LOCALNET_INIT_ prefix so the entrypoint can recover it by
+  // stripping the prefix. Such names aren't valid shell identifiers, but they
+  // live in the process environment and are read back via `env`/`printenv`.
+  for (const [filename, content] of Object.entries(options.generatedConfigs.keycloakRealms)) {
+    environment[`LOCALNET_INIT_${filename}`] = content;
+  }
+
   return {
     name: 'keycloak',
     image: images.keycloak,
     hostname: 'keycloak',
-    environment: {
-      // Use a fixed sentinel name for the Keycloak bootstrap admin to avoid colliding
-      // with the user-facing admin imported from master-realm.json (keycloak#34286).
-      // The user-facing admin (config.auth.keycloak.{admin,password}) is provisioned
-      // via realm import; this bootstrap account is deleted post-startup by
-      // LocalNet.deleteBootstrapAdmin().
-      KC_BOOTSTRAP_ADMIN_USERNAME: BOOTSTRAP_ADMIN_USERNAME,
-      KC_BOOTSTRAP_ADMIN_PASSWORD: 'localnet-internal-bootstrap-password-not-used',
-      KC_HEALTH_ENABLED: 'true',
-      KC_HTTP_ENABLED: 'true',
-      KC_HOSTNAME_STRICT: 'false',
-    },
-    command: ['start-dev', '--import-realm', '--proxy-headers=forwarded'],
-    ports: [{ container: 8080, host: getKeycloakPort(basePort) }],
-    volumes: [
-      {
-        source: `${options.configDir}/keycloak`,
-        target: '/opt/keycloak/data/import',
-        readonly: true,
-      },
+    environment,
+    // Write each LOCALNET_INIT_* env var back to a realm import file, then start
+    // Keycloak. Replaces a host bind mount of the import directory.
+    entrypoint: [
+      'bash',
+      '-c',
+      'CONFIG_DIR=/opt/keycloak/data/import && mkdir -p "$CONFIG_DIR" && ' +
+      "for var in $(env | grep '^LOCALNET_INIT_' | cut -d= -f1); do " +
+      'filename="${var#LOCALNET_INIT_}"; ' +
+      'printenv "$var" > "$CONFIG_DIR/$filename"; ' +
+      'done && ' +
+      'exec /opt/keycloak/bin/kc.sh start-dev --import-realm --proxy-headers=forwarded',
     ],
+    ports: [{ container: 8080, host: getKeycloakPort(basePort) }],
     networks: [options.networkName],
     healthCheck: {
       // Use bash /dev/tcp instead of curl (curl not available in Keycloak UBI image)
@@ -366,14 +406,16 @@ export function buildNginxContainer(
     name: 'nginx',
     image: images.nginx,
     hostname: 'nginx',
-    environment: {},
+    environment: {
+      NGINX_CONFIG: options.generatedConfigs.nginxConfig,
+    },
     ports,
-    volumes: [
-      {
-        source: `${options.configDir}/nginx/nginx.conf`,
-        target: '/etc/nginx/nginx.conf',
-        readonly: true,
-      },
+    // Write nginx.conf from an env var, then start nginx. Replaces a host bind
+    // mount of the config file.
+    command: [
+      'sh',
+      '-c',
+      'printf "%s" "$NGINX_CONFIG" > /etc/nginx/nginx.conf && exec nginx -g "daemon off;"',
     ],
     networks: [options.networkName],
     healthCheck: {

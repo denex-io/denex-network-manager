@@ -1,10 +1,9 @@
-import process from 'node:process';
-import { chmod, mkdir, rm, writeFile } from 'node:fs/promises';
 import { DockerClient } from './docker/client.ts';
 import { NetworkManager } from './docker/network.ts';
 import {
   buildAllContainers,
   type ContainerBuilderOptions,
+  type GeneratedConfigs,
   getStartupOrder,
 } from './docker/containers.ts';
 import type {
@@ -32,7 +31,6 @@ import {
   generateAllRealmsJson,
   generateFullCantonConfig,
   generateFullSpliceConfig,
-  generateMergedEnv,
 } from './generator/mod.ts';
 import { getSvInternalPorts, getSvPorts, getValidatorPorts } from './utils/ports.ts';
 import { loadConfigFile } from './utils/yaml.ts';
@@ -69,8 +67,6 @@ import { generateNginxConfigString } from './docker/nginx.ts';
 export interface LocalNetOptions {
   instanceId?: string;
   labelPrefix?: string;
-  configDir?: string;
-  dataDir?: string;
   images?: ContainerBuilderOptions['images'];
   dbUser?: string;
   dbPassword?: string;
@@ -85,6 +81,18 @@ export interface ConfigMismatch {
 
 const DEFAULT_INSTANCE_ID = 'default';
 const DEFAULT_LABEL_PREFIX = 'denex.localnet';
+
+/**
+ * Placeholder configs for code paths that build container specs only to read
+ * port bindings (which never depend on generated config content).
+ */
+const EMPTY_GENERATED_CONFIGS: GeneratedConfigs = {
+  cantonConfig: '',
+  spliceConfig: '',
+  nginxConfig: '',
+  postgresInitScript: '',
+  keycloakRealms: {},
+};
 
 interface CacheEntry<T> {
   data: T;
@@ -106,19 +114,13 @@ export class LocalNet {
   private cacheTtlMs = 30_000;
   private baseHost = 'localhost';
   private attachedToRunning = false;
-  private readonly instanceCwd: string;
-
   constructor(config: LocalNetConfig, options?: LocalNetOptions) {
     this.config = config;
     const instanceId = options?.instanceId ?? DEFAULT_INSTANCE_ID;
     const labelPrefix = options?.labelPrefix ?? DEFAULT_LABEL_PREFIX;
-    const cwd = process.cwd();
-    this.instanceCwd = cwd;
     this.options = {
       instanceId,
       labelPrefix,
-      configDir: options?.configDir ?? `${cwd}/.localnet/${instanceId}/config`,
-      dataDir: options?.dataDir ?? `${cwd}/.localnet/${instanceId}/data`,
       images: options?.images ?? {},
       dbUser: options?.dbUser ?? 'cnadmin',
       dbPassword: options?.dbPassword ?? 'supersafe',
@@ -242,7 +244,7 @@ export class LocalNet {
       throw new Error(
         mismatch.message ||
           `Instance '${this.options.instanceId}' is already running with a different config. ` +
-          `Stop and destroy first, or use a different instanceId.`,
+            `Stop and destroy first, or use a different instanceId.`,
       );
     }
 
@@ -270,7 +272,7 @@ export class LocalNet {
 
       await this.validatePortAvailability();
 
-      await this.generateConfigs();
+      const generatedConfigs = this.buildGeneratedConfigs();
 
       await this.networkManager.create(this.options.instanceId);
       containersCreated = true;
@@ -280,7 +282,7 @@ export class LocalNet {
         [`${this.options.labelPrefix}.instance`]: this.options.instanceId,
       });
 
-      const containerSpecs = this.buildContainerSpecs();
+      const containerSpecs = this.buildContainerSpecs(generatedConfigs);
       const layers = getStartupOrder(containerSpecs);
 
       for (const layer of layers) {
@@ -316,7 +318,19 @@ export class LocalNet {
         `LocalNet ready (total ${((Date.now() - startTime) / 1000).toFixed(1)}s)`,
       );
     } catch (error) {
-      this.internalState = containersCreated ? 'error' : 'stopped';
+      // Roll back any partially-created resources (network, volume, containers)
+      // so a failed start does not leak. Best-effort: a cleanup failure must not
+      // mask the original startup error.
+      if (containersCreated) {
+        options?.onProgress?.('Startup failed; cleaning up partial resources...');
+        try {
+          await this.cleanupInstanceResources();
+          this.containerIds.clear();
+        } catch {
+          // Swallow — the original error below is what matters.
+        }
+      }
+      this.internalState = 'stopped';
       throw error;
     }
   }
@@ -351,7 +365,17 @@ export class LocalNet {
 
   async destroy(options?: StopOptions): Promise<void> {
     await this.stop({ timeout: 30_000, ...options });
+    await this.cleanupInstanceResources();
+    this.containerIds.clear();
+  }
 
+  /**
+   * Remove every Docker resource belonging to this instance: containers, the
+   * network, and named volumes (all matched by the `<labelPrefix>.instance`
+   * label). Best-effort — individual removals that fail (e.g. already gone) do
+   * not abort the rest. Shared by `destroy()` and `start()`'s failure rollback.
+   */
+  private async cleanupInstanceResources(): Promise<void> {
     const containers = await this.client.listContainers({
       [`${this.options.labelPrefix}.instance`]: this.options.instanceId,
     });
@@ -360,7 +384,7 @@ export class LocalNet {
       containers.map((container) => this.client.removeContainer(container.id, true)),
     );
 
-    await this.networkManager.remove(this.options.instanceId);
+    await this.networkManager.remove(this.options.instanceId).catch(() => {});
 
     const volumes = await this.client.listVolumes({
       [`${this.options.labelPrefix}.instance`]: this.options.instanceId,
@@ -369,11 +393,6 @@ export class LocalNet {
     await Promise.allSettled(
       volumes.map((volume) => this.client.removeVolume(volume.name)),
     );
-
-    const instanceDir = `${this.instanceCwd}/.localnet/${this.options.instanceId}`;
-    await rm(instanceDir, { recursive: true, force: true }).catch(() => {});
-
-    this.containerIds.clear();
   }
 
   async restart(options?: StartOptions & StopOptions): Promise<void> {
@@ -1448,7 +1467,9 @@ export class LocalNet {
   }
 
   private async validatePortAvailability(): Promise<void> {
-    const specs = this.buildContainerSpecs();
+    // Port bindings do not depend on generated config content, so empty
+    // placeholders are sufficient for computing the set of host ports.
+    const specs = this.buildContainerSpecs(EMPTY_GENERATED_CONFIGS);
     const wantedPorts = new Set<number>();
     for (const spec of specs) {
       for (const port of spec.ports ?? []) {
@@ -1486,16 +1507,15 @@ export class LocalNet {
     }
   }
 
-  private buildContainerSpecs(): ContainerSpec[] {
+  private buildContainerSpecs(generatedConfigs: GeneratedConfigs): ContainerSpec[] {
     const builderOptions: ContainerBuilderOptions = {
       networkName: this.networkManager.getExpectedNetworkName(this.options.instanceId),
-      configDir: this.options.configDir,
-      dataDir: this.options.dataDir,
       labelPrefix: this.options.labelPrefix,
       instanceId: this.options.instanceId,
       images: this.options.images,
       dbUser: this.options.dbUser,
       dbPassword: this.options.dbPassword,
+      generatedConfigs,
     };
 
     const specs = buildAllContainers(this.config, builderOptions);
@@ -1532,40 +1552,29 @@ export class LocalNet {
     return specs;
   }
 
-  private async generateConfigs(): Promise<void> {
-    const configDir = this.options.configDir;
-
-    await mkdir(configDir, { recursive: true });
-    await mkdir(`${configDir}/canton`, { recursive: true });
-    await mkdir(`${configDir}/splice`, { recursive: true });
-    await mkdir(`${configDir}/nginx`, { recursive: true });
-    await mkdir(`${configDir}/keycloak`, { recursive: true });
-
-    const cantonConfig = generateFullCantonConfig(this.config);
-    await writeFile(`${configDir}/canton/app.conf`, cantonConfig, 'utf-8');
-
-    const spliceConfig = generateFullSpliceConfig(this.config);
-    await writeFile(`${configDir}/splice/app.conf`, spliceConfig, 'utf-8');
-
-    const envConfig = generateMergedEnv(this.config);
-    await writeFile(`${configDir}/.env`, envConfig, 'utf-8');
-
-    const realms = generateAllRealmsJson(this.config);
-    for (const [filename, content] of realms) {
-      await writeFile(`${configDir}/keycloak/${filename}`, content, 'utf-8');
-    }
-
-    await this.generateNginxConfig(configDir);
-    await this.generatePostgresEntrypoint(configDir);
+  /**
+   * Produce all container configuration in memory. Configs are delivered to
+   * containers via environment variables (see the container builders), so
+   * nothing is written to the host filesystem — the SDK leaves no `.localnet`
+   * directory behind and works over a remote Docker socket.
+   */
+  private buildGeneratedConfigs(): GeneratedConfigs {
+    return {
+      cantonConfig: generateFullCantonConfig(this.config),
+      spliceConfig: generateFullSpliceConfig(this.config),
+      nginxConfig: generateNginxConfigString(this.config),
+      postgresInitScript: buildPostgresInitScript(),
+      keycloakRealms: Object.fromEntries(generateAllRealmsJson(this.config)),
+    };
   }
+}
 
-  private async generateNginxConfig(configDir: string): Promise<void> {
-    const config = generateNginxConfigString(this.config);
-    await writeFile(`${configDir}/nginx/nginx.conf`, config, 'utf-8');
-  }
-
-  private async generatePostgresEntrypoint(configDir: string): Promise<void> {
-    const script = `#!/bin/bash
+/**
+ * Postgres init script that creates each database named by a CREATE_DATABASE_*
+ * environment variable. Written into the container's init dir at startup.
+ */
+function buildPostgresInitScript(): string {
+  return `#!/bin/bash
 set -e
 
 for var in $(compgen -e | grep '^CREATE_DATABASE_'); do
@@ -1577,10 +1586,6 @@ for var in $(compgen -e | grep '^CREATE_DATABASE_'); do
 EOSQL
 done
 `;
-    const scriptPath = `${configDir}/postgres-entrypoint.sh`;
-    await writeFile(scriptPath, script, 'utf-8');
-    await chmod(scriptPath, 0o755);
-  }
 }
 
 export async function createLocalNet(
