@@ -19,6 +19,9 @@ Initial public beta release of `@denex/network-manager`.
 
 ### Fixed
 
+- Fixed `dnm start` failing at the Scan readiness check on any non-default `basePort`. The Scan and
+  SV Admin container ports were derived from `basePort`, but the Splice process always binds fixed
+  internal ports, so the published mapping pointed at ports nothing was listening on.
 - Corrected a stop/destroy timeout unit mismatch that caused Docker to reject the request with HTTP
   500 (`strconv.Atoi: invalid syntax`).
 - Container configuration is now delivered via environment variables instead of bind mounts, and
