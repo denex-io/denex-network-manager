@@ -4,14 +4,53 @@ on:
   push:
     tags:
       - 'v*'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Rehearse the release without publishing anything (no npm publish, no GitHub release)'
+        type: boolean
+        default: true
 
 permissions:
   contents: read
 
 jobs:
+  prepare:
+    name: Resolve Release Parameters
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.resolve.outputs.version }}
+      dry_run: ${{ steps.resolve.outputs.dry_run }}
+    steps:
+      # @v7.0.0
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+
+      - name: Resolve version and dry-run mode
+        id: resolve
+        run: |
+          set -euo pipefail
+          if [ "${GITHUB_REF_TYPE}" = 'tag' ]; then
+            # Tag pushes are real releases; version comes from the tag.
+            version="${GITHUB_REF_NAME#v}"
+            dry_run='false'
+          else
+            # Manual runs rehearse using the version already in deno.json.
+            # jq is preinstalled on GitHub runners; Deno is not set up in this job.
+            version="$(jq -r '.version' deno.json)"
+            dry_run="${{ inputs.dry_run }}"
+          fi
+          if [ -z "$version" ]; then
+            echo '::error::could not resolve a version to build'
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "dry_run=$dry_run" >> "$GITHUB_OUTPUT"
+          echo "Building version $version (dry_run=$dry_run)"
+
   compile-linux-win:
     name: Compile Binaries (Linux + Windows)
     runs-on: ubuntu-latest
+    needs: [prepare]
     steps:
       # @v7.0.0
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
@@ -22,28 +61,42 @@ jobs:
         with:
           deno-version: v2.x
 
-      - name: Compile linux/x64
-        run: deno compile --allow-all --target x86_64-unknown-linux-gnu --output dnm-linux-x64 src/cli/mod.ts
+      - name: Stamp CLI version
+        run: deno run --allow-read --allow-write scripts/stamp_version.ts "${{ needs.prepare.outputs.version }}"
 
-      - name: Compile linux/arm64
-        run: deno compile --allow-all --target aarch64-unknown-linux-gnu --output dnm-linux-arm64 src/cli/mod.ts
+      - name: Compile and archive linux/x64
+        run: |
+          deno compile --allow-all --target x86_64-unknown-linux-gnu --output dnm src/cli/mod.ts
+          tar -czf dnm-linux-x64.tar.gz dnm
+          rm dnm
 
-      - name: Compile windows/x64
-        run: deno compile --allow-all --target x86_64-pc-windows-msvc --output dnm-win-x64.exe src/cli/mod.ts
+      - name: Compile and archive linux/arm64
+        run: |
+          deno compile --allow-all --target aarch64-unknown-linux-gnu --output dnm src/cli/mod.ts
+          tar -czf dnm-linux-arm64.tar.gz dnm
+          rm dnm
+
+      - name: Compile and archive windows/x64
+        run: |
+          deno compile --allow-all --target x86_64-pc-windows-msvc --output dnm.exe src/cli/mod.ts
+          zip -q dnm-win-x64.zip dnm.exe
+          rm dnm.exe
 
       # @v4.3.3
       - uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0aba2995
-        name: Upload linux/win binaries
+        name: Upload linux/win archives
         with:
-          name: binaries-linux-win
+          name: archives-linux-win
           path: |
-            dnm-linux-x64
-            dnm-linux-arm64
-            dnm-win-x64.exe
+            dnm-linux-x64.tar.gz
+            dnm-linux-arm64.tar.gz
+            dnm-win-x64.zip
+          if-no-files-found: error
 
   compile-macos:
     name: Compile Binaries (macOS)
     runs-on: macos-latest
+    needs: [prepare]
     steps:
       # @v7.0.0
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
@@ -54,27 +107,38 @@ jobs:
         with:
           deno-version: v2.x
 
-      - name: Compile darwin/x64
-        run: deno compile --allow-all --target x86_64-apple-darwin --output dnm-darwin-x64 src/cli/mod.ts
+      - name: Stamp CLI version
+        run: deno run --allow-read --allow-write scripts/stamp_version.ts "${{ needs.prepare.outputs.version }}"
 
-      - name: Compile darwin/arm64
-        run: deno compile --allow-all --target aarch64-apple-darwin --output dnm-darwin-arm64 src/cli/mod.ts
+      - name: Compile and archive darwin/x64
+        run: |
+          deno compile --allow-all --target x86_64-apple-darwin --output dnm src/cli/mod.ts
+          tar -czf dnm-darwin-x64.tar.gz dnm
+          rm dnm
+
+      - name: Compile and archive darwin/arm64
+        run: |
+          deno compile --allow-all --target aarch64-apple-darwin --output dnm src/cli/mod.ts
+          tar -czf dnm-darwin-arm64.tar.gz dnm
+          rm dnm
 
       # @v4.3.3
       - uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0aba2995
-        name: Upload macOS binaries
+        name: Upload macOS archives
         with:
-          name: binaries-macos
+          name: archives-macos
           path: |
-            dnm-darwin-x64
-            dnm-darwin-arm64
+            dnm-darwin-x64.tar.gz
+            dnm-darwin-arm64.tar.gz
+          if-no-files-found: error
 
   publish:
-    name: Build and Publish to npm
+    name: Build and Publish
     runs-on: ubuntu-latest
-    needs: [compile-linux-win, compile-macos]
+    needs: [prepare, compile-linux-win, compile-macos]
     permissions:
-      contents: read
+      # Needed to create the GitHub release and upload its assets.
+      contents: write
     steps:
       # @v7.0.0
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
@@ -109,6 +173,9 @@ jobs:
       - name: Lint
         run: deno task lint
 
+      - name: Format Check
+        run: deno task fmt:check
+
       - name: Unit Tests
         run: deno task test:unit
 
@@ -117,32 +184,122 @@ jobs:
 
       # @v4.1.7
       - uses: actions/download-artifact@65a9edc5881444af0b9093a5e628f2fe47ea3b2f
-        name: Download linux/win binaries
+        name: Download linux/win archives
         with:
-          name: binaries-linux-win
+          name: archives-linux-win
+          path: dist
 
       # @v4.1.7
       - uses: actions/download-artifact@65a9edc5881444af0b9093a5e628f2fe47ea3b2f
-        name: Download macOS binaries
+        name: Download macOS archives
         with:
-          name: binaries-macos
+          name: archives-macos
+          path: dist
 
-      - name: Build npm package
-        run: deno run --allow-all scripts/build_npm.ts ${GITHUB_REF_NAME#v}
-
-      - name: Stage binaries
+      - name: Generate checksums
+        working-directory: dist
         run: |
-          cp dnm-linux-x64 npm/bin/dnm-linux-x64
-          cp dnm-linux-arm64 npm/bin/dnm-linux-arm64
-          cp dnm-darwin-x64 npm/bin/dnm-darwin-x64
-          cp dnm-darwin-arm64 npm/bin/dnm-darwin-arm64
-          cp dnm-win-x64.exe npm/bin/dnm-win-x64.exe
-          chmod +x npm/bin/dnm-linux-x64
-          chmod +x npm/bin/dnm-linux-arm64
-          chmod +x npm/bin/dnm-darwin-x64
-          chmod +x npm/bin/dnm-darwin-arm64
+          set -euo pipefail
+          sha256sum dnm-*.tar.gz dnm-*.zip > SHA256SUMS
+          cat SHA256SUMS
+          # Fail loudly if any expected archive is missing.
+          for f in dnm-linux-x64.tar.gz dnm-linux-arm64.tar.gz \
+                   dnm-darwin-x64.tar.gz dnm-darwin-arm64.tar.gz dnm-win-x64.zip; do
+            [ -f "$f" ] || { echo "::error::missing release asset $f"; exit 1; }
+          done
+
+      - name: Build npm package (SDK only)
+        run: deno run --allow-all scripts/build_npm.ts "${{ needs.prepare.outputs.version }}"
+
+      - name: Inspect npm package
+        working-directory: npm
+        run: |
+          set -euo pipefail
+          npm pack --dry-run
+          if [ -e bin ]; then
+            echo '::error::npm/bin should not exist — the npm package is SDK-only'
+            exit 1
+          fi
+
+      # ── Dry run: verify everything short of publishing ──────────────────────
+
+      - name: Verify npm auth (dry run)
+        if: needs.prepare.outputs.dry_run == 'true'
+        run: npm whoami
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_DENEX_PUBLISH_TOKEN }}
+
+      - name: npm publish --dry-run
+        if: needs.prepare.outputs.dry_run == 'true'
+        working-directory: npm
+        run: npm publish --access public --tag beta --dry-run
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_DENEX_PUBLISH_TOKEN }}
+
+      # @v4.3.3
+      - uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0aba2995
+        name: Upload release assets for inspection (dry run)
+        if: needs.prepare.outputs.dry_run == 'true'
+        with:
+          name: dry-run-release-assets
+          path: dist/*
+          if-no-files-found: error
+
+      - name: Dry run summary
+        if: needs.prepare.outputs.dry_run == 'true'
+        run: |
+          {
+            echo '### Dry run complete — nothing was published'
+            echo
+            echo "Version: \`${{ needs.prepare.outputs.version }}\`"
+            echo
+            echo 'Verified: type check, lint, format, unit + smoke tests, all five'
+            echo 'binaries compiled and archived, checksums generated, npm token'
+            echo 'authenticated, and `npm publish --dry-run` succeeded.'
+            echo
+            echo 'Skipped: GitHub release creation and the real `npm publish`.'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # ── Real release ────────────────────────────────────────────────────────
+
+      - name: Create GitHub release
+        if: needs.prepare.outputs.dry_run != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          set -euo pipefail
+          # Deliberately NOT --prerelease: GitHub excludes prereleases from
+          # /releases/latest/download, which install.sh relies on.
+          gh release create "$GITHUB_REF_NAME" \
+            --title "v$VERSION" \
+            --notes "See [CHANGELOG.md](https://github.com/${GITHUB_REPOSITORY}/blob/main/CHANGELOG.md) for details.
+
+          **This is a beta release.** The API may change in minor (0.x) versions.
+
+          ### Install the \`dnm\` CLI
+
+          \`\`\`bash
+          curl -fsSL https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/main/install.sh | sh
+          \`\`\`
+
+          Or download the archive for your platform below. Verify it against \`SHA256SUMS\`.
+
+          ### Install the SDK
+
+          \`\`\`bash
+          npm install @denex/network-manager@beta
+          \`\`\`" \
+            dist/dnm-linux-x64.tar.gz \
+            dist/dnm-linux-arm64.tar.gz \
+            dist/dnm-darwin-x64.tar.gz \
+            dist/dnm-darwin-arm64.tar.gz \
+            dist/dnm-win-x64.zip \
+            dist/SHA256SUMS
 
       - name: Publish to npm
-        run: cd npm && npm publish --access public --tag beta
+        if: needs.prepare.outputs.dry_run != 'true'
+        working-directory: npm
+        run: npm publish --access public --tag beta
         env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_DENEX_PUBLISH_TOKEN }}

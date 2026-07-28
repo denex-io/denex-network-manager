@@ -1,5 +1,5 @@
 blank_issues_enabled: false
 contact_links:
   - name: Questions & Discussions
-    url: https://github.com/denex-io/denex-localnet/discussions
-    about: Ask questions and discuss usage here.
+    url: https://github.com/denex-io/denex-network-manager/issues
+    about: Ask questions and discuss usage by opening an issue.

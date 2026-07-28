@@ -14,8 +14,7 @@ import { credentialsCommand } from './commands/credentials.ts';
 import { instancesCommand } from './commands/instances.ts';
 import { entitlementsCommand } from './commands/entitlements.ts';
 import { discoveryCommand } from './commands/discovery.ts';
-
-const VERSION = '0.1.0';
+import { VERSION } from './version.ts';
 
 export const cli = new Command()
   .name('dnm')
