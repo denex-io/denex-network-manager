@@ -259,13 +259,17 @@ export function buildSpliceContainer(
       host: svPorts.validatorAdminApi,
       service: 'SV Validator Admin',
     },
+    // Scan and SV Admin always listen on fixed ports inside the container
+    // (see agents/config-generation.md — nginx proxies to splice:5012/5014 over
+    // the instance's isolated Docker network). Only the host side is
+    // basePort-relative, so concurrent instances don't collide on the host.
     {
-      container: svInternalPorts.scanAdmin,
+      container: SV_INTERNAL_PORTS.scanAdmin,
       host: svInternalPorts.scanAdmin,
       service: 'Scan Admin',
     },
     {
-      container: svInternalPorts.svAdmin,
+      container: SV_INTERNAL_PORTS.svAdmin,
       host: svInternalPorts.svAdmin,
       service: 'SV Admin',
     },
