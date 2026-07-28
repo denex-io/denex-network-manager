@@ -83,7 +83,7 @@ jobs:
           rm dnm.exe
 
       # @v4.3.3
-      - uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0aba2995
+      - uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0abb4808
         name: Upload linux/win archives
         with:
           name: archives-linux-win
@@ -123,7 +123,7 @@ jobs:
           rm dnm
 
       # @v4.3.3
-      - uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0aba2995
+      - uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0abb4808
         name: Upload macOS archives
         with:
           name: archives-macos
@@ -183,14 +183,14 @@ jobs:
         run: deno task test:smoke
 
       # @v4.1.7
-      - uses: actions/download-artifact@65a9edc5881444af0b9093a5e628f2fe47ea3b2f
+      - uses: actions/download-artifact@65a9edc5881444af0b9093a5e628f2fe47ea3b2e
         name: Download linux/win archives
         with:
           name: archives-linux-win
           path: dist
 
       # @v4.1.7
-      - uses: actions/download-artifact@65a9edc5881444af0b9093a5e628f2fe47ea3b2f
+      - uses: actions/download-artifact@65a9edc5881444af0b9093a5e628f2fe47ea3b2e
         name: Download macOS archives
         with:
           name: archives-macos
@@ -237,7 +237,7 @@ jobs:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_DENEX_PUBLISH_TOKEN }}
 
       # @v4.3.3
-      - uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0aba2995
+      - uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0abb4808
         name: Upload release assets for inspection (dry run)
         if: needs.prepare.outputs.dry_run == 'true'
         with:
