@@ -29,12 +29,19 @@ the SDK from Bun, configure Docker to listen on a TCP socket.
 
 ### CLI
 
-Install the `dnm` binary for your platform (Linux x64/arm64, macOS x64/arm64, Windows x64). No Deno
-required:
+Install the pre-compiled `dnm` binary. No Deno required:
 
 ```bash
-npm install -g @denex/network-manager@beta
+curl -fsSL https://raw.githubusercontent.com/denex-io/denex-network-manager/main/install.sh | sh
 ```
+
+This installs to `~/.dnm/bin` and verifies the download against the release checksums. Set
+`DNM_INSTALL_DIR` to install elsewhere, or `DNM_VERSION` (e.g. `v0.1.0-beta.1`) to pin a version.
+
+Prefer not to pipe a script to your shell? Download the archive for your platform from the
+[latest release](https://github.com/denex-io/denex-network-manager/releases/latest), verify it
+against `SHA256SUMS`, then extract `dnm` onto your `PATH`. Builds are provided for Linux x64/arm64,
+macOS x64/arm64, and Windows x64 (`dnm-win-x64.zip`).
 
 Or run from source (requires Deno 2.0+ and a repo checkout):
 
@@ -43,6 +50,8 @@ deno install --global --allow-all --config deno.json --name dnm src/cli/mod.ts
 ```
 
 ### SDK
+
+The npm package contains the SDK only — use one of the CLI options above for `dnm`.
 
 **Node.js / npm:**
 

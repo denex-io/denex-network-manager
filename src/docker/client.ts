@@ -1,5 +1,5 @@
-/// <reference types="npm:@types/node" />
 import Dockerode from 'dockerode';
+import type { Readable } from 'node:stream';
 import type {
   ContainerInfo,
   ContainerSpec,
@@ -277,11 +277,11 @@ export class DockerClient {
       ? await container.logs({
         ...logOptions,
         follow: true as const,
-      }) as unknown as NodeJS.ReadableStream
+      }) as unknown as Readable
       : await container.logs({
         ...logOptions,
         follow: false as const,
-      }) as unknown as NodeJS.ReadableStream;
+      }) as unknown as Readable;
 
     return new ReadableStream({
       start(controller) {
