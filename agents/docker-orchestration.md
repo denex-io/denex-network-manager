@@ -7,7 +7,7 @@
 - Read when: changing `src/docker/`, port allocation, lifecycle startup, or container
   troubleshooting.
 - Excludes: detailed Canton/Splice generated config syntax.
-- Supporting docs: `src/docker/types.ts` and `docs/localnet-architecture.md`.
+- Supporting docs: `src/docker/types.ts` and `site/src/content/docs/how-it-works/architecture.md`.
 
 ## What this subsystem is
 

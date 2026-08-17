@@ -14,7 +14,8 @@
  *   deno run -A examples/dev-stack/main.ts          # start (or reuse) and report
  *   deno run -A examples/dev-stack/main.ts --down   # destroy the instance
  *
- * See docs/dev-stack-guide.md for why each step is shaped this way.
+ * See https://denex-io.github.io/denex-network-manager/guides/dev-stack/ for why
+ * each step is shaped this way.
  */
 import { LocalNet, LocalNetBuilder } from '../../src/sdk/mod.ts';
 
