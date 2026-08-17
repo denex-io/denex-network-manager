@@ -48,6 +48,19 @@ exclusion exists — do not remove it.
 - **Pin `astro` and `@astrojs/starlight` exactly.** Starlight makes breaking config changes in minor
   releases — `social` became an array in 0.33, and labelled `autogenerate` sidebar groups were
   removed in 0.39. Read the Starlight changelog before bumping, and re-run the build.
+- **`site/package-lock.json` must only contain `registry.npmjs.org` URLs.** This is a public repo,
+  and a private npm mirror configured in `npm config get registry` gets baked into every `resolved`
+  field by `npm install`. That both leaks internal hostnames and breaks `npm ci` in GitHub Actions,
+  which cannot reach the mirror. After any dependency change, check:
+
+  ```sh
+  grep -c 'registry.npmjs.org' site/package-lock.json   # should equal the package count
+  grep -c 'artifactory\|drwholdings' site/package-lock.json  # must be 0
+  ```
+
+  If the mirror leaked in, rewrite the prefix to `https://registry.npmjs.org/` — `integrity` hashes
+  are content hashes and stay valid, and `npm ci` still resolves through whatever registry is
+  locally configured. `deno.lock` has the same hazard; commit `265f45a` fixed it there once already.
 - **Content here is canonical, not copied.** `docs/dev-stack-guide.md` and
   `docs/localnet-architecture.md` were moved into this tree, not duplicated. Do not reintroduce
   copies under `docs/`.
