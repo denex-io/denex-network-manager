@@ -6,7 +6,7 @@ description: How denex-network-manager orchestrates Canton, Splice, Keycloak, Po
 A technical overview of the infrastructure `denex-network-manager` builds: container orchestration,
 authentication, party management, and initialization flows.
 
-## Overview
+## Orientation
 
 ### What is LocalNet?
 
