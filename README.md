@@ -10,6 +10,10 @@ LocalNet config tree yourself.
 > **Pre-1.0 beta:** This is a beta release. The API may change in minor versions (0.x). Check the
 > [CHANGELOG](./CHANGELOG.md) before upgrading.
 
+📖 **Full documentation:
+[denex-io.github.io/denex-network-manager](https://denex-io.github.io/denex-network-manager/)** —
+guides, CLI and configuration reference, and an architecture walkthrough.
+
 ## Requirements
 
 - Docker running locally
@@ -107,8 +111,10 @@ dnm stop
 dnm destroy --force
 ```
 
-`destroy` removes containers, networks, volumes, and `.localnet/<instance>` data. Without `--force`,
-it asks for confirmation.
+`stop` keeps the containers and the PostgreSQL volume, so a later `start` resumes in seconds.
+`destroy` removes containers, networks, and volumes; without `--force`, it asks for confirmation.
+Nothing is written to your host filesystem during a run, so there is no generated directory left
+behind.
 
 ## CLI
 
@@ -119,24 +125,30 @@ dnm <command> --help
 
 Commands:
 
-| Command        | Description                                              |
-| -------------- | -------------------------------------------------------- |
-| `start`        | Start LocalNet containers                                |
-| `stop`         | Stop all containers gracefully                           |
-| `status`       | Show container state and health                          |
-| `destroy`      | Remove containers, networks, volumes, and generated data |
-| `init`         | Initialize users and parties on a running LocalNet       |
-| `config`       | Generate `localnet.yaml` interactively                   |
-| `parties`      | List parties across validators                           |
-| `packages`     | List uploaded DAR packages                               |
-| `env`          | Show API URLs, auth config, and DSO party ID             |
-| `credentials`  | Show web UI login credentials                            |
-| `instances`    | List running LocalNet instances                          |
-| `entitlements` | List users with their rights                             |
-| `discovery`    | Run the multi-instance discovery HTTP server             |
+| Command        | Description                                        |
+| -------------- | -------------------------------------------------- |
+| `start`        | Start LocalNet containers                          |
+| `stop`         | Stop all containers gracefully                     |
+| `status`       | Show container state and health                    |
+| `destroy`      | Remove containers, networks, and volumes           |
+| `init`         | Initialize users and parties on a running LocalNet |
+| `config`       | Generate `localnet.yaml` interactively             |
+| `parties`      | List parties across validators                     |
+| `packages`     | List uploaded DAR packages                         |
+| `env`          | Show API URLs, auth config, and DSO party ID       |
+| `credentials`  | Show web UI login credentials                      |
+| `instances`    | List running LocalNet instances                    |
+| `entitlements` | List users with their rights                       |
+| `discovery`    | Run the multi-instance discovery HTTP server       |
 
-Only `start` and `config` accept `--config <path>`. State commands attach to running Docker
-containers through labels. If multiple instances are running, pass `--instance <id>`.
+Only `start` accepts `--config <path>`. State commands attach to running Docker containers through
+labels and auto-resolve the instance when exactly one is running; if several are up, pass
+`--instance <id>`.
+
+Note that `--timeout` units differ per command: `start --timeout` is in **milliseconds** (default
+`300000`), while `stop --timeout` and `destroy --timeout` are in **seconds** (default `30`). The
+[CLI reference](https://denex-io.github.io/denex-network-manager/reference/cli/) documents every
+flag.
 
 Useful options:
 
@@ -315,25 +327,30 @@ side, so retries converge after partial failures.
 Advanced users can import the full API from `@denex/network-manager`, including `CantonClient`,
 `ValidatorAdminClient`, generators, schemas, Docker helpers, and discovery utilities.
 
-Wrapping an instance in a one-command dev stack for your own application — reusing a running
-instance, connecting per participant, waiting for readiness, and serving a UI per validator — is
-covered in [Building a Dev Stack on LocalNet](docs/dev-stack-guide.md), with a runnable version in
-[`examples/dev-stack`](examples/dev-stack/main.ts).
+Wrapping an instance in a one-command dev stack for your own application — reusing a live instance,
+connecting per participant, waiting for readiness, and serving a UI per validator — is covered in
+[Building a dev stack](https://denex-io.github.io/denex-network-manager/guides/dev-stack/), with a
+runnable version in [`examples/dev-stack`](examples/dev-stack/main.ts).
 
 ## SDK Quick Start
 
 ```typescript
-import { LocalNetBuilder } from '@denex/network-manager/sdk';
+import { LocalNet, LocalNetBuilder } from '@denex/network-manager/sdk';
 
-const net = await new LocalNetBuilder()
+const config = LocalNetBuilder.create()
   .withValidators(1)
   .build();
 
+const net = await LocalNet.fromConfig(config);
+
 await net.start({ onProgress: console.log });
 const env = await net.getEnvironment();
-console.log(env.sv.endpoints);
+console.log(env.validators.sv.endpoints);
 await net.destroy();
 ```
+
+`LocalNetBuilder` has a private constructor, so use `LocalNetBuilder.create()` rather than `new`.
+`build()` returns a config, not a running instance — pass it to `LocalNet.fromConfig()`.
 
 ## Discovery Server
 
@@ -379,7 +396,8 @@ errors.
 unreachable. Check `dnm status` and the relevant container logs.
 
 **Splice reports "Node name is too long":** use shorter validator names. Splice limits generated
-node names to 30 characters.
+node names to 30 characters and the validator backend appends `-validator_backend` (18 characters),
+so the config schema rejects validator names longer than 12 characters up front.
 
 ## Development
 
