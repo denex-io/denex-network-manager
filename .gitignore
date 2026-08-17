@@ -22,6 +22,10 @@ reference/
 tmp/
 temp/
 
+# Docs site build output (site/ has its own npm toolchain)
+site/dist/
+site/.astro/
+
 # Editor
 .vscode/
 .idea/

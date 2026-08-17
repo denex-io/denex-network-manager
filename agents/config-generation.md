@@ -5,7 +5,8 @@
 - Covers: generated Canton HOCON, Splice app.conf, Keycloak realm JSON, env files, and nginx config.
 - Read when: changing generated config strings or troubleshooting generated runtime configuration.
 - Excludes: Docker API mechanics after container specs are built.
-- Supporting docs: `docs/localnet-architecture.md` for diagrams; verify details against source.
+- Supporting docs: `site/src/content/docs/how-it-works/architecture.md` for diagrams; verify details
+  against source.
 
 ## What this subsystem is
 

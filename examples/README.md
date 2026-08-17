@@ -13,7 +13,7 @@ deno run -A examples/dev-stack/main.ts --down   # destroy
 ```
 
 The reasoning behind the dev-stack example is written up in
-[Building a Dev Stack on LocalNet](../docs/dev-stack-guide.md).
+[Building a dev stack](https://denex-io.github.io/denex-network-manager/guides/dev-stack/).
 
 Examples require Docker. A cold start takes several minutes; reusing a live instance takes about a
 second.

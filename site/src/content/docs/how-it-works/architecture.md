@@ -1,23 +1,10 @@
-# LocalNet Architecture
-
-> [!NOTE]
-> This is a supporting architecture overview. Verify current image tags, exact ports, and runtime
-> details against source files and `agents/` guidance before making implementation changes.
-
-This document provides a comprehensive technical overview of the mg-localnet infrastructure,
-covering container orchestration, authentication, party management, and initialization flows.
-
-## Table of Contents
-
-1. [Overview](#overview)
-2. [Container Architecture](#container-architecture)
-3. [Authentication](#authentication)
-4. [Parties and Users](#parties-and-users)
-5. [Initialization and Onboarding](#initialization-and-onboarding)
-6. [Dependency Graph and Connection Points](#dependency-graph-and-connection-points)
-7. [Design Decisions](#design-decisions)
-
 ---
+title: Architecture
+description: How denex-network-manager orchestrates Canton, Splice, Keycloak, PostgreSQL, and Nginx — container layout, authentication, party management, and initialization flows.
+---
+
+A technical overview of the infrastructure `denex-network-manager` builds: container orchestration,
+authentication, party management, and initialization flows.
 
 ## Overview
 
@@ -64,26 +51,40 @@ This configuration creates a complete network with:
 | Web UI          | 5080            | 5180               | 5280               |
 | Keycloak        | 5082            | —                  | —                  |
 
-#### SV-Specific Internal Ports
+#### SV-Specific Ports
+
+These split by whether the host ever sees them, which decides whether they move with `basePort`.
+
+Container-internal only. Never published to the host, so they stay at fixed values — concurrent
+instances do not collide because each one gets its own isolated Docker network:
 
 | Service          | Port |
 | ---------------- | ---- |
 | Sequencer Public | 5008 |
 | Sequencer Admin  | 5009 |
 | Mediator Admin   | 5007 |
-| Scan Admin       | 5012 |
-| SV Admin         | 5014 |
+
+Host-published, and therefore `basePort`-relative. These must be distinct across concurrent
+instances, so they shift with `basePort` like every other published port:
+
+| Service    | Offset        | Default (`basePort: 5000`) |
+| ---------- | ------------- | -------------------------- |
+| Scan Admin | `basePort+12` | 5012                       |
+| SV Admin   | `basePort+14` | 5014                       |
+
+Use `getSvInternalPorts(basePort)` to resolve the actual values for an instance rather than assuming
+5012/5014.
 
 #### Default URLs
 
-| Service            | URL                          |
-| ------------------ | ---------------------------- |
-| SV Management UI   | http://sv.localhost:5080     |
-| Scan Explorer      | http://scan.localhost:5080   |
-| SV Wallet          | http://wallet.localhost:5080 |
-| Validator 1 Wallet | http://wallet.localhost:5180 |
-| Validator 2 Wallet | http://wallet.localhost:5280 |
-| Keycloak           | http://localhost:5082        |
+| Service            | URL                            |
+| ------------------ | ------------------------------ |
+| SV Management UI   | `http://sv.localhost:5080`     |
+| Scan Explorer      | `http://scan.localhost:5080`   |
+| SV Wallet          | `http://wallet.localhost:5080` |
+| Validator 1 Wallet | `http://wallet.localhost:5180` |
+| Validator 2 Wallet | `http://wallet.localhost:5280` |
+| Keycloak           | `http://localhost:5082`        |
 
 ---
 

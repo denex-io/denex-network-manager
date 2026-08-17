@@ -15,7 +15,8 @@ Keycloak, PostgreSQL, Nginx, and web UIs using the Docker API directly, not Dock
 - Keep this file focused on durable repo-wide rules and orientation.
 - Put subsystem-specific implementation guidance in `agents/*.md`.
 - Before changing a subsystem, read `agents/INDEX.md` and then the relevant subject file.
-- User-facing docs belong in `README.md`; detailed agent implementation notes belong in `agents/`.
+- User-facing docs belong on the docs site in `site/src/content/docs/`; `README.md` keeps the
+  npm/GitHub landing overview. Detailed agent implementation notes belong in `agents/`.
 
 ### Cross-runtime split
 
@@ -56,13 +57,18 @@ test/
   unit/               fast tests that do not require Docker
   integration/        Docker-backed tests; auto-skip when Docker is unavailable
   smoke/              cross-runtime compatibility checks
+
+examples/             runnable consumer-style examples; type-checked by `deno task check`
+site/                 Astro/Starlight docs site published to GitHub Pages
 ```
 
-Empty or historical directories exist in the repo. Do not treat `examples/*` as current reference
-material until populated. `src/canton-client/`, `src/discovery-server/`, `src/orchestrator/`, and
-`src/state/` may exist as empty or legacy stubs; ignore them unless populated. Treat
-`docs/research/` and `docs/plans/` as historical/supporting context, not current implementation
-specs — they are not tracked in the public git repository.
+`site/` is the canonical home for user-facing documentation and has its own Node/npm toolchain. It
+is excluded from `deno fmt` and `deno lint`; read `agents/docs-site.md` before touching it.
+
+Empty or historical directories exist in the repo. `src/canton-client/`, `src/discovery-server/`,
+`src/orchestrator/`, and `src/state/` may exist as empty or legacy stubs; ignore them unless
+populated. `docs/` now holds only `splice-version-support-plan.md`, which is a proposal rather than
+a spec — the features it describes are not implemented.
 
 The npm release pipeline lives in `scripts/build_npm.ts` (SDK + CLI binaries via `dnt`) and
 `.github/workflows/publish.yml` (tag-triggered, compiles five platform binaries). These are not
@@ -109,6 +115,14 @@ deno task cli --help
 deno task cli <command> --help
 ```
 
+The docs site needs Node 22+ and its own dependency install:
+
+```bash
+deno task docs:install   # npm ci in site/
+deno task docs:dev       # local preview
+deno task docs:build     # production build; fails on broken internal links
+```
+
 ## Verification expectations
 
 - For code changes, run `lsp_diagnostics` on touched TypeScript files.
@@ -119,6 +133,11 @@ deno task cli <command> --help
 - Run `deno task test:smoke` when changing cross-runtime imports, exports, SDK entry points, or
   anything that might leak Deno-only APIs.
 - For CLI behavior, drive the CLI through `deno task cli ...` after tests.
+- Run `deno task docs:build` when changing anything under `site/`. The build fails on broken
+  internal links, so it is the verification step for documentation changes.
+- When changing CLI flags, config schema fields, or port allocation, update the matching reference
+  page under `site/src/content/docs/reference/` in the same change. Regenerate flag tables from
+  `deno task cli <command> --help`, not from memory.
 
 ## Operational gotchas
 

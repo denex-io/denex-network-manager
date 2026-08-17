@@ -1,0 +1,66 @@
+---
+title: denex-network-manager
+description: Testcontainers-style SDK and CLI for running Canton Network LocalNets from a single YAML file.
+template: splash
+hero:
+  tagline: Run a Canton Network LocalNet from one YAML file — Super Validator, validators, Canton, Splice, Keycloak, PostgreSQL, Nginx, and the web UIs.
+  actions:
+    - text: Get started
+      link: /denex-network-manager/start/installation/
+      icon: right-arrow
+    - text: View on GitHub
+      link: https://github.com/denex-io/denex-network-manager
+      icon: external
+      variant: minimal
+---
+
+import { Card, CardGrid } from '@astrojs/starlight/components';
+
+`denex-network-manager` is for local Canton/Splice development. It starts a Super Validator, one or
+more regular validators, Keycloak, PostgreSQL, Nginx, and the web UIs by talking to the Docker API
+directly — so you do not maintain the upstream LocalNet config tree yourself.
+
+:::caution[Pre-1.0 beta]
+This is a beta release. The API may change in minor versions (`0.x`). Check the
+[changelog](/denex-network-manager/help/changelog/) before upgrading.
+:::
+
+This is the whole configuration for a two-validator network:
+
+```yaml
+version: '1.0'
+
+validators: 2
+
+auth:
+  keycloak:
+    admin: admin
+    password: admin
+```
+
+```bash
+dnm start
+```
+
+Every party is allocated, every user is provisioned across the ledger, Keycloak, and the Splice
+wallet, and every port is assigned relative to `basePort`. Nothing downstream — no application, no
+test, no CI job — needs a hardcoded port, party ID, or credential to talk to the network.
+
+<CardGrid stagger>
+  <Card title="Start here" icon="rocket">
+    [Installation](/denex-network-manager/start/installation/) and a
+    [quick start](/denex-network-manager/start/quick-start/) that gets you a running network.
+  </Card>
+  <Card title="Drive it from code" icon="seti:typescript">
+    The [SDK guide](/denex-network-manager/guides/sdk/) covers the Testcontainers-style API for
+    tests and application bring-up.
+  </Card>
+  <Card title="Build a dev stack" icon="setting">
+    [Wrap an instance](/denex-network-manager/guides/dev-stack/) in a one-command dev stack, with the
+    behaviours that cause real trouble if you assume otherwise.
+  </Card>
+  <Card title="Understand it" icon="open-book">
+    [Architecture](/denex-network-manager/how-it-works/architecture/) — container layout, token flow,
+    onboarding sequence, and the design decisions behind them.
+  </Card>
+</CardGrid>

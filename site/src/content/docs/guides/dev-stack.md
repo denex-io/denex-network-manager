@@ -1,28 +1,19 @@
-# Building a Dev Stack on LocalNet
+---
+title: Building a dev stack
+description: How to wrap a LocalNet instance in a one-command development stack for your own application — lifecycle, per-participant connections, readiness, and multi-user UI isolation.
+---
 
-How to wrap a LocalNet instance in a one-command development stack for your own application.
+[Using the SDK](/denex-network-manager/guides/sdk/) covers the SDK surface. This covers what to do
+with it: the lifecycle a `dev:up` script needs, how to connect when you have more than one validator,
+and the handful of behaviours that cause real trouble if you assume otherwise.
 
-The README covers the SDK surface. This covers what to do with it: the lifecycle a `dev:up` script
-needs, how to connect when you have more than one validator, and the handful of behaviours that
-cause real trouble if you assume otherwise.
-
-A working version of everything here:
+A working version of everything here lives in
+[`examples/dev-stack`](https://github.com/denex-io/denex-network-manager/blob/main/examples/dev-stack/main.ts):
 
 ```sh
 deno run -A examples/dev-stack/main.ts          # start (or reuse) and report
 deno run -A examples/dev-stack/main.ts --down   # destroy
 ```
-
-## Contents
-
-1. [Instance lifecycle](#instance-lifecycle)
-2. [Take one environment snapshot](#take-one-environment-snapshot)
-3. [Parties, participants, and rights](#parties-participants-and-rights)
-4. [Waiting for readiness](#waiting-for-readiness)
-5. [Serving multiple UIs](#serving-multiple-uis)
-6. [Running more than one instance](#running-more-than-one-instance)
-
----
 
 ## Instance lifecycle
 
