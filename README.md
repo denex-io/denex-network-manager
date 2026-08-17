@@ -315,6 +315,11 @@ side, so retries converge after partial failures.
 Advanced users can import the full API from `@denex/network-manager`, including `CantonClient`,
 `ValidatorAdminClient`, generators, schemas, Docker helpers, and discovery utilities.
 
+Wrapping an instance in a one-command dev stack for your own application — reusing a running
+instance, connecting per participant, waiting for readiness, and serving a UI per validator — is
+covered in [Building a Dev Stack on LocalNet](docs/dev-stack-guide.md), with a runnable version in
+[`examples/dev-stack`](examples/dev-stack/main.ts).
+
 ## SDK Quick Start
 
 ```typescript
