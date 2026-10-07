@@ -61,6 +61,14 @@ exclusion exists — do not remove it.
   If the mirror leaked in, rewrite the prefix to `https://registry.npmjs.org/` — `integrity` hashes
   are content hashes and stay valid, and `npm ci` still resolves through whatever registry is
   locally configured. `deno.lock` has the same hazard; commit `265f45a` fixed it there once already.
+  Rewrite the exact registry prefix as a literal string; a regex over `resolved` URLs easily eats
+  the `@scope/` segment of scoped packages.
+- **Write `site/package-lock.json` with npm 10, the npm that ships with CI's Node 22.** npm 11
+  (Node 24) omits top-level entries for some optional peer dependencies, such as the `@emnapi/*`
+  peers of `@napi-rs/wasm-runtime`. npm 10's `npm ci` then rejects the lockfile as out of sync,
+  while it still installs cleanly locally. After a dependency change, run
+  `npx -y npm@10 install --package-lock-only` in `site/`, scrub the registry prefix as above, and
+  confirm `npx -y npm@10 ci --dry-run` succeeds.
 - **Content here is canonical, not copied.** `docs/dev-stack-guide.md` and
   `docs/localnet-architecture.md` were moved into this tree, not duplicated. Do not reintroduce
   copies under `docs/`.
