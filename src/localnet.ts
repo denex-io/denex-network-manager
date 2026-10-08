@@ -126,9 +126,23 @@ interface StartRollback {
    * running.
    */
   touched: Set<string>;
+  /**
+   * Running dependents this call stopped to restart, by name. They were running
+   * before the call, so a rollback starts them again (best-effort).
+   */
+  restarted: Map<string, string>;
+  /**
+   * Set when a create hit a 409: another process is starting the instance, so
+   * rollback must not stop containers this call merely started.
+   */
+  conflict: boolean;
 }
 
-/** Containers in `created` state younger than this may belong to a start in another process. */
+/**
+ * Containers in `created` state younger than this may belong to a start in another process.
+ * The age is the local clock minus the daemon's `Created` timestamp, so it assumes the two
+ * clocks agree to within a few seconds.
+ */
 const YOUNG_CREATED_SECONDS = 60;
 
 export class LocalNet {
@@ -353,6 +367,8 @@ export class LocalNet {
       created: new Map(),
       started: new Map(),
       touched: new Set(),
+      restarted: new Map(),
+      conflict: false,
     };
 
     try {
@@ -427,7 +443,8 @@ export class LocalNet {
       // Undo only what this call did (see rollbackStart). Best-effort: a
       // cleanup failure must not mask the original startup error.
       if (
-        rb.networkCreated || rb.volumeCreated || rb.created.size > 0 || rb.started.size > 0
+        rb.networkCreated || rb.volumeCreated || rb.created.size > 0 || rb.started.size > 0 ||
+        rb.restarted.size > 0
       ) {
         options?.onProgress?.('Startup failed; removing resources created by this attempt...');
         try {
@@ -499,11 +516,19 @@ export class LocalNet {
     for (const { id, layer } of rb.started.values()) {
       byLayer.set(layer, [...(byLayer.get(layer) ?? []), id]);
     }
-    for (const layer of [...byLayer.keys()].sort((a, b) => b - a)) {
-      await Promise.allSettled(
-        (byLayer.get(layer) ?? []).map((id) => this.client.stopContainer(id, 30)),
-      );
+    // After a 409 another process may be mid-start: leave what this call started alone.
+    if (!rb.conflict) {
+      for (const layer of [...byLayer.keys()].sort((a, b) => b - a)) {
+        await Promise.allSettled(
+          (byLayer.get(layer) ?? []).map((id) => this.client.stopContainer(id, 30)),
+        );
+      }
     }
+
+    // Dependents that were running before this call and were stopped to restart.
+    await Promise.allSettled(
+      [...rb.restarted.values()].map((id) => this.client.startContainer(id)),
+    );
 
     if (rb.networkCreated) {
       await this.networkManager.remove(this.options.instanceId).catch(() => {});
@@ -1593,8 +1618,10 @@ export class LocalNet {
         // not keep addresses from before. Not recorded in rb.started.
         progress(`Restarting ${spec.name}...`);
         rb.touched.add(spec.name);
+        rb.restarted.set(spec.name, containerId);
         await this.client.stopContainer(containerId, 30);
         await this.client.startContainer(containerId);
+        rb.restarted.delete(spec.name);
       }
     } else {
       const networkName = this.networkManager.getExpectedNetworkName(this.options.instanceId);
@@ -1608,7 +1635,10 @@ export class LocalNet {
       try {
         containerId = await this.client.createContainer(specWithNetwork);
       } catch (error) {
-        if ((error as { statusCode?: number }).statusCode === 409) {
+        if (
+          error instanceof Error && (error as Error & { statusCode?: number }).statusCode === 409
+        ) {
+          rb.conflict = true;
           throw new Error(
             `Instance '${this.options.instanceId}' appears to be starting in another process ` +
               `('${spec.name}' already exists); if none is, retry in a minute.`,
@@ -1779,16 +1809,23 @@ export class LocalNet {
       const parties = validator.parties ?? [];
       if (parties.length === 0) continue;
 
-      let existingHints: Set<string> | undefined;
+      // A failed query must not turn into blind re-allocation: let it propagate.
+      let hosted: HostedParties;
       try {
-        const hosted = await this.fetchHostedParties(validatorName);
-        existingHints = new Set(hosted.parties.map((p) => p.party.split('::')[0] ?? p.party));
-      } catch {
-        // Cannot tell what exists: fall back to allocating every party.
+        hosted = await this.fetchHostedParties(validatorName);
+      } catch (error) {
+        throw new Error(
+          `Cannot check existing parties on '${validatorName}': ${
+            error instanceof Error ? error.message : error
+          }`,
+        );
       }
+      const existingHints = new Set(
+        hosted.parties.map((p) => p.party.split('::')[0] ?? p.party),
+      );
 
       for (const partyConfig of parties) {
-        if (existingHints?.has(partyConfig.hint)) {
+        if (existingHints.has(partyConfig.hint)) {
           onProgress?.(
             `Party '${partyConfig.hint}' already allocated on ${validatorName}; skipping`,
           );
