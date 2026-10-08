@@ -137,9 +137,10 @@ Commands:
 
 Only `start` and `config` accept `--config <path>`. State commands attach to Docker containers
 through labels. Without `--instance <id>` they pick the one running instance, else the one mixed
-(partly running) instance, else (for `status`, `env`, `credentials`) the one stopped instance, and
-print a stderr notice when they fall back or ignore other instances; pass `--instance <id>` when a
-tier holds several. `dnm config -y` overwrites an existing file after saving it as `<file>.bak`.
+(partly running) instance (not for `init`, which needs a running one), else (for `status`, `env`,
+`credentials`) the one stopped instance, and print a stderr notice when they fall back or ignore
+other instances; pass `--instance <id>` when a tier holds several. `dnm config -y` overwrites an
+existing file after saving it as `<file>.bak`.
 
 Useful options:
 

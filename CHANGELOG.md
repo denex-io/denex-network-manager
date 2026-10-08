@@ -7,8 +7,6 @@ All notable changes to this project will be documented in this file. The format 
 
 ### Added
 
-- `dnm config -y` overwrites an existing file after copying it to `<file>.bak` (it used to prompt,
-  and hung without a TTY).
 - `ContainerInfo.created` (unix seconds), filled by `DockerClient.listContainers()`.
 - `DockerClient.findNetwork()` / `findVolume()` (null only on 404, other errors rethrown) and
   `NetworkManager.ensure()` (returns `{ id, created }`).
@@ -23,10 +21,12 @@ All notable changes to this project will be documented in this file. The format 
 
 ### Changed
 
+- `dnm config -y` overwrites an existing file after copying it to `<file>.bak` (an existing
+  `<file>.bak` is replaced); it used to prompt, and hung without a TTY.
 - `dnm status`, `env` and `credentials` (running, then mixed, then stopped), `stop`, `parties`,
   `packages` and `entitlements` (running, then mixed) now auto-resolve an instance that is not fully
   running when `--instance` is omitted, and print a stderr notice when they fall back or ignore
-  other instances. `stop` says "already stopped" for a stopped-only instance.
+  other instances. `stop` says "already stopped" for a stopped-only instance (still exit code 1).
 - `DiscoveredInstance.status` (so `dnm instances` and `LocalNet.discover()`) no longer depends on
   the order Docker lists containers in: any disagreement between containers is `mixed`.
 - `--verbose` on `dnm parties`, `packages` and `entitlements` is hidden (still accepted, no effect).

@@ -72,7 +72,9 @@ export function resolveInstanceId(
     const stopped = instances.filter((i) => i.status === 'stopped');
     if (stopped.length > 0) {
       throw new Error(
-        `LocalNet is already stopped (${stopped.map((i) => i.id).join(', ')}).`,
+        stopped.length === 1
+          ? `LocalNet is already stopped (${stopped[0].id}).`
+          : `LocalNets are already stopped (${stopped.map((i) => i.id).join(', ')}).`,
       );
     }
   }

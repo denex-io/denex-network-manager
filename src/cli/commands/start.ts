@@ -31,7 +31,7 @@ export const startCommand = new Command()
         console.log('');
         console.log("Existing containers don't match your config.");
         console.log(
-          `Run 'dnm stop --instance ${options.instance}' or 'dnm destroy --instance ${options.instance}' first, then start again.`,
+          `Run 'dnm destroy --instance ${options.instance}' first (stop alone keeps the old containers), or use another --instance, then start again.`,
         );
         Deno.exit(1);
       }
