@@ -14,7 +14,17 @@ export default defineConfig({
   integrations: [
     // Must precede starlight: it claims ```mermaid blocks before Expressive Code
     // turns them into ordinary syntax-highlighted snippets.
-    mermaid({ theme: 'default', autoTheme: true }),
+    // useMaxWidth: false keeps diagrams at their natural size; custom.css lets wide ones
+    // scroll instead of shrinking their labels to an unreadable size.
+    mermaid({
+      theme: 'default',
+      autoTheme: true,
+      enableLog: false,
+      mermaidConfig: {
+        flowchart: { useMaxWidth: false },
+        sequence: { useMaxWidth: false },
+      },
+    }),
     starlight({
       // Fails the build on broken internal links, which is how docs sites rot.
       plugins: [starlightLinksValidator()],
@@ -29,6 +39,11 @@ export default defineConfig({
           href: 'https://www.npmjs.com/package/@denex/network-manager',
         },
       ],
+      customCss: ['./src/styles/custom.css'],
+      // Long one-liners (the install command) otherwise hide their tail behind a scrollbar.
+      expressiveCode: {
+        defaultProps: { overridesByLang: { 'bash,sh,shell': { wrap: true } } },
+      },
       editLink: { baseUrl: `${REPO}/edit/main/site/` },
       lastUpdated: true,
       sidebar: [

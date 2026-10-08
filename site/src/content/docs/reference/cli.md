@@ -47,14 +47,14 @@ just over three days.
 
 Start the Canton LocalNet.
 
-| Flag                   | Value    | Default     | Description                                       |
-| ---------------------- | -------- | ----------- | ------------------------------------------------- |
-| `-c, --config`         | `<path>` | discovered  | Path to config file                               |
-| `-i, --instance`       | `<id>`   | `"default"` | Instance ID                                       |
-| `-t, --timeout`        | `<ms>`   | `300000`    | Startup timeout in **milliseconds**               |
-| `--no-parallel`        |          |             | Start containers sequentially                     |
-| `--skip-health-checks` |          |             | Skip container health checks                      |
-| `--skip-init`          |          |             | Skip post-startup initialization (user/party setup) |
+| Flag                   | Default     | Description                                         |
+| ---------------------- | ----------- | --------------------------------------------------- |
+| `-c, --config <path>`  | discovered  | Path to config file                                 |
+| `-i, --instance <id>`  | `"default"` | Instance ID                                         |
+| `-t, --timeout <ms>`   | `300000`    | Startup timeout in **milliseconds**                 |
+| `--no-parallel`        |             | Start containers sequentially                       |
+| `--skip-health-checks` |             | Skip container health checks                        |
+| `--skip-init`          |             | Skip post-startup initialization (user/party setup) |
 
 When `--config` is omitted, the CLI looks for `localnet.yaml`, `localnet.yml`, `.localnet.yaml`, then
 `.localnet.yml`.
@@ -70,29 +70,29 @@ dnm start --skip-health-checks
 
 Stop the Canton LocalNet, keeping containers and the PostgreSQL volume so a later `start` resumes.
 
-| Flag            | Value   | Default | Description                 |
-| --------------- | ------- | ------- | --------------------------- |
-| `--instance`    | `<id>`  | auto    | Instance ID                 |
-| `-t, --timeout` | `<sec>` | `30`    | Stop timeout in **seconds** |
+| Flag                  | Default | Description                 |
+| --------------------- | ------- | --------------------------- |
+| `--instance <id>`     | auto    | Instance ID                 |
+| `-t, --timeout <sec>` | `30`    | Stop timeout in **seconds** |
 
 ## status
 
 Show LocalNet status.
 
-| Flag         | Value  | Default | Description    |
-| ------------ | ------ | ------- | -------------- |
-| `--instance` | `<id>` | auto    | Instance ID    |
-| `--json`     |        |         | Output as JSON |
+| Flag              | Default | Description    |
+| ----------------- | ------- | -------------- |
+| `--instance <id>` | auto    | Instance ID    |
+| `--json`          |         | Output as JSON |
 
 ## destroy
 
 Destroy the LocalNet, removing containers, networks, and volumes.
 
-| Flag            | Value   | Default | Description                 |
-| --------------- | ------- | ------- | --------------------------- |
-| `--instance`    | `<id>`  | auto    | Instance ID                 |
-| `-t, --timeout` | `<sec>` | `30`    | Stop timeout in **seconds** |
-| `-f, --force`   |         |         | Skip confirmation           |
+| Flag                  | Default | Description                 |
+| --------------------- | ------- | --------------------------- |
+| `--instance <id>`     | auto    | Instance ID                 |
+| `-t, --timeout <sec>` | `30`    | Stop timeout in **seconds** |
+| `-f, --force`         |         | Skip confirmation           |
 
 Nothing is written to the host filesystem during a run, so there is no generated directory left
 behind to remove.
@@ -102,18 +102,18 @@ behind to remove.
 Initialize resources on a running LocalNet — create users and link parties. `start` does this
 automatically unless you passed `--skip-init`.
 
-| Flag         | Value  | Default | Description |
-| ------------ | ------ | ------- | ----------- |
-| `--instance` | `<id>` | auto    | Instance ID |
+| Flag              | Default | Description |
+| ----------------- | ------- | ----------- |
+| `--instance <id>` | auto    | Instance ID |
 
 ## config
 
 Generate a `localnet.yaml` configuration file.
 
-| Flag           | Value    | Default           | Description                    |
-| -------------- | -------- | ----------------- | ------------------------------ |
-| `-o, --output` | `<path>` | `"localnet.yaml"` | Output file path               |
-| `-y, --yes`    |          |                   | Accept all defaults without prompting |
+| Flag                  | Default           | Description                           |
+| --------------------- | ----------------- | ------------------------------------- |
+| `-o, --output <path>` | `"localnet.yaml"` | Output file path                      |
+| `-y, --yes`           |                   | Accept all defaults without prompting |
 
 ```bash
 dnm config -y -o localnet.yaml
@@ -123,12 +123,12 @@ dnm config -y -o localnet.yaml
 
 List parties on the LocalNet.
 
-| Flag              | Value    | Default | Description                |
-| ----------------- | -------- | ------- | -------------------------- |
-| `--instance`      | `<id>`   | auto    | Instance ID                |
-| `-v, --validator` | `<name>` |         | Filter by validator        |
-| `--verbose`       |          |         | Show verbose error logging |
-| `--json`          |          |         | Output as JSON             |
+| Flag                     | Default | Description                |
+| ------------------------ | ------- | -------------------------- |
+| `--instance <id>`        | auto    | Instance ID                |
+| `-v, --validator <name>` |         | Filter by validator        |
+| `--verbose`              |         | Show verbose error logging |
+| `--json`                 |         | Output as JSON             |
 
 ## packages
 
@@ -138,11 +138,11 @@ List packages on the LocalNet. Same flags as [`parties`](#parties).
 
 Show environment info — endpoints, auth config, and the DSO party ID.
 
-| Flag         | Value  | Default | Description                       |
-| ------------ | ------ | ------- | --------------------------------- |
-| `--instance` | `<id>` | auto    | Instance ID                       |
-| `--json`     |        |         | Output as JSON                    |
-| `--shell`    |        |         | Output as shell export statements |
+| Flag              | Default | Description                       |
+| ----------------- | ------- | --------------------------------- |
+| `--instance <id>` | auto    | Instance ID                       |
+| `--json`          |         | Output as JSON                    |
+| `--shell`         |         | Output as shell export statements |
 
 ```bash
 dnm env --json
@@ -153,10 +153,10 @@ eval "$(dnm env --shell)"
 
 Show login credentials for the web UIs.
 
-| Flag         | Value  | Default | Description    |
-| ------------ | ------ | ------- | -------------- |
-| `--instance` | `<id>` | auto    | Instance ID    |
-| `--json`     |        |         | Output as JSON |
+| Flag              | Default | Description    |
+| ----------------- | ------- | -------------- |
+| `--instance <id>` | auto    | Instance ID    |
+| `--json`          |         | Output as JSON |
 
 ## instances
 
