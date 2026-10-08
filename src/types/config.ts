@@ -253,6 +253,16 @@ export function getRealmName(validatorName: string): string {
 }
 
 /**
+ * Username of the one wallet-admin user Splice onboards for a validator
+ * (`validator-wallet-users`) and that the generated Keycloak realm contains.
+ * Hyphens become underscores: `validator-1` → `validator_1-wallet-admin`.
+ * Internal: keep it in sync across the Splice, Keycloak, env and credentials generators.
+ */
+export function getWalletAdminUserId(validatorName: string): string {
+  return `${validatorName.replace(/-/g, '_')}-wallet-admin`;
+}
+
+/**
  * Resolve realm name with special case for SV.
  * The SV realm is conventionally all-caps 'SV', not title-cased 'Sv'.
  * See generateSvRealm in src/generator/keycloak.ts:467 which hardcodes realm: 'SV'.

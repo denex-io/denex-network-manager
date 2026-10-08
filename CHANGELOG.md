@@ -3,6 +3,18 @@
 All notable changes to this project will be documented in this file. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Fixed
+
+- `getCredentials()` and `dnm credentials` reported `validator-1` / `validator-1` as the wallet
+  login, which Splice does not onboard. They now report the wallet-admin login
+  (`validator_1-wallet-admin`), skip duplicate ids per realm, and mark YAML users without
+  `primaryParty` as not onboarded. The generated `WALLET_ADMIN_USER_NAME` env variable had the same
+  mismatch and now matches (#2).
+- `dnm credentials` printed a hardcoded `admin / admin` Keycloak login. It now shows the configured
+  `auth.keycloak` login, and `--json` output gains a `master` entry for it (#3).
+
 ## [0.1.0-beta.1] — 2026-07-28
 
 Initial public beta release of `@denex/network-manager`.

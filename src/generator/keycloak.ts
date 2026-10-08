@@ -11,6 +11,7 @@ import {
   getLedgerApiUserClientId,
   getRealmName,
   getValidatorClientId,
+  getWalletAdminUserId,
   normalizeValidators,
 } from '../types/config.ts';
 import { DEFAULT_BASE_PORT, getSvPorts, getValidatorPorts } from '../utils/ports.ts';
@@ -365,8 +366,7 @@ export function generateValidatorRealm(
     createPqsClient(validator.name),
   ];
 
-  const participantName = validator.name.replace(/-/g, '_');
-  const walletAdminUser = `${participantName}-wallet-admin`;
+  const walletAdminUser = getWalletAdminUserId(validator.name);
   const users: KeycloakUser[] = [];
   // A config user whose id matches an auto-generated user (the validator default
   // user or wallet admin) is intentional — it attaches config-defined rights to

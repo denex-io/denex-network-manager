@@ -1,3 +1,4 @@
+import { assertEquals } from '@std/assert';
 import { LocalNet } from '../../src/mod.ts';
 import type { LocalNetConfig } from '../../src/types/config.ts';
 import { isDockerAvailable } from './helpers.ts';
@@ -134,13 +135,11 @@ Deno.test({
   sanitizeOps: false,
   sanitizeResources: false,
   async fn() {
-    // Class 2 is documented as out-of-scope for the runtime-create-user
-    // boulder: Splice auto-onboards `validator_1-wallet-admin` (the service
-    // account, see Class 1) — NOT the operator-named Keycloak user
-    // `validator-1`. We assert ONLY that OAuth round-trips; the wallet UI
-    // may render an empty / "not onboarded" state and that is currently
-    // expected. Do NOT "fix" this test by removing the operator user
-    // without also planning the wallet-onboarding work.
+    // Splice auto-onboards only `validator_1-wallet-admin` (see Class 1), which is
+    // the login `getCredentials()` reports. The validator-named Keycloak user
+    // `validator-1` is not onboarded, so we assert ONLY that OAuth round-trips;
+    // the wallet UI may render an empty / "not onboarded" state, and that is
+    // expected. It documents why the credentials must not list this login.
     const localnet = await LocalNet.fromConfig(TEST_CONFIG, { instanceId: uniqueInstanceId() });
     // deno-lint-ignore no-explicit-any
     let browser: any;
@@ -217,6 +216,46 @@ Deno.test({
         true,
         `${EVIDENCE_DIR}/task-11-class-4-runtime-alice.png`,
       );
+    } finally {
+      if (browser) await browser.close().catch(() => undefined);
+      await localnet.destroy({ removeVolumes: true }).catch(() => undefined);
+    }
+  },
+});
+
+Deno.test({
+  name: 'wallet UI Class 5 — every wallet login reported by getCredentials() works',
+  ignore: !(await isDockerAvailable()),
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    const localnet = await LocalNet.fromConfig(TEST_CONFIG, { instanceId: uniqueInstanceId() });
+    // deno-lint-ignore no-explicit-any
+    let browser: any;
+    try {
+      await localnet.start({ timeout: 300_000 });
+      const walletLogins = (await localnet.getCredentials()).filter((c) =>
+        c.purpose.endsWith(' wallet')
+      );
+      assertEquals(walletLogins.length >= 3, true);
+
+      const pw = await loadPlaywrightOrThrow();
+      browser = await pw.chromium.launch({ headless: true });
+      for (const cred of walletLogins) {
+        const page = await browser.newPage();
+        try {
+          await loginAndAssertWalletWorks(
+            page,
+            cred.url,
+            cred.username,
+            cred.password,
+            true,
+            `${EVIDENCE_DIR}/task-11-class-5-${cred.username}.png`,
+          );
+        } finally {
+          await page.close().catch(() => undefined);
+        }
+      }
     } finally {
       if (browser) await browser.close().catch(() => undefined);
       await localnet.destroy({ removeVolumes: true }).catch(() => undefined);
