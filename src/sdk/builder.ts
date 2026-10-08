@@ -82,8 +82,11 @@ export class LocalNetBuilder {
    *
    * Replaces any previously configured validators.
    *
-   * @param count - Number of validators to create (1-10).
+   * @param count - Number of validators to create: an integer of at least 1. There is no
+   * upper cap here; {@link build} rejects a count whose derived ports exceed 65535 for the
+   * chosen base port.
    * @returns This builder for chaining.
+   * @throws {RangeError} If `count` is not an integer or is less than 1.
    *
    * @example
    * ```typescript
@@ -111,6 +114,11 @@ export class LocalNetBuilder {
     ...rest: string[]
   ): LocalNetBuilder {
     if (typeof countOrName === 'number') {
+      if (!Number.isInteger(countOrName) || countOrName < 1) {
+        throw new RangeError(
+          `withValidators(count) needs an integer of at least 1, got ${countOrName}`,
+        );
+      }
       this.config.validators = Array.from(
         { length: countOrName },
         (_, i) => ({
@@ -164,7 +172,9 @@ export class LocalNetBuilder {
    * Set the base port for port allocation.
    *
    * The SV uses ports starting at basePort. Regular validators use
-   * basePort + (index × 100). Must be between 1024 and 60000.
+   * basePort + (index × 100). Must be between 1024 and 60000, and low enough that
+   * the highest derived port (which grows with the validator count) stays at or below
+   * 65535; {@link build} rejects the combination otherwise.
    *
    * @param port - Base port number.
    * @returns This builder for chaining.
@@ -206,7 +216,10 @@ export class LocalNetBuilder {
    * If no validators were configured, defaults to 2 validators.
    *
    * @returns A fully validated {@link ParsedLocalNetConfig}.
-   * @throws {ZodError} If the resulting config fails schema validation.
+   * @throws {ZodError} If the resulting config fails validation: a schema error, a duplicate
+   * (case-insensitive) or reserved (`sv`) validator name, two names that map to the same
+   * Keycloak realm, or a highest derived port above 65535 for the base port and validator
+   * count.
    *
    * @example
    * ```typescript

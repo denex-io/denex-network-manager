@@ -1,7 +1,9 @@
 import { Command } from '@cliffy/command';
 import { Confirm, Input, Number } from '@cliffy/prompt';
 import { stringify } from '@std/yaml';
+import { printError, warnToStderr } from '../utils.ts';
 import { CONFIG_DEFAULTS } from '../../types/config.ts';
+import { validateLocalNetConfig } from '../../schemas/mod.ts';
 import { DEFAULT_BASE_PORT, getKeycloakPort } from '../../utils/ports.ts';
 
 export const configCommand = new Command()
@@ -13,14 +15,14 @@ export const configCommand = new Command()
   )
   .action(async (options) => {
     if (options.yes) {
-      await generateWithDefaults(options.output);
+      if (!await generateWithDefaults(options.output)) Deno.exit(1);
       return;
     }
 
-    await generateInteractive(options.output);
+    if (!await generateInteractive(options.output)) Deno.exit(1);
   });
 
-async function generateWithDefaults(outputPath: string): Promise<void> {
+async function generateWithDefaults(outputPath: string): Promise<boolean> {
   const config = {
     version: CONFIG_DEFAULTS.version,
     validators: CONFIG_DEFAULTS.validatorCount,
@@ -32,10 +34,10 @@ async function generateWithDefaults(outputPath: string): Promise<void> {
     },
   };
 
-  await writeConfig(config, outputPath, { overwrite: true });
+  return await writeConfig(config, outputPath, { overwrite: true });
 }
 
-async function generateInteractive(outputPath: string): Promise<void> {
+async function generateInteractive(outputPath: string): Promise<boolean> {
   console.log('\n🔧 LocalNet Configuration Generator\n');
   console.log('This will create a configuration file for your Canton LocalNet.\n');
 
@@ -43,7 +45,6 @@ async function generateInteractive(outputPath: string): Promise<void> {
     message: 'Number of validators (excluding the Super Validator which is always created)',
     default: CONFIG_DEFAULTS.validatorCount,
     min: 1,
-    max: 10,
   });
 
   const useDetailedValidators = await Confirm.prompt({
@@ -122,18 +123,30 @@ async function generateInteractive(outputPath: string): Promise<void> {
     auth,
   };
 
-  await writeConfig(config, outputPath, { overwrite: false });
+  return await writeConfig(config, outputPath, { overwrite: false });
 }
 
 /**
- * Write the config. If the file exists: with `overwrite` it is copied to `<path>.bak` first and
+ * Validate the config with the same rules `dnm start` applies, then write it. Returns `false`
+ * (after printing the problems, with nothing written and no `.bak` made) if it is invalid.
+ * If the file exists: with `overwrite` it is copied to `<path>.bak` first and
  * then replaced; without it the user is asked to confirm.
  */
-async function writeConfig(
+export async function writeConfig(
   config: Record<string, unknown>,
   outputPath: string,
   { overwrite }: { overwrite: boolean },
-): Promise<void> {
+): Promise<boolean> {
+  const validation = validateLocalNetConfig(config, { onWarning: warnToStderr });
+  if (!validation.success) {
+    printError('The generated configuration is invalid; nothing was written:');
+    for (const issue of validation.errors.issues) {
+      const where = issue.path.length > 0 ? `${issue.path.join('.')}: ` : '';
+      console.error(`  - ${where}${issue.message}`);
+    }
+    return false;
+  }
+
   const exists = await fileExists(outputPath);
   let backupPath: string | undefined;
 
@@ -148,7 +161,7 @@ async function writeConfig(
 
     if (!confirmed) {
       console.log('Aborted.');
-      return;
+      return true;
     }
   }
 
@@ -165,6 +178,7 @@ async function writeConfig(
   console.log(`  2. Run: dnm start --config ${quoted}`);
   console.log('  3. Check status: dnm status');
   console.log('  4. View endpoints: dnm env\n');
+  return true;
 }
 
 async function fileExists(path: string): Promise<boolean> {
