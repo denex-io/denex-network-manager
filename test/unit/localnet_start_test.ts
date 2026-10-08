@@ -560,3 +560,14 @@ Deno.test('start repair - nginx alone running (daemon restart) repairs everythin
     assertEquals(net.currentState, 'running');
   });
 });
+
+Deno.test('state - a missing expected container makes the instance partial, not running', async () => {
+  await withFakeNet(async (net, fake) => {
+    fake.seedExisting(ALL_NAMES, 'running');
+    assertEquals(await net.state(), 'running');
+    assertEquals(await net.isRunning(), true);
+    fake.containers.delete(`${ID}-splice`);
+    assertEquals(await net.state(), 'partial');
+    assertEquals(await net.isRunning(), false);
+  });
+});

@@ -639,21 +639,29 @@ export class LocalNet {
     };
   }
 
+  /**
+   * `'running'` if every container the instance should have is running,
+   * `'partial'` if only some are (a missing container counts as not running),
+   * `'stopped'` if none are, and `'absent'` if the instance has no containers.
+   */
   async state(): Promise<'running' | 'stopped' | 'partial' | 'absent'> {
     try {
       const containers = await this.client.listContainers({
         [`${this.options.labelPrefix}.instance`]: this.options.instanceId,
       });
+      const expected = this.buildContainerSpecs(EMPTY_GENERATED_CONFIGS).map((s) => s.name);
+      const byName = new Map(containers.map((c) => [c.name, c]));
       if (containers.length === 0) return 'absent';
-      const running = containers.filter((c) => c.state === 'running').length;
+      const running = expected.filter((n) => byName.get(n)?.state === 'running').length;
       if (running === 0) return 'stopped';
-      if (running === containers.length) return 'running';
+      if (running === expected.length) return 'running';
       return 'partial';
     } catch {
       return 'absent';
     }
   }
 
+  /** `true` if every container of the instance is running (see {@link LocalNet.state}). */
   async isRunning(): Promise<boolean> {
     return (await this.state()) === 'running';
   }
