@@ -252,7 +252,7 @@ Deno.test({
 
       assertEquals(text.includes('to-stdout\n'), true);
       assertEquals(text.includes('to-stderr\n'), true);
-      assertEquals(/[\x00-\x08]/.test(text), false);
+      assertEquals([...text].some((ch) => ch.charCodeAt(0) < 9), false);
     } finally {
       await cleanupTestResources(client, instanceId);
     }
