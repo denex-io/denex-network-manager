@@ -263,7 +263,9 @@ await net.start();
 
 const env = await net.getEnvironment();
 const credentials = await net.getCredentials();
+// Each party once, tagged with the validator whose participant hosts it.
 const parties = await net.getParties();
+const appParties = await net.getParties('app'); // only parties hosted on 'app'
 
 await net.stop();
 ```
@@ -301,9 +303,18 @@ await net.createUser('alice', 'users-val', {
   parties: [{ hint: 'bob', rights: ['CanReadAs'] }],
 });
 
-const packageId = await net.uploadDar('./my-app.dar');
+const packageId = await net.uploadDar('./my-app.dar'); // main package id, computed from the DAR
 await net.uploadDar('./my-app.dar', ['app', 'users-val']);
+
+const packages = await net.getPackages(); // [{ packageId, validators: ['sv', 'app', ...] }]
 ```
+
+Per-validator queries (`getParties()`, `getPackages()`, `getUsersWithRights()`, `getSnapshot()`)
+return the reachable participants' results and report each unreachable one through
+`LocalNetOptions.onWarning` (default `console.warn`); they throw if no participant responds. With a
+validator name they throw for an unknown or unreachable validator. A hint passed to `createUser`
+resolves only against parties hosted on that user's validator; a hint hosted only elsewhere is
+allocated afresh there, with the same hint but a different party id.
 
 > **Note:** DAR packages listed in the `packages:` config field are validated on load but are
 > **not** uploaded automatically on startup. Call `net.uploadDar(path)` after start, or use `dnm` to
@@ -345,7 +356,8 @@ Useful routes:
 - `GET /instances`
 - `GET /instances/:id/status`
 - `GET /instances/:id/env`
-- `GET /instances/:id/parties`
+- `GET /instances/:id/parties` (200 with `failures` on partial results, 503 if no participant
+  responds)
 - `GET /instances/:id/packages`
 - `GET /instances/:id/snapshot`
 

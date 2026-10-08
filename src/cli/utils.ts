@@ -1,5 +1,6 @@
 import { Table } from '@cliffy/table';
-import { LocalNet } from '../localnet.ts';
+import { LocalNet, type LocalNetOptions } from '../localnet.ts';
+import type { LocalNetWarning } from '../types/state.ts';
 import type { ContainerInfo, ContainerState, LocalNetStatus } from '../docker/types.ts';
 
 const isColorSupported = Deno.stdout.isTerminal();
@@ -28,9 +29,12 @@ export const colors = {
  * Used by state-2 commands that operate on a running LocalNet
  * (env, credentials, parties, packages, entitlements, stop, status, init).
  */
-export async function getRunningLocalNet(instanceId?: string): Promise<LocalNet> {
+export async function getRunningLocalNet(
+  instanceId?: string,
+  options?: LocalNetOptions,
+): Promise<LocalNet> {
   if (instanceId) {
-    return await LocalNet.fromInstanceId(instanceId);
+    return await LocalNet.fromInstanceId(instanceId, options);
   }
   const instances = await LocalNet.discover();
   const running = instances.filter((i) => i.status === 'running');
@@ -45,7 +49,7 @@ export async function getRunningLocalNet(instanceId?: string): Promise<LocalNet>
       `Multiple running instances found (${names}). Specify with --instance <id>.`,
     );
   }
-  return await LocalNet.fromInstanceId(running[0].id);
+  return await LocalNet.fromInstanceId(running[0].id, options);
 }
 
 /**
@@ -200,6 +204,14 @@ export function printSuccess(message: string): void {
 
 export function printError(message: string): void {
   console.error(colors.red('✗'), message);
+}
+
+/**
+ * `onWarning` handler for query commands: prints to stderr so `--json` output on stdout
+ * stays clean.
+ */
+export function warnToStderr(warning: LocalNetWarning): void {
+  console.error(colors.yellow('Warning:'), warning.message);
 }
 
 export function printWarning(message: string): void {

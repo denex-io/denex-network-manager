@@ -13,12 +13,16 @@
 import type { ApiUserRight } from './canton.ts';
 
 export interface ApiPartyInfo {
+  /** Full party ID (`<hint>::<namespace>`). */
   partyId: string;
+  /** The part of `partyId` before `::`. */
   hint: string;
+  /** The hosting participant's `displayName` annotation, else `hint`. */
   displayName: string;
+  /** `'sv'` or the validator whose participant hosts the party. */
   validator: string;
+  /** ID of the hosting participant. */
   participantId: string;
-  isLocal: boolean;
 }
 
 export interface ApiUserInfo {
@@ -33,10 +37,10 @@ export interface ApiUserInfoWithRights extends ApiUserInfo {
 }
 
 export interface ApiPackageInfo {
+  /** Package ID (64-character hex). The list includes Splice and Daml built-in packages. */
   packageId: string;
-  packageSize: number;
-  knownSince: string;
-  validator: string;
+  /** Participants (`'sv'` and validator names, in that order) that know the package. */
+  validators: string[];
 }
 
 export interface ApiValidatorState {

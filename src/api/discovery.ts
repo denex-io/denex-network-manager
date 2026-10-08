@@ -30,6 +30,8 @@ export interface StatusResponse {
 export interface PartiesResponse {
   parties: ApiPartyInfo[];
   count: number;
+  /** Present when some participants did not respond; their parties are missing from `parties`. */
+  failures?: Array<{ validator: string; error: string }>;
 }
 
 export interface PackagesResponse {
@@ -147,9 +149,21 @@ export class MultiInstanceDiscoveryServer {
         return c.json({ error: 'Instance not found', instanceId: id }, 404);
       }
 
-      const parties = await localnet.getParties();
-      const response: PartiesResponse = { parties, count: parties.length };
-      return c.json(response);
+      try {
+        const { parties, failures } = await localnet.listPartiesWithFailures();
+        const response: PartiesResponse = { parties, count: parties.length };
+        if (failures.length > 0) response.failures = failures;
+        return c.json(response);
+      } catch (error) {
+        return c.json(
+          {
+            error: 'Could not list parties',
+            detail: error instanceof Error ? error.message : String(error),
+            instanceId: id,
+          },
+          503,
+        );
+      }
     });
 
     app.get('/instances/:id/packages', async (c): Promise<Response> => {

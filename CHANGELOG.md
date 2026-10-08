@@ -10,6 +10,26 @@ All notable changes to this project will be documented in this file. The format 
 - `DockerClient.findNetwork()` / `findVolume()` (null only on 404, other errors rethrown) and
   `NetworkManager.ensure()` (returns `{ id, created }`).
 
+### Changed
+
+- **Breaking:** `ApiPartyInfo.isLocal` is removed (also from `dnm parties --json`, the discovery
+  `/parties` response and `getSnapshot().parties`; the `dnm parties` table loses its Local column).
+- **Breaking:** `getParties(name)` returns only parties hosted on `name` (the DSO party appears only
+  under `sv`) and throws on an unknown name or a failed query. `getParties()` throws when no
+  participant responds and warns, naming the validator, on partial failure.
+- **Breaking:** `ApiPackageInfo` is now `{ packageId, validators }` (one row per package) and
+  `CantonClient.listPackages()` returns `string[]`; `PackageDetails` is removed. `dnm packages`
+  renders a matrix with one column per participant. `getPackages()` throws when no participant
+  responds.
+- **Breaking:** `getUsersWithRights(name)` throws on an unknown name (previously `[]`); unnamed, it
+  warns per failed validator and throws if none responds. A failed rights query warns and lists the
+  user with `rights: []`.
+- `PartyDetails.isLocal` is optional (absent on the wire means not hosted here).
+- Discovery `GET /instances/:id/parties` returns 503 when no participant responds and a `failures`
+  list alongside the reachable parties on partial results.
+- Added `LocalNetOptions.onWarning` and the `LocalNetWarning` type; the CLI prints warnings to
+  stderr so `--json` output stays clean.
+
 ### Fixed
 
 - A failed `start()` (and therefore `restart()` and `dnm start`) no longer destroys an existing
@@ -18,6 +38,19 @@ All notable changes to this project will be documented in this file. The format 
   leaves nothing behind; a failed resume (for example a timeout) keeps the stopped containers, the
   network and the data volume. The progress message is now "Startup failed; removing resources
   created by this attempt...". `restart()` whose start step fails leaves the instance stopped.
+- `getParties()` listed every party once per participant (18 rows for 6 parties); it now lists each
+  party once, under the validator whose participant hosts it, with the host's display name (#24,
+  #18).
+- `createUser` bound hints to parties hosted on other validators; hints now resolve against the
+  user's own validator, and a hint hosted only elsewhere is allocated on it (a different party id).
+- `CantonClient.listParties()` ignored pagination; it now follows `nextPageToken`.
+- `getUsersWithRights()` and `getSnapshot()` silently omitted validators that failed to respond;
+  they now return the reachable results and warn for each failed validator.
+- `uploadDar()` sent a multipart body Canton rejects (#15), returned an empty package id (#16), and
+  silently skipped unknown validators; it now sends a raw octet-stream body, returns the main
+  package id computed from the DAR, and throws on an unknown validator, an empty target list or an
+  invalid DAR.
+- `getPackages()` and `listPackages()` always returned an empty list (#17).
 
 ## [0.1.0-beta.1] — 2026-07-28
 

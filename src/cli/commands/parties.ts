@@ -1,17 +1,17 @@
 import { Command } from '@cliffy/command';
 import { Table } from '@cliffy/table';
-import { colors, getRunningLocalNet, printError } from '../utils.ts';
+import { colors, getRunningLocalNet, printError, warnToStderr } from '../utils.ts';
 
 export const partiesCommand = new Command()
   .name('parties')
-  .description('List parties on the LocalNet')
+  .description('List parties and the validator that hosts each')
   .option('--instance <id:string>', 'Instance ID (auto-resolves if only one running)')
-  .option('-v, --validator <name:string>', 'Filter by validator')
+  .option('-v, --validator <name:string>', 'Only parties hosted on this validator')
   .option('--verbose', 'Show verbose error logging')
   .option('--json', 'Output as JSON')
   .action(async (options) => {
     try {
-      const localnet = await getRunningLocalNet(options.instance);
+      const localnet = await getRunningLocalNet(options.instance, { onWarning: warnToStderr });
       const parties = await localnet.getParties(options.validator);
 
       if (options.json) {
@@ -25,7 +25,7 @@ export const partiesCommand = new Command()
       }
 
       const table = new Table()
-        .header(['Party ID', 'Hint', 'Display Name', 'Validator', 'Local'])
+        .header(['Party ID', 'Hint', 'Display Name', 'Validator'])
         .border(false);
 
       for (const party of parties) {
@@ -34,7 +34,6 @@ export const partiesCommand = new Command()
           party.hint,
           party.displayName,
           party.validator,
-          party.isLocal ? colors.green('yes') : colors.gray('no'),
         ]);
       }
 

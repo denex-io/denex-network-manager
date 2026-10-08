@@ -15,10 +15,11 @@ export {
   createCanReadAsAnyParty,
   createIdentityProviderAdmin,
   createParticipantAdmin,
-  type PackageDetails,
   type PartyDetails,
   type UserDetails,
 } from './canton.ts';
+
+export { readDarMainPackageId } from './dar.ts';
 
 export {
   ValidatorAdminClient,
