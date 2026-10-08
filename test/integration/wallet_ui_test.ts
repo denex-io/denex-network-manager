@@ -237,7 +237,12 @@ Deno.test({
       const walletLogins = (await localnet.getCredentials()).filter((c) =>
         c.purpose.endsWith(' wallet')
       );
-      assertEquals(walletLogins.length >= 3, true);
+      assertEquals(walletLogins.length, 3);
+      assertEquals(walletLogins.map((c) => c.username), [
+        'sv',
+        'validator_1-wallet-admin',
+        'validator_2-wallet-admin',
+      ]);
 
       const pw = await loadPlaywrightOrThrow();
       browser = await pw.chromium.launch({ headless: true });
