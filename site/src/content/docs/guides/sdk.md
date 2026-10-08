@@ -119,3 +119,6 @@ Advanced users can import the full API from `@denex/network-manager`, including 
 Wrapping an instance in a one-command dev stack for your own application — reusing a live instance,
 connecting per participant, waiting for readiness, and serving a UI per validator — is covered in
 [Building a dev stack](/denex-network-manager/guides/dev-stack/).
+
+Every exported class, method, and type is listed in the
+[API reference](/denex-network-manager/reference/api/readme/).

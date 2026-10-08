@@ -3,6 +3,7 @@ import { defineConfig } from 'astro/config';
 import starlight from '@astrojs/starlight';
 import mermaid from 'astro-mermaid';
 import starlightLinksValidator from 'starlight-links-validator';
+import starlightTypeDoc, { typeDocSidebarGroup } from 'starlight-typedoc';
 
 const REPO = 'https://github.com/denex-io/denex-network-manager';
 
@@ -26,8 +27,23 @@ export default defineConfig({
       },
     }),
     starlight({
-      // Fails the build on broken internal links, which is how docs sites rot.
-      plugins: [starlightLinksValidator()],
+      plugins: [
+        // Generates the API reference from doc comments on the curated SDK entry point. Reads
+        // src/ directly; the zod/yaml/dockerode types come from the root node_modules that
+        // `deno install` creates, so the docs build needs Deno (see agents/docs-site.md).
+        starlightTypeDoc({
+          entryPoints: ['../src/sdk/mod.ts'],
+          tsconfig: '../tsconfig.typedoc.json',
+          output: 'reference/api',
+          sidebar: { label: 'API reference', collapsed: true },
+          typeDoc: {
+            name: '@denex/network-manager/sdk',
+            sourceLinkTemplate: `${REPO}/blob/{gitRevision}/{path}#L{line}`,
+          },
+        }),
+        // Fails the build on broken internal links, which is how docs sites rot.
+        starlightLinksValidator(),
+      ],
       title: 'denex-network-manager',
       description:
         'Testcontainers-style SDK and CLI for running Canton Network LocalNets from a single YAML file.',
@@ -70,6 +86,7 @@ export default defineConfig({
             { label: 'CLI', slug: 'reference/cli' },
             { label: 'Configuration', slug: 'reference/configuration' },
             { label: 'Port allocation', slug: 'reference/ports' },
+            typeDocSidebarGroup,
           ],
         },
         {
