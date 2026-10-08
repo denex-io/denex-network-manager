@@ -20,6 +20,9 @@ All notable changes to this project will be documented in this file. The format 
 
 ### Changed
 
+- `LocalNet.state()` and `isRunning()` compare against the instance's expected container names: a
+  missing container now makes the state `'partial'` (previously `'running'` if all existing ones
+  ran).
 - `start()` (and `dnm start`) now repairs a partially running instance instead of returning early:
   it starts stopped containers, creates missing ones, restarts running dependents of anything it
   started (nginx and the web UIs after splice) and re-runs initialization. It refuses paused
