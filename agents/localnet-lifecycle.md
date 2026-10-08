@@ -55,10 +55,11 @@ initialization, and runtime operations.
 - `start()` failure is non-destructive. A per-call `StartRollback` tracker records the network,
   volume and containers this call created and the pre-existing containers it started. On failure
   `rollbackStart()` force-removes only the created containers, stops the pre-existing ones it
-  started (reverse start order, 30 s grace), and removes the network and `<id>-postgres-data` only
-  if this call created them. A failed resume therefore keeps containers, network and data; a failed
-  fresh start leaves nothing. State always returns to `'stopped'` (never `'error'`; only a failed
-  `stop()` sets `'error'`). `restart()` whose start step fails leaves the instance stopped.
+  started (one layer at a time in reverse layer order, 30 s grace), and removes the network and
+  `<id>-postgres-data` only if this call created them. A failed resume therefore keeps containers,
+  network and data; a failed fresh start leaves nothing. State always returns to `'stopped'` (never
+  `'error'`; only a failed `stop()` sets `'error'`). `restart()` whose start step fails leaves the
+  instance stopped.
 - Each startup layer runs `ensureStarted` for all specs via `Promise.allSettled`, throws the first
   rejection, and only then runs `waitHealthy` for the layer, so rollback never races a sibling that
   is still mutating Docker. Network and volume absence is decided by 404-aware

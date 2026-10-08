@@ -49,6 +49,11 @@ class FakeDockerClient {
   failStart = new Set<string>();
   failCreate = new Set<string>();
   findNetworkError: Error | null = null;
+  findVolumeError: Error | null = null;
+  /** These containers are not running right after startContainer returns. */
+  exitsAfterStart = new Set<string>();
+  /** stopContainer for these names waits on the given promise before finishing. */
+  stopGate = new Map<string, Promise<void>>();
   /** createContainer for these names waits on the given promise. */
   latch = new Map<string, Promise<void>>();
   private configJson = '';
@@ -78,7 +83,7 @@ class FakeDockerClient {
       status: c.state,
       image: 'img',
       ports: [],
-      health: 'healthy',
+      health: c.state === 'running' ? 'healthy' : 'none',
       labels: {
         [`${this.labelPrefix}.instance`]: ID,
         [`${this.labelPrefix}.config`]: this.configJson,
@@ -129,16 +134,18 @@ class FakeDockerClient {
     if (f && this.failStart.has(f.name)) {
       return Promise.reject(new Error(`start failed: ${f.name}`));
     }
-    if (f) f.c.state = 'running';
+    if (f) f.c.state = this.exitsAfterStart.has(f.name) ? 'exited' : 'running';
     this.calls.push(`startContainer:${idOrName}`);
     return Promise.resolve();
   }
 
-  stopContainer(idOrName: string): Promise<void> {
+  async stopContainer(idOrName: string): Promise<void> {
     const f = this.find(idOrName);
     if (f) f.c.state = 'exited';
     this.calls.push(`stopContainer:${idOrName}`);
-    return Promise.resolve();
+    const gate = f ? this.stopGate.get(f.name) : undefined;
+    if (gate) await gate;
+    this.calls.push(`stopDone:${idOrName}`);
   }
 
   removeContainer(idOrName: string): Promise<void> {
@@ -174,6 +181,7 @@ class FakeDockerClient {
   }
 
   findVolume(name: string): Promise<VolumeInfo | null> {
+    if (this.findVolumeError) return Promise.reject(this.findVolumeError);
     return Promise.resolve(
       this.volumeExists ? { name, driver: 'local', mountpoint: '/x' } : null,
     );
@@ -239,14 +247,12 @@ Deno.test('start rollback - failure in a later layer stops resumed containers, r
 
     assertEquals(fake.mutations.filter((m) => m.startsWith('remove')), []);
     assertEquals(fake.mutations.filter((m) => m.startsWith('create')), []);
+    // The container whose start call failed is recorded first, so it is stopped too.
     const stops = fake.mutations.filter((m) => m.startsWith('stopContainer:'));
     assertEquals(
       stops.sort(),
-      [...LAYER_1, ...LAYER_2].map((n) => `stopContainer:old-${n}`).sort(),
+      [...LAYER_1, ...LAYER_2, ...LAYER_3].map((n) => `stopContainer:old-${n}`).sort(),
     );
-    // Dependents are stopped before their dependencies.
-    const order = fake.mutations.filter((m) => m.startsWith('stopContainer:'));
-    assert(order.indexOf(`stopContainer:old-${ID}-postgres`) === order.length - 1);
     for (const n of ALL_NAMES) assert(fake.containers.has(n), `${n} must still exist`);
     assert(fake.networkExists && fake.volumeExists);
     assertEquals(net.currentState, 'stopped');
@@ -312,5 +318,62 @@ Deno.test('start rollback - a non-404 inspect error removes no network or volume
     await assertRejects(() => net.start(START), Error, 'docker daemon exploded');
     assertEquals(fake.mutations, []);
     assert(fake.networkExists && fake.volumeExists);
+  });
+});
+
+Deno.test('start rollback - stops finish layer by layer, dependents before dependencies', async () => {
+  await withFakeNet(async (net, fake) => {
+    fake.seedExisting(ALL_NAMES);
+    fake.failStart.add(`${ID}-splice`);
+    // Splice (layer 3) takes a while to stop; no earlier layer may begin
+    // stopping until it has finished.
+    let release!: () => void;
+    fake.stopGate.set(`${ID}-splice`, new Promise<void>((r) => (release = r)));
+    setTimeout(() => release(), 50);
+
+    await assertRejects(() => net.start(START), Error, 'start failed');
+
+    const events = fake.calls.filter((c) => c.startsWith('stop'));
+    const at = (e: string) => events.indexOf(e);
+    const spliceDone = at(`stopDone:old-${ID}-splice`);
+    assert(spliceDone >= 0);
+    for (const n of LAYER_2) assert(at(`stopContainer:old-${n}`) > spliceDone);
+    const layer2Done = Math.max(...LAYER_2.map((n) => at(`stopDone:old-${n}`)));
+    assert(at(`stopContainer:old-${ID}-postgres`) > layer2Done);
+  });
+});
+
+Deno.test('start rollback - a failed health wait stops resumed containers, removes nothing', async () => {
+  await withFakeNet(async (net, fake) => {
+    fake.seedExisting(ALL_NAMES);
+    fake.exitsAfterStart.add(`${ID}-canton`);
+    await assertRejects(
+      () => net.start({ skipInitialization: true }),
+      Error,
+      `${ID}-canton`,
+    );
+
+    assertEquals(fake.mutations.filter((m) => m.startsWith('remove')), []);
+    const stops = fake.mutations.filter((m) => m.startsWith('stopContainer:'));
+    assertEquals(
+      stops.sort(),
+      [...LAYER_1, ...LAYER_2].map((n) => `stopContainer:old-${n}`).sort(),
+    );
+    for (const n of ALL_NAMES) assert(fake.containers.has(n), `${n} must still exist`);
+    assert(fake.networkExists && fake.volumeExists);
+    assertEquals(net.currentState, 'stopped');
+  });
+});
+
+Deno.test('start rollback - a non-404 volume lookup error removes only the network this call created', async () => {
+  await withFakeNet(async (net, fake) => {
+    fake.findVolumeError = new Error('volume lookup exploded');
+    await assertRejects(() => net.start(START), Error, 'volume lookup exploded');
+
+    assertEquals(fake.mutations, [
+      `createNetwork:denex.localnet-${ID}`,
+      `removeNetwork:denex.localnet-${ID}`,
+    ]);
+    assertEquals(fake.networkExists, false);
   });
 });

@@ -410,7 +410,7 @@ Deno.test({
       await first.start({ skipHealthChecks: true, skipInitialization: true, timeout: 60000 });
       await first.stop();
 
-      const before = await client.listContainers({ 'localnet.instance': instanceId });
+      const before = await client.listContainers({ 'denex.localnet.instance': instanceId });
       const idsBefore = before.map((c) => c.id).sort();
       assertEquals(idsBefore.length > 0, true);
 
@@ -419,10 +419,10 @@ Deno.test({
         resumed.start({ skipHealthChecks: true, skipInitialization: true, timeout: 1 })
       );
 
-      const after = await client.listContainers({ 'localnet.instance': instanceId });
+      const after = await client.listContainers({ 'denex.localnet.instance': instanceId });
       assertEquals(after.map((c) => c.id).sort(), idsBefore);
       assertEquals(after.some((c) => c.state === 'running'), false);
-      assertExists(await client.getNetworkInfo(`localnet-${instanceId}`));
+      assertExists(await client.getNetworkInfo(`denex.localnet-${instanceId}`));
       assertExists(await client.getVolumeInfo(`${instanceId}-postgres-data`));
     } finally {
       await first.destroy().catch(() => {});
@@ -450,10 +450,12 @@ Deno.test({
         localnet.start({ skipHealthChecks: true, skipInitialization: true, timeout: 60000 })
       );
 
-      const containers = await client.listContainers({ 'localnet.instance': instanceId });
+      const containers = await client.listContainers({ 'denex.localnet.instance': instanceId });
       assertEquals(containers.length, 0);
-      assertEquals(await client.getNetworkInfo(`localnet-${instanceId}`), null);
-      assertEquals(await client.getVolumeInfo(`${instanceId}-postgres-data`), null);
+      // findNetwork/findVolume rethrow daemon errors; getNetworkInfo/getVolumeInfo
+      // return null on any error and would hide a daemon hiccup.
+      assertEquals(await client.findNetwork(`denex.localnet-${instanceId}`), null);
+      assertEquals(await client.findVolume(`${instanceId}-postgres-data`), null);
     } finally {
       await cleanupTestResources(client, instanceId);
     }

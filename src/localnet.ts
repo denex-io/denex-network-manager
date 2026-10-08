@@ -101,14 +101,16 @@ interface CacheEntry<T> {
 
 /**
  * What a single `start()` call has changed in Docker, so a failure can undo
- * exactly that and nothing else. `created` and `started` map container name to
- * id; both are in the order the mutations happened.
+ * exactly that and nothing else. `created` maps container name to id; `started`
+ * maps the name of a pre-existing container to its id and the startup layer it
+ * was started in. `layer` is the index of the layer currently being started.
  */
 interface StartRollback {
   networkCreated: boolean;
   volumeCreated: boolean;
+  layer: number;
   created: Map<string, string>;
-  started: Map<string, string>;
+  started: Map<string, { id: string; layer: number }>;
 }
 
 export class LocalNet {
@@ -286,6 +288,7 @@ export class LocalNet {
     const rb: StartRollback = {
       networkCreated: false,
       volumeCreated: false,
+      layer: 0,
       created: new Map(),
       started: new Map(),
     };
@@ -315,7 +318,8 @@ export class LocalNet {
       const containerSpecs = this.buildContainerSpecs(generatedConfigs);
       const layers = getStartupOrder(containerSpecs);
 
-      for (const layer of layers) {
+      for (const [layerIndex, layer] of layers.entries()) {
+        rb.layer = layerIndex;
         if (Date.now() - startTime > timeout) {
           throw new Error('Startup timeout exceeded');
         }
@@ -371,6 +375,7 @@ export class LocalNet {
         }
       }
       this.internalState = 'stopped';
+      this.startedAt = undefined;
       throw error;
     }
   }
@@ -413,7 +418,8 @@ export class LocalNet {
    * Undo a failed `start()` without touching anything the call did not itself
    * change. Every step is best-effort and independent:
    * 1. force-remove containers this call created;
-   * 2. stop pre-existing containers this call started, in reverse start order;
+   * 2. stop pre-existing containers this call started, one layer at a time in
+   *    reverse layer order (a layer's stops finish before the previous layer's begin);
    * 3. remove the network only if this call created it;
    * 4. remove the postgres volume only if this call created it;
    * 5. forget the created containers' ids.
@@ -425,9 +431,17 @@ export class LocalNet {
       [...rb.created.values()].map((id) => this.client.removeContainer(id, true)),
     );
 
-    // Map insertion order is start order; stop in reverse so dependents go first.
-    const toStop = [...rb.started.values()].reverse();
-    await Promise.allSettled(toStop.map((id) => this.client.stopContainer(id, 30)));
+    // Stop later layers first so dependents go down before their dependencies;
+    // containers within one layer are independent and stop concurrently.
+    const byLayer = new Map<number, string[]>();
+    for (const { id, layer } of rb.started.values()) {
+      byLayer.set(layer, [...(byLayer.get(layer) ?? []), id]);
+    }
+    for (const layer of [...byLayer.keys()].sort((a, b) => b - a)) {
+      await Promise.allSettled(
+        (byLayer.get(layer) ?? []).map((id) => this.client.stopContainer(id, 30)),
+      );
+    }
 
     if (rb.networkCreated) {
       await this.networkManager.remove(this.options.instanceId).catch(() => {});
@@ -1314,8 +1328,11 @@ export class LocalNet {
       containerId = exists.id;
       if (exists.state !== 'running') {
         progress(`Starting ${spec.name}...`);
+        // Record before the call: if the daemon starts the container but the
+        // request still fails, rollback must stop it (stopping a container that
+        // never started is a harmless 304).
+        rb.started.set(spec.name, { id: containerId, layer: rb.layer });
         await this.client.startContainer(containerId);
-        rb.started.set(spec.name, containerId);
       }
     } else {
       const networkName = this.networkManager.getExpectedNetworkName(this.options.instanceId);

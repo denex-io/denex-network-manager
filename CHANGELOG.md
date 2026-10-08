@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file. The format 
 
 ## [Unreleased]
 
+### Added
+
+- `DockerClient.findNetwork()` / `findVolume()` (null only on 404, other errors rethrown) and
+  `NetworkManager.ensure()` (returns `{ id, created }`).
+
 ### Fixed
 
 - A failed `start()` (and therefore `restart()` and `dnm start`) no longer destroys an existing
