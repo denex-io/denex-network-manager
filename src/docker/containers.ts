@@ -433,10 +433,9 @@ export function buildNginxContainer(
     // start after them (and be restarted when one of them is restarted).
     dependsOn: [
       'splice',
-      'wallet-web-ui-sv',
-      ...normalizedValidators.map((v) => `wallet-web-ui-${v.name}`),
-      'sv-web-ui',
-      'scan-web-ui',
+      ...buildWalletWebUiContainers(localNetConfig, options).map((c) => c.name),
+      buildSvWebUiContainer(localNetConfig, options).name,
+      buildScanWebUiContainer(localNetConfig, options).name,
     ],
     restart: 'always',
     labels: {

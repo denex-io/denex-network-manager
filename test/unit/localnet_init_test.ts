@@ -1,4 +1,4 @@
-import { assertEquals } from '@std/assert';
+import { assertEquals, assertRejects } from '@std/assert';
 import { LocalNet } from '../../src/localnet.ts';
 import { createMinimalConfig } from '../../src/utils/yaml.ts';
 
@@ -42,5 +42,12 @@ Deno.test('initializeResources allocates everything when nothing exists', async 
 Deno.test('initializeResources is a no-op for parties when all already exist', async () => {
   const { net, allocated } = await setup(['alice', 'bob']);
   await net.initializeResources();
+  assertEquals(allocated, []);
+});
+
+Deno.test('initializeResources rejects, without allocating, when the hosted-party query fails', async () => {
+  const { net, allocated } = await setup([]);
+  Reflect.set(net, 'fetchHostedParties', () => Promise.reject(new Error('boom')));
+  await assertRejects(() => net.initializeResources(), Error, "'validator-1'");
   assertEquals(allocated, []);
 });

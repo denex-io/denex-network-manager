@@ -378,6 +378,13 @@ Deno.test({
       assertEquals(await snapshot(fresh), before);
       assertEquals(messages.filter((m) => m.includes('Failed to allocate party')), []);
       assertEquals(messages.filter((m) => m.includes('Failed to create user')), []);
+      assertEquals(messages.filter((m) => m.includes('Allocating party')), []);
+      for (const v of ['val1', 'val2']) {
+        assertEquals(
+          messages.includes(`Party 'shared' already allocated on ${v}; skipping`),
+          true,
+        );
+      }
 
       const val1Ids = new Set((await fresh.getParties('val1')).map((p) => p.partyId));
       const val2Ids = new Set((await fresh.getParties('val2')).map((p) => p.partyId));

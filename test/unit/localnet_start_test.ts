@@ -49,6 +49,8 @@ class FakeDockerClient {
   networkExists = false;
   volumeExists = false;
   failStart = new Set<string>();
+  /** Like failStart, but only the first start of each name fails. */
+  failStartOnce = new Set<string>();
   failCreate = new Set<string>();
   /** createContainer for these names rejects with an HTTP 409 name conflict. */
   conflictCreate = new Set<string>();
@@ -143,6 +145,9 @@ class FakeDockerClient {
   startContainer(idOrName: string): Promise<void> {
     const f = this.find(idOrName);
     if (f && this.failStart.has(f.name)) {
+      return Promise.reject(new Error(`start failed: ${f.name}`));
+    }
+    if (f && this.failStartOnce.delete(f.name)) {
       return Promise.reject(new Error(`start failed: ${f.name}`));
     }
     if (f) f.c.state = this.exitsAfterStart.has(f.name) ? 'exited' : 'running';
@@ -487,9 +492,11 @@ Deno.test('start repair - a failure after restarting dependents leaves them runn
   await withFakeNet(async (net, fake) => {
     fake.seedExisting(ALL_NAMES, 'running');
     fake.containers.get(`${ID}-splice`)!.state = 'exited';
-    fake.failStart.add(`${ID}-nginx`);
+    fake.failStartOnce.add(`${ID}-nginx`);
     await assertRejects(() => net.start(START), Error, 'start failed');
 
+    // nginx was stopped for the restart and its start failed: rollback starts it again.
+    assertEquals(fake.containers.get(`${ID}-nginx`)?.state, 'running');
     // Restarted web UIs (not in rb.started) are not stopped by the rollback.
     const stops = fake.mutations.filter((m) => m.startsWith('stopContainer:'));
     for (const n of WEB_UIS) {
@@ -508,6 +515,19 @@ Deno.test('start repair - a 409 on create aborts without stopping containers thi
     assertEquals(fake.mutations.filter((m) => m.startsWith('stop') || m.startsWith('remove')), []);
     for (const n of ALL_BUT(`${ID}-splice`)) assertEquals(fake.containers.get(n)?.state, 'running');
     assertEquals(net.currentState, 'stopped');
+  });
+});
+
+Deno.test('start repair - a 409 does not stop pre-existing containers this call started', async () => {
+  await withFakeNet(async (net, fake) => {
+    fake.seedExisting(ALL_BUT(`${ID}-splice`), 'running');
+    fake.containers.get(`${ID}-postgres`)!.state = 'exited';
+    fake.conflictCreate.add(`${ID}-splice`);
+    await assertRejects(() => net.start(START), Error, 'starting in another process');
+
+    // Running dependents of postgres were restarted and are started back; postgres is not stopped.
+    assertEquals(fake.mutations.includes(`stopContainer:old-${ID}-postgres`), false);
+    assertEquals(fake.containers.get(`${ID}-postgres`)?.state, 'running');
   });
 });
 
