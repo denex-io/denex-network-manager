@@ -7,6 +7,8 @@ All notable changes to this project will be documented in this file. The format 
 
 ### Added
 
+- `dnm config -y` overwrites an existing file after copying it to `<file>.bak` (it used to prompt,
+  and hung without a TTY).
 - `ContainerInfo.created` (unix seconds), filled by `DockerClient.listContainers()`.
 - `DockerClient.findNetwork()` / `findVolume()` (null only on 404, other errors rethrown) and
   `NetworkManager.ensure()` (returns `{ id, created }`).
@@ -21,6 +23,15 @@ All notable changes to this project will be documented in this file. The format 
 
 ### Changed
 
+- `dnm status`, `env` and `credentials` (running, then mixed, then stopped), `stop`, `parties`,
+  `packages` and `entitlements` (running, then mixed) now auto-resolve an instance that is not fully
+  running when `--instance` is omitted, and print a stderr notice when they fall back or ignore
+  other instances. `stop` says "already stopped" for a stopped-only instance.
+- `DiscoveredInstance.status` (so `dnm instances` and `LocalNet.discover()`) no longer depends on
+  the order Docker lists containers in: any disagreement between containers is `mixed`.
+- `--verbose` on `dnm parties`, `packages` and `entitlements` is hidden (still accepted, no effect).
+- CLI messages now name the real commands (`dnm discovery serve`, `dnm start --instance <id>`,
+  `dnm start --config <path>`); `dnm instances` no longer says it lists only running instances.
 - `LocalNet.state()` and `isRunning()` compare against the instance's expected container names: a
   missing container now makes the state `'partial'` (previously `'running'` if all existing ones
   ran).

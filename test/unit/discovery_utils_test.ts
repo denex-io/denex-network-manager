@@ -420,3 +420,59 @@ Deno.test('discoverInstances - all containers stopped reports status "stopped"',
   assertEquals(instances[0].containerCount, 2);
   assertEquals(instances[0].status, 'stopped');
 });
+
+const orderConfig = {
+  version: '1.0',
+  basePort: 5000,
+  validators: [{ name: 'validator-1' }],
+  auth: { keycloak: { admin: 'admin', password: 'admin' } },
+};
+
+function orderContainers(states: string[], labelsOverride?: Record<string, string>) {
+  return states.map((state, i): ContainerListItem => ({
+    name: `c${i}`,
+    state,
+    labels: labelsOverride && i === 0 ? labelsOverride : {
+      [LABEL_INSTANCE]: 'test-1',
+      [LABEL_SCHEMA]: '2',
+      [LABEL_CONFIG]: JSON.stringify(orderConfig),
+    },
+  }));
+}
+
+function permutations<T>(xs: T[]): T[][] {
+  if (xs.length <= 1) return [xs];
+  return xs.flatMap((x, i) =>
+    permutations([...xs.slice(0, i), ...xs.slice(i + 1)]).map((rest) => [x, ...rest])
+  );
+}
+
+Deno.test('discoverInstances - [exited, running] is mixed regardless of order', () => {
+  assertEquals(discoverInstances(orderContainers(['exited', 'running']))[0].status, 'mixed');
+  assertEquals(discoverInstances(orderContainers(['running', 'exited']))[0].status, 'mixed');
+});
+
+Deno.test('discoverInstances - every permutation of [running, exited, running] is mixed', () => {
+  for (const states of permutations(['running', 'exited', 'running'])) {
+    assertEquals(discoverInstances(orderContainers(states))[0].status, 'mixed', states.join());
+  }
+});
+
+Deno.test('discoverInstances - created or restarting plus running is mixed', () => {
+  for (const other of ['created', 'restarting']) {
+    assertEquals(discoverInstances(orderContainers([other, 'running']))[0].status, 'mixed');
+    assertEquals(discoverInstances(orderContainers(['running', other]))[0].status, 'mixed');
+  }
+});
+
+Deno.test('discoverInstances - an invalid first label is skipped and does not skew status', () => {
+  const containers = orderContainers(['running', 'exited', 'running'], {
+    [LABEL_INSTANCE]: 'test-1',
+    [LABEL_SCHEMA]: '2',
+    [LABEL_CONFIG]: 'not json',
+  });
+  const instances = discoverInstances(containers);
+  assertEquals(instances.length, 1);
+  assertEquals(instances[0].containerCount, 2);
+  assertEquals(instances[0].status, 'mixed');
+});
