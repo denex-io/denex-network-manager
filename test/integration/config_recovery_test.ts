@@ -1,4 +1,4 @@
-import { assertEquals, assertRejects } from '@std/assert';
+import { assertEquals, assertRejects, assertStringIncludes } from '@std/assert';
 import { LocalNet } from '../../src/localnet.ts';
 import { DockerClient } from '../../src/docker/client.ts';
 import { reconstructConfigFromLabels } from '../../src/api/discovery-utils.ts';
@@ -51,6 +51,25 @@ Deno.test('config recovery from running instance via Docker labels', async () =>
 
     const credentials = await attached.getCredentials();
     assertEquals(credentials.length > 0, true);
+
+    // `dnm credentials` shows the configured Keycloak admin login, not a hardcoded one.
+    const cliEntry = new URL('../../src/cli/mod.ts', import.meta.url).href;
+    const runCredentials = async (...extra: string[]) => {
+      const out = await new Deno.Command('deno', {
+        args: ['run', '--allow-all', cliEntry, 'credentials', '--instance', instanceId, ...extra],
+        stdout: 'piped',
+        stderr: 'piped',
+      }).output();
+      assertEquals(out.code, 0, new TextDecoder().decode(out.stderr));
+      return new TextDecoder().decode(out.stdout);
+    };
+    assertStringIncludes(await runCredentials(), '(realadmin / realpassword123)');
+    const jsonCreds: { realm: string; username: string; password: string }[] = JSON.parse(
+      await runCredentials('--json'),
+    );
+    const master = jsonCreds.find((c) => c.realm === 'master');
+    assertEquals(master?.username, 'realadmin');
+    assertEquals(master?.password, 'realpassword123');
 
     await assertRejects(
       () => localnet.start({ skipHealthChecks: true, skipInitialization: true }),

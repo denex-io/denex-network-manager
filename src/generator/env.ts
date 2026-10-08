@@ -6,7 +6,7 @@
  */
 
 import type { LocalNetConfig, ValidatorConfig } from '../types/config.ts';
-import { DEFAULT_AUDIENCE, normalizeValidators } from '../types/config.ts';
+import { DEFAULT_AUDIENCE, getWalletAdminUserId, normalizeValidators } from '../types/config.ts';
 import {
   DEFAULT_BASE_PORT,
   getSvInternalPorts,
@@ -205,7 +205,7 @@ export function generateValidatorAuthEnv(
 ${envPrefix}_PARTY_HINT=${partyHint}
 AUTH_${envPrefix}_AUDIENCE=${DEFAULT_AUDIENCE}
 AUTH_${envPrefix}_VALIDATOR_USER_NAME=ledger-api-user
-AUTH_${envPrefix}_WALLET_ADMIN_USER_NAME=${validator.name}
+AUTH_${envPrefix}_WALLET_ADMIN_USER_NAME=${getWalletAdminUserId(validator.name)}
 SPLICE_APP_UI_AUTH_AUDIENCE=\${AUTH_${envPrefix}_AUDIENCE}
 SPLICE_APP_VALIDATOR_LEDGER_API_AUTH_AUDIENCE=\${AUTH_${envPrefix}_AUDIENCE}
 `;
