@@ -388,3 +388,74 @@ Deno.test({
     }
   },
 });
+
+// ============================================================================
+// START ROLLBACK TESTS
+// A failed start undoes only what that call did. basePort 21000 is dedicated
+// to these tests (see agents/testing.md for the port convention).
+// ============================================================================
+
+Deno.test({
+  name: 'Lifecycle: failed resume keeps containers, network and volume',
+  ignore: !(await isDockerAvailable()),
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    const client = createTestDockerClient();
+    const instanceId = generateTestInstanceId();
+    const config: LocalNetConfig = { ...LIFECYCLE_TEST_CONFIG, basePort: 21000 };
+    const first = new LocalNet(config, { instanceId });
+
+    try {
+      await first.start({ skipHealthChecks: true, skipInitialization: true, timeout: 60000 });
+      await first.stop();
+
+      const before = await client.listContainers({ 'localnet.instance': instanceId });
+      const idsBefore = before.map((c) => c.id).sort();
+      assertEquals(idsBefore.length > 0, true);
+
+      const resumed = new LocalNet(config, { instanceId });
+      await assertRejects(() =>
+        resumed.start({ skipHealthChecks: true, skipInitialization: true, timeout: 1 })
+      );
+
+      const after = await client.listContainers({ 'localnet.instance': instanceId });
+      assertEquals(after.map((c) => c.id).sort(), idsBefore);
+      assertEquals(after.some((c) => c.state === 'running'), false);
+      assertExists(await client.getNetworkInfo(`localnet-${instanceId}`));
+      assertExists(await client.getVolumeInfo(`${instanceId}-postgres-data`));
+    } finally {
+      await first.destroy().catch(() => {});
+      await cleanupTestResources(client, instanceId);
+    }
+  },
+});
+
+Deno.test({
+  name: 'Lifecycle: failed fresh start leaves nothing behind',
+  ignore: !(await isDockerAvailable()),
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    const client = createTestDockerClient();
+    const instanceId = generateTestInstanceId();
+    // An unpullable splice image fails the start after postgres and canton exist.
+    const localnet = new LocalNet(
+      { ...LIFECYCLE_TEST_CONFIG, basePort: 22000 },
+      { instanceId, images: { splice: 'localhost/denex-does-not-exist:0' } },
+    );
+
+    try {
+      await assertRejects(() =>
+        localnet.start({ skipHealthChecks: true, skipInitialization: true, timeout: 60000 })
+      );
+
+      const containers = await client.listContainers({ 'localnet.instance': instanceId });
+      assertEquals(containers.length, 0);
+      assertEquals(await client.getNetworkInfo(`localnet-${instanceId}`), null);
+      assertEquals(await client.getVolumeInfo(`${instanceId}-postgres-data`), null);
+    } finally {
+      await cleanupTestResources(client, instanceId);
+    }
+  },
+});
