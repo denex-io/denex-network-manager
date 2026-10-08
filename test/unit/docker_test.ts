@@ -17,7 +17,6 @@ import {
   DEFAULT_SPLICE_VERSION,
   getStartupOrder,
 } from '../../src/docker/containers.ts';
-import { SV_INTERNAL_PORTS } from '../../src/utils/ports.ts';
 import { checkHealth } from '../../src/docker/health.ts';
 import { type ConfigMismatch, generateNginxConfigString } from '../../src/docker/mod.ts';
 import { BOOTSTRAP_ADMIN_USERNAME, generateAllRealmsJson } from '../../src/generator/keycloak.ts';
@@ -124,41 +123,47 @@ Deno.test('buildSpliceContainer - correct ports', () => {
   assertEquals(hostPorts.includes(5014), true);
 });
 
-Deno.test('buildSpliceContainer - Scan/SV Admin keep fixed container ports off-basePort', () => {
-  // Regression: the Scan and SV Admin container ports were derived from
-  // basePort, but the splice process always binds the fixed internal ports
-  // (nginx proxies to splice:5012/5014). With a custom basePort the mapping
-  // pointed at ports nothing listened on, so `dnm start` failed at the Scan
-  // readiness check.
-  const container = buildSpliceContainer(
-    { ...TEST_CONFIG, basePort: 7400 },
-    TEST_OPTIONS,
-  );
+Deno.test('buildSpliceContainer - Scan/SV Admin follow basePort on both sides and match every consumer', () => {
+  // Regression: Scan and SV Admin must come from one helper for the app.conf bind, the Docker
+  // mapping, the healthcheck and nginx proxy_pass, or the mapping points at a port nothing
+  // listens on (beta.1 bug).
+  const config = { ...TEST_CONFIG, basePort: 7400 };
+  const container = buildSpliceContainer(config, TEST_OPTIONS);
 
   assertExists(container.ports);
 
   const scan = container.ports.find((p) => p.service === 'Scan Admin');
   assertExists(scan);
   assertEquals(scan.host, 7412);
-  assertEquals(scan.container, SV_INTERNAL_PORTS.scanAdmin);
+  assertEquals(scan.container, 7412);
 
   const svAdmin = container.ports.find((p) => p.service === 'SV Admin');
   assertExists(svAdmin);
   assertEquals(svAdmin.host, 7414);
-  assertEquals(svAdmin.container, SV_INTERNAL_PORTS.svAdmin);
+  assertEquals(svAdmin.container, 7414);
 
-  // The validator admin API is basePort-relative on both sides, because the
-  // generated splice config binds it relative to basePort.
   const svValidatorAdmin = container.ports.find((p) => p.service === 'SV Validator Admin');
   assertExists(svValidatorAdmin);
   assertEquals(svValidatorAdmin.host, 7403);
   assertEquals(svValidatorAdmin.container, 7403);
 
-  // The in-container health check must use the fixed port, not basePort+12.
-  assertEquals(
-    container.healthCheck?.target,
-    `http://localhost:${SV_INTERNAL_PORTS.scanAdmin}/api/scan/status`,
-  );
+  assertEquals(container.healthCheck?.target, 'http://localhost:7412/api/scan/status');
+
+  const spliceConfig = generateFullSpliceConfig(config);
+  assertStringIncludes(spliceConfig, 'port = 7412');
+  assertStringIncludes(spliceConfig, 'port = 7414');
+
+  const nginx = generateNginxConfigString(config);
+  assertStringIncludes(nginx, 'proxy_pass http://splice:7414/api/sv;');
+  assertStringIncludes(nginx, 'proxy_pass http://splice:7412/api/scan;');
+  assertStringIncludes(nginx, 'proxy_pass http://splice:7412/registry;');
+});
+
+Deno.test('generateNginxConfigString - default basePort proxies to 5014/5012', () => {
+  const nginx = generateNginxConfigString(TEST_CONFIG);
+  assertStringIncludes(nginx, 'proxy_pass http://splice:5014/api/sv;');
+  assertStringIncludes(nginx, 'proxy_pass http://splice:5012/api/scan;');
+  assertStringIncludes(nginx, 'proxy_pass http://splice:5012/registry;');
 });
 
 Deno.test('buildSpliceContainer - default basePort maps Scan/SV Admin identically', () => {

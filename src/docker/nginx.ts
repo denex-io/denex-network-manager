@@ -1,11 +1,17 @@
 import type { LocalNetConfig } from '../types/config.ts';
 import { normalizeValidators } from '../types/config.ts';
-import { DEFAULT_BASE_PORT, getSvPorts, getValidatorPorts } from '../utils/ports.ts';
+import {
+  DEFAULT_BASE_PORT,
+  getSvInternalPorts,
+  getSvPorts,
+  getValidatorPorts,
+} from '../utils/ports.ts';
 
 export function generateNginxConfigString(config: LocalNetConfig): string {
   const validators = normalizeValidators(config.validators);
   const basePort = config.basePort ?? DEFAULT_BASE_PORT;
   const svPorts = getSvPorts(basePort);
+  const svInternalPorts = getSvInternalPorts(basePort);
   const svWebUiPort = svPorts.webUi;
 
   const validatorServerBlocks = validators.map((v, i) => {
@@ -43,7 +49,7 @@ http {
 
         location /api/sv {
             rewrite ^/(.*) /\$1 break;
-            proxy_pass http://splice:5014/api/sv;
+            proxy_pass http://splice:${svInternalPorts.svAdmin}/api/sv;
             proxy_set_header Host \$host;
             proxy_set_header X-Real-IP \$remote_addr;
         }
@@ -61,14 +67,14 @@ http {
 
         location /api/scan {
             rewrite ^/(.*) /\$1 break;
-            proxy_pass http://splice:5012/api/scan;
+            proxy_pass http://splice:${svInternalPorts.scanAdmin}/api/scan;
             proxy_set_header Host \$host;
             proxy_set_header X-Real-IP \$remote_addr;
         }
 
         location /registry {
             rewrite ^/(.*) /\$1 break;
-            proxy_pass http://splice:5012/registry;
+            proxy_pass http://splice:${svInternalPorts.scanAdmin}/registry;
             proxy_set_header Host \$host;
             proxy_set_header X-Real-IP \$remote_addr;
         }

@@ -11,41 +11,50 @@ export const PORT_SUFFIXES = {
   keycloak: 82,
 } as const;
 
-export const SV_INTERNAL_PORTS = {
-  // Container-to-container ports — fixed absolute values, never published to the host.
-  // These are only referenced inside the Docker network (HOCON/app.conf, canton↔splice).
-  sequencerPublic: 5008,
-  sequencerAdmin: 5009,
-  sequencerGrpcHealth: 5062,
-  mediatorAdmin: 5007,
-  mediatorGrpcHealth: 5063,
-  // Host-published port offsets relative to DEFAULT_BASE_PORT (5000).
-  // Use getSvInternalPorts(basePort) for the actual per-instance host port values.
-  scanAdmin: 5012,
-  svAdmin: 5014,
-};
+/**
+ * Offsets from basePort for the SV-only ports. All are below 100 and distinct from
+ * every {@link PORT_SUFFIXES} value (0,1,2,3,61,75,80,82), so no SV-level port can equal
+ * a validator port (basePort + 100 * (i + 1) + suffix).
+ *
+ * The sequencer and mediator ports are bound inside the canton container. The Scan and SV
+ * admin ports and the Prometheus reporter are bound inside the splice container. Only Scan
+ * and SV admin are published to the host, on the same number as the container port.
+ */
+export const SV_INTERNAL_PORT_OFFSETS = {
+  mediatorAdmin: 7,
+  sequencerPublic: 8,
+  sequencerAdmin: 9,
+  scanAdmin: 12,
+  splicePrometheus: 13,
+  svAdmin: 14,
+  sequencerGrpcHealth: 62,
+  mediatorGrpcHealth: 63,
+} as const;
 
-// Offsets from basePort for the SV ports that are published to the host.
-// Must not overlap with PORT_SUFFIXES (0,1,2,3,61,75,80,82) or each other.
-const SV_SCAN_ADMIN_OFFSET = 12; // basePort+12 — scanAdmin
-const SV_ADMIN_OFFSET = 14; // basePort+14 — svAdmin
+/** The highest port number a host can use. */
+export const MAX_PORT = 65535;
 
-export interface SvInternalPorts {
-  scanAdmin: number;
-  svAdmin: number;
-}
+export type SvInternalPorts = { [K in keyof typeof SV_INTERNAL_PORT_OFFSETS]: number };
 
 /**
- * Returns the host-published SV internal ports for a given basePort.
- * These are the ports that must be distinct across concurrent LocalNet instances.
- * The container-to-container ports (sequencer, mediator) remain at fixed values
- * since they are never published to the host — instances communicate over isolated
- * Docker networks.
+ * Returns the SV-only ports for a given basePort: sequencer (public, admin, gRPC health),
+ * mediator (admin, gRPC health), Scan admin, SV admin and the splice Prometheus reporter.
+ *
+ * Every consumer (the HOCON/app.conf bind, the Docker port mapping, the healthcheck, nginx
+ * `proxy_pass` and in-process URLs) must take its value from here, so the bind and the
+ * clients always agree and no derived port can collide with an internal one. Only Scan and
+ * SV admin are published to the host, and the container port equals the host port.
  */
 export function getSvInternalPorts(basePort: number = DEFAULT_BASE_PORT): SvInternalPorts {
   return {
-    scanAdmin: basePort + SV_SCAN_ADMIN_OFFSET,
-    svAdmin: basePort + SV_ADMIN_OFFSET,
+    mediatorAdmin: basePort + SV_INTERNAL_PORT_OFFSETS.mediatorAdmin,
+    sequencerPublic: basePort + SV_INTERNAL_PORT_OFFSETS.sequencerPublic,
+    sequencerAdmin: basePort + SV_INTERNAL_PORT_OFFSETS.sequencerAdmin,
+    scanAdmin: basePort + SV_INTERNAL_PORT_OFFSETS.scanAdmin,
+    splicePrometheus: basePort + SV_INTERNAL_PORT_OFFSETS.splicePrometheus,
+    svAdmin: basePort + SV_INTERNAL_PORT_OFFSETS.svAdmin,
+    sequencerGrpcHealth: basePort + SV_INTERNAL_PORT_OFFSETS.sequencerGrpcHealth,
+    mediatorGrpcHealth: basePort + SV_INTERNAL_PORT_OFFSETS.mediatorGrpcHealth,
   };
 }
 
@@ -104,4 +113,20 @@ export function getValidatorPorts(
 
 export function getKeycloakPort(basePort: number = DEFAULT_BASE_PORT): number {
   return basePort + PORT_SUFFIXES.keycloak;
+}
+
+/**
+ * The highest port a LocalNet with this basePort and validator count uses. Callers compare
+ * it against {@link MAX_PORT}. Never builds a validators array.
+ */
+export function getHighestPort(basePort: number, validatorCount: number): number {
+  const candidates = [
+    ...Object.values(getSvPorts(basePort)),
+    ...Object.values(getSvInternalPorts(basePort)),
+    getKeycloakPort(basePort),
+  ];
+  if (validatorCount >= 1) {
+    candidates.push(...Object.values(getValidatorPorts(validatorCount - 1, basePort)));
+  }
+  return Math.max(...candidates);
 }
