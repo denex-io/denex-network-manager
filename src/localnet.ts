@@ -282,7 +282,7 @@ export class LocalNet {
       dbUser: options?.dbUser ?? 'cnadmin',
       dbPassword: options?.dbPassword ?? 'supersafe',
       onWarning,
-      configDir: options?.configDir,
+      configDir: options?.configDir === undefined ? undefined : resolve(options.configDir),
     };
 
     this.client = new DockerClient({ labelPrefix });
@@ -355,7 +355,10 @@ export class LocalNet {
     }
 
     trustedConfigs.set(config, []);
-    const configDir = options?.configDir ?? first.labels[`${labelPrefix}.config-dir`];
+    // Containers recreated by a repair may carry a newer label than the rest; use the first one.
+    const configDir = options?.configDir ??
+      containers.find((c) => c.labels[`${labelPrefix}.config-dir`])
+        ?.labels[`${labelPrefix}.config-dir`];
     const localnet = new LocalNet(config, { ...options, instanceId: id, configDir });
     localnet.markAttachedToRunning();
     for (const container of containers) {
@@ -441,6 +444,10 @@ export class LocalNet {
    * starting the instance: `start()` aborts, removes only the containers this
    * call created, and neither stops the containers this call started nor
    * removes the network or volume it created.
+   *
+   * On a fresh start with initialization enabled, a configured `packages` DAR
+   * that cannot be found throws before Docker is touched (on resume or repair
+   * it is only a warning).
    *
    * A handle that already counts as running (one from `fromInstanceId()`, or one
    * on which a state query such as `getParties()` has attached) throws
@@ -1960,15 +1967,16 @@ export class LocalNet {
 
   /**
    * Run post-startup initialization: allocate configured parties, create users,
-   * onboard wallets, and upload the configured `packages`. Called automatically by start() unless skipInitialization
-   * is set. Also exposed for the `dnm init` CLI command on already-running instances.
+   * onboard wallets, and upload the configured `packages`. Called automatically by start()
+   * unless skipInitialization is set. Also exposed for the `dnm init` CLI command on already-running instances.
    *
    * Safe to re-run: a configured party whose hint is already hosted on its
    * validator's participant is skipped, and users converge on their configured
    * state (see {@link LocalNet.createUser}). Packages upload to their `uploadTo`
    * validators (default `sv` and every validator); relative `dar` paths resolve against
    * `configDir`, then the current directory. A missing DAR or failed upload is a
-   * `'packages'` warning, not an error, and Canton ignores a repeated upload.
+   * `'packages'` warning, not an error. Re-uploading an existing DAR is expected to be a
+   * no-op (to be confirmed by live validation).
    *
    * @internal Do not call directly in application code — use start() instead.
    */
@@ -2083,7 +2091,7 @@ export class LocalNet {
         const reason = error instanceof Error ? error.message : String(error);
         this.warn({
           source: 'packages',
-          message: `Package '${pkg.name}' was not uploaded: ${reason}`,
+          message: `Package '${pkg.name}' upload failed: ${reason}`,
         });
       }
     }

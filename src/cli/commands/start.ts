@@ -20,7 +20,7 @@ export const startCommand = new Command()
       const configPath = options.config ?? await findConfigFile();
       if (!configPath) {
         throw new Error(
-          'No configuration file found. Use --config <path> or run from a directory with a localnet.yaml.',
+          'No configuration file found. Use --config <path> or run from a directory with one of: localnet.yaml, localnet.yml, .localnet.yaml, .localnet.yml.',
         );
       }
       const config = await loadConfigFile(configPath, { onWarning: warnToStderr });
