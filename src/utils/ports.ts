@@ -34,6 +34,7 @@ export const SV_INTERNAL_PORT_OFFSETS = {
 /** The highest port number a host can use. */
 export const MAX_PORT = 65535;
 
+/** Resolved SV-only internal port numbers, keyed like {@link SV_INTERNAL_PORT_OFFSETS}. */
 export type SvInternalPorts = { [K in keyof typeof SV_INTERNAL_PORT_OFFSETS]: number };
 
 /**

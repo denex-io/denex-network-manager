@@ -526,6 +526,12 @@ Deno.test('generateFullSpliceConfig - Prometheus reporter follows basePort', () 
   }
 });
 
+Deno.test('generateFullCantonConfig - has no Prometheus reporter override', () => {
+  assert(
+    !generateFullCantonConfig({ ...TEST_CONFIG, basePort: 7000 }).includes('type = prometheus'),
+  );
+});
+
 Deno.test('generatePortMappingEnv - SV internal ports follow basePort', () => {
   const env = generatePortMappingEnv({ ...TEST_CONFIG, basePort: 7000 });
   assertStringIncludes(env, 'SV_SEQUENCER_PUBLIC_PORT=7008');
