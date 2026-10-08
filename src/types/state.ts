@@ -153,3 +153,9 @@ export interface LocalNetWarning {
   /** The config path the warning is about, when it concerns a config field. */
   path?: string;
 }
+
+/** A {@link LocalNetWarning} about the configuration: `source` is `'config'` and `path` is set. */
+export interface ConfigWarning extends LocalNetWarning {
+  source: 'config';
+  path: string;
+}

@@ -74,6 +74,28 @@ All notable changes to this project will be documented in this file. The format 
   nothing outside the container sees the change; it removes a collision at `basePort` values such as
   9010 (splice) or 9951 (canton).
 
+- Unknown config keys now produce a warning (stderr in the CLI, `LocalNetOptions.onWarning` in the
+  SDK) instead of being dropped silently; `LocalNet.warnings` holds the construction-time ones. The
+  exported `LocalNetConfigSchema` still strips them. Stored instance labels are parsed silently and
+  leniently.
+- **Breaking:** the validator count no longer has a cap of 10 (config, `dnm config` prompt,
+  `withValidators`); instead a config whose highest derived port exceeds 65535 is rejected, for
+  example 55 validators at `basePort: 60000`.
+- **Breaking:** validator names must be unique (case-insensitive), must not be `sv`, and must not
+  map to the same Keycloak realm as another validator (`alice-val` and `aliceVal`). Checked on input
+  only. `withValidators(count)` throws `RangeError` for a non-integer or `< 1` count.
+- **Breaking:** the `LocalNet` constructor (and so `createLocalNet`) validates its config and throws
+  `ZodError`, applies schema defaults and reports warnings; `getConfig()` returns the normalized
+  copy, not the object passed in. Existing instances remain discoverable, stoppable and destroyable;
+  resuming from YAML requires the YAML to pass the new rules.
+- **Breaking:** `PartyConfig.validator` and `UserConfig.validator` are removed (they were never
+  acted on); the keys now warn and are ignored.
+- `dnm config` validates the generated file (duplicate or colliding validator names) before writing.
+- Added `parseLocalNetConfigWithWarnings()`, `parseStoredLocalNetConfig()`, `ConfigWarning`,
+  `LocalNet.warnings`, and an optional `{ onWarning }` argument on `parseLocalNetConfig`,
+  `validateLocalNetConfig`, `withDefaults`, `loadConfigFile`, `loadConfigFromDir` and
+  `loadConfigFromString`.
+
 ### Fixed
 
 - `initializeResources()` (and so `dnm init` and a repairing `start()`) skips configured parties

@@ -1,5 +1,5 @@
 import { Command } from '@cliffy/command';
-import { printError, printSuccess, progress } from '../utils.ts';
+import { printError, printSuccess, progress, warnToStderr } from '../utils.ts';
 import { loadConfigFile, loadConfigFromDir } from '../../utils/yaml.ts';
 import { LocalNet } from '../../localnet.ts';
 
@@ -17,8 +17,8 @@ export const startCommand = new Command()
 
     try {
       const config = options.config
-        ? await loadConfigFile(options.config)
-        : await loadConfigFromDir();
+        ? await loadConfigFile(options.config, { onWarning: warnToStderr })
+        : await loadConfigFromDir(undefined, { onWarning: warnToStderr });
 
       const localnet = await LocalNet.fromConfig(config, { instanceId: options.instance });
 

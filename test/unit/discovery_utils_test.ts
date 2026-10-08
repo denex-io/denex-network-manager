@@ -476,3 +476,49 @@ Deno.test('discoverInstances - an invalid first label is skipped and does not sk
   assertEquals(instances[0].containerCount, 2);
   assertEquals(instances[0].status, 'mixed');
 });
+
+Deno.test('reconstructConfigFromLabels - stored labels are lenient: 11 validators, case-variant names, validator keys', () => {
+  const config = {
+    validators: [
+      ...Array.from({ length: 10 }, (_, i) => ({ name: `v${i}` })),
+      { name: 'Alice', parties: [{ hint: 'a', validator: 'v0' }] },
+      { name: 'alice', users: [{ id: 'u', validator: 'v0' }] },
+    ],
+    auth: { keycloak: { admin: 'a', password: 'b' } },
+    basePort: 60000,
+  };
+  const labels = { [LABEL_SCHEMA]: '2', [LABEL_CONFIG]: JSON.stringify(config) };
+
+  const original = console.warn;
+  let warned = 0;
+  console.warn = () => warned++;
+  try {
+    const result = reconstructConfigFromLabels(labels);
+    assertEquals(result !== null, true);
+    assertEquals(warned, 0);
+    if (result && Array.isArray(result.validators)) {
+      assertEquals(result.validators.length, 12);
+      assertEquals('validator' in (result.validators[10].parties?.[0] ?? {}), false);
+    }
+  } finally {
+    console.warn = original;
+  }
+});
+
+Deno.test('discoverInstances - discovers an instance whose label breaks the input rules', () => {
+  const config = {
+    validators: [{ name: 'a' }, { name: 'A' }],
+    auth: { keycloak: { admin: 'a', password: 'b' } },
+  };
+  const instances = discoverInstances([{
+    name: 'legacy-canton',
+    state: 'running',
+    labels: {
+      [LABEL_INSTANCE]: 'legacy',
+      [LABEL_SCHEMA]: '2',
+      [LABEL_CONFIG]: JSON.stringify(config),
+    },
+  }]);
+  assertEquals(instances.length, 1);
+  assertEquals(instances[0].validatorNames, ['a', 'A']);
+});

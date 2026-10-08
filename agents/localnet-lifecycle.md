@@ -28,7 +28,10 @@ initialization, and runtime operations.
 
 ## Working rules
 
-- `fromConfig()` validates config objects through Zod; callers must still call `start()`.
+- The `LocalNet` constructor validates its config like input (`ZodError`, schema defaults,
+  unknown-key warnings through `onWarning`, kept in `LocalNet.warnings`); `getConfig()` returns the
+  normalized copy. `fromConfig()` and `fromInstanceId()` parse first and mark the result trusted so
+  stored configs are never re-checked against the input rules. Callers must still call `start()`.
 - `createLocalNet()` constructs and starts immediately.
 - `fromInstanceId()` reconstructs config from Docker labels and requires label schema `2`.
 - `start()` calls `detectConfigMismatch()` and returns early only when every expected container

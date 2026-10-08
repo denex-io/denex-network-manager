@@ -19,6 +19,7 @@ export {
 } from './config.ts';
 
 export type {
+  ConfigWarning,
   ContainerStatus,
   CredentialEntry,
   EnvironmentAuthConfig,
