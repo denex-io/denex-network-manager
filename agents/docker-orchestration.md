@@ -66,6 +66,9 @@ health, and labels resources for discovery and cleanup.
 - Bun cannot reliably use Docker Unix sockets through `node:http`; configure Docker over TCP for
   Bun.
 - Keycloak 26 health uses management port `9000` inside the container and `/dev/tcp`, not `curl`.
+- Nginx `dependsOn` splice and every web UI (wallet UIs, sv, scan), so it starts in its own layer
+  after them and is restarted when one of them is restarted by a repair (nginx resolves upstream
+  addresses once).
 - Nginx uses `restart: 'always'`; most other containers use `unless-stopped`.
 - `ansWebUi` exists in `ContainerImages` but no ANS web UI container is currently built.
 - `getSvInternalPorts()` is the right function for host-side port values (e.g. in

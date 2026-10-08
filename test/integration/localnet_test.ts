@@ -462,3 +462,42 @@ Deno.test({
     }
   },
 });
+
+// ============================================================================
+// REPAIR TEST (#4)
+// basePort 21000 is shared with the rollback test above; tests run one at a time.
+// ============================================================================
+
+Deno.test({
+  name: 'Lifecycle: start() repairs a partially running instance',
+  ignore: !(await isDockerAvailable()),
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    const client = createTestDockerClient();
+    const instanceId = generateTestInstanceId();
+    const config: LocalNetConfig = { ...LIFECYCLE_TEST_CONFIG, basePort: 21000 };
+    const first = new LocalNet(config, { instanceId });
+    const webUiName = `${instanceId}-sv-web-ui`;
+
+    try {
+      await first.start({ skipHealthChecks: true, skipInitialization: true, timeout: 120000 });
+      const before = await client.getContainerInfo(webUiName);
+      assertExists(before);
+      await client.stopContainer(before.id, 5);
+      assertEquals(await first.state(), 'partial');
+
+      const second = new LocalNet(config, { instanceId });
+      await second.start({ skipHealthChecks: true, skipInitialization: true, timeout: 120000 });
+
+      const after = await client.getContainerInfo(webUiName);
+      assertExists(after);
+      assertEquals(after.id, before.id);
+      assertEquals(after.state, 'running');
+      assertEquals(await second.state(), 'running');
+    } finally {
+      await first.destroy().catch(() => {});
+      await cleanupTestResources(client, instanceId);
+    }
+  },
+});

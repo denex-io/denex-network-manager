@@ -7,6 +7,7 @@ All notable changes to this project will be documented in this file. The format 
 
 ### Added
 
+- `ContainerInfo.created` (unix seconds), filled by `DockerClient.listContainers()`.
 - `DockerClient.findNetwork()` / `findVolume()` (null only on 404, other errors rethrown) and
   `NetworkManager.ensure()` (returns `{ id, created }`).
 
@@ -18,6 +19,13 @@ All notable changes to this project will be documented in this file. The format 
   list alongside the reachable packages on partial results.
 
 ### Changed
+
+- `start()` (and `dnm start`) now repairs a partially running instance instead of returning early:
+  it starts stopped containers, creates missing ones, restarts running dependents of anything it
+  started (nginx and the web UIs after splice) and re-runs initialization. It refuses paused
+  containers and aborts, without touching containers it did not start, on a 409 or a `created`
+  container under 60 s old (another process is probably starting the instance). nginx now depends on
+  the web UIs and starts in its own layer.
 
 - **Breaking:** `ApiPartyInfo.isLocal` is removed (also from `dnm parties --json`, the discovery
   `/parties` response and `getSnapshot().parties`; the `dnm parties` table loses its Local column).
@@ -40,6 +48,10 @@ All notable changes to this project will be documented in this file. The format 
   stderr so `--json` output stays clean.
 
 ### Fixed
+
+- `initializeResources()` (and so `dnm init` and a repairing `start()`) skips configured parties
+  whose hint is already hosted on the validator, instead of re-allocating them and logging failures;
+  its docstring no longer claims re-running creates duplicate users.
 
 - A failed `start()` (and therefore `restart()` and `dnm start`) no longer destroys an existing
   instance. It removes only the containers, network and postgres volume that the failing call

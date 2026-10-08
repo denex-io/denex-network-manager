@@ -31,9 +31,18 @@ initialization, and runtime operations.
 - `fromConfig()` validates config objects through Zod; callers must still call `start()`.
 - `createLocalNet()` constructs and starts immediately.
 - `fromInstanceId()` reconstructs config from Docker labels and requires label schema `2`.
-- `start()` calls `detectConfigMismatch()` and is idempotent when matching containers are already
-  running.
-- `start()` runs `initializeResources()` unless `skipInitialization` is set.
+- `start()` calls `detectConfigMismatch()` and returns early only when every expected container
+  (`buildContainerSpecs(...).map(name)`) is running. A partially running instance is repaired:
+  stopped containers are started, missing ones created, and running containers whose `dependsOn`
+  intersects the containers started or created by this call (`rb.touched`) are restarted (not
+  recorded in `rb.started`, so rollback leaves them running). nginx depends on the web UIs, so it
+  gets its own layer.
+- Repair guards: a paused container is refused (`docker unpause` hint); a `created` container under
+  60 s old (from list `ContainerInfo.created`) or a 409 on create aborts with "appears to be
+  starting in another process" and never stops containers this call did not start; an older
+  `created` container is started normally.
+- `start()` runs `initializeResources()` unless `skipInitialization` is set. Init is idempotent: the
+  party loop pre-checks `fetchHostedParties()` and skips hints already hosted.
 - State-query methods call `requireRunning()` and may attach lazily to running containers.
 
 ## Critical gotchas
