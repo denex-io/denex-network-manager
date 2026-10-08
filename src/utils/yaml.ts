@@ -44,6 +44,15 @@ export function expandEnvVarsWithDefaults(content: string): string {
   });
 }
 
+/**
+ * Read a YAML config file, expand environment variables, and validate it.
+ *
+ * `${NAME}` and `${NAME:default}` are replaced from the process environment before the YAML is
+ * parsed, anywhere in the file including comments. Schema defaults are filled in.
+ *
+ * @throws If the file cannot be read, a referenced variable is unset and has no default, the YAML
+ *   does not parse, or the config fails schema validation.
+ */
 export async function loadConfigFile(path: string): Promise<ParsedLocalNetConfig> {
   const content = await readFile(path, 'utf-8');
   const expandedContent = expandEnvVarsWithDefaults(content);
@@ -63,12 +72,23 @@ export async function loadConfigFromDir(
   return loadConfigFile(configPath);
 }
 
+/**
+ * Parse and validate a YAML config held in a string, with the same environment variable
+ * expansion and errors as {@link loadConfigFile}.
+ */
 export function loadConfigFromString(yamlContent: string): ParsedLocalNetConfig {
   const expandedContent = expandEnvVarsWithDefaults(yamlContent);
   const parsed = parseYaml(expandedContent);
   return parseLocalNetConfig(parsed);
 }
 
+/**
+ * Validated config with `validatorCount` validators named `validator-1`, `validator-2`, and so
+ * on, base port 5000, and Keycloak admin `admin`/`admin`.
+ *
+ * @param validatorCount - 1 to 10.
+ * @throws A Zod validation error if the count is out of range.
+ */
 export function createMinimalConfig(validatorCount: number = 2): ParsedLocalNetConfig {
   return withDefaults({ validators: validatorCount });
 }

@@ -24,14 +24,27 @@ export interface ContainerListItem {
 }
 
 /**
- * Discovered LocalNet instance with aggregated metadata.
- * Represents a single LocalNet instance and its containers.
+ * One instance found on the Docker daemon by {@link LocalNet.discover}, summarized from its
+ * container labels.
  */
 export interface DiscoveredInstance {
+  /** Instance ID. */
   id: string;
+  /** Number of containers carrying the instance label, running or not. */
   containerCount: number;
+  /**
+   * `'stopped'` if no container is running, and `'unsupported'` if the labels use a config schema
+   * this SDK cannot read. Otherwise `'running'` or `'mixed'`, but the result depends on the order
+   * Docker lists the containers in: an instance with some stopped containers can be reported as
+   * `'running'`. Use {@link LocalNet.state} to tell a fully running instance from a partial one.
+   */
   status: 'running' | 'stopped' | 'mixed' | 'unsupported';
+  /** Base port from the stored config; `0` for unsupported instances. */
   basePort: number;
+  /**
+   * Regular validator names from the stored config (the SV is not listed); empty for unsupported
+   * instances.
+   */
   validatorNames: string[];
 }
 

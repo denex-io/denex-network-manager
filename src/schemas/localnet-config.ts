@@ -109,6 +109,11 @@ export const LocalNetConfigSchema = z.object({
   basePort: z.number().int().min(1024).max(60000).default(5000),
 });
 
+/**
+ * A {@link LocalNetConfig} after schema validation, with defaults filled in: `version` is set
+ * (default `'1.0'`) and `basePort` is set (default 5000). Unknown keys are removed. Returned by
+ * the config loaders and {@link LocalNetBuilder.build}.
+ */
 export type ParsedLocalNetConfig = z.infer<typeof LocalNetConfigSchema>;
 
 export function parseLocalNetConfig(input: unknown): ParsedLocalNetConfig {

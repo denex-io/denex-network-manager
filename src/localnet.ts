@@ -64,11 +64,34 @@ import type {
 import { type DiscoveredInstance, discoverInstances } from './api/discovery-utils.ts';
 import { generateNginxConfigString } from './docker/nginx.ts';
 
+/**
+ * Runtime options for a {@link LocalNet}. None of these are part of the config, so they are not
+ * compared by the config-mismatch check in {@link LocalNet.start}.
+ */
 export interface LocalNetOptions {
+  /**
+   * Instance ID. Prefixes every container name (`<instanceId>-canton`, `<instanceId>-splice`,
+   * and so on) and the PostgreSQL volume name, and is stored in the `<labelPrefix>.instance`
+   * container label used to find the instance later. Defaults to `'default'`.
+   */
   instanceId?: string;
+  /**
+   * Prefix for the Docker label keys and the Docker network name (`<labelPrefix>-<instanceId>`).
+   * Defaults to `'denex.localnet'`.
+   */
   labelPrefix?: string;
+  /**
+   * Per-image overrides, keyed by `postgres`, `nginx`, `canton`, `splice`, `walletWebUi`,
+   * `ansWebUi`, `svWebUi`, `scanWebUi`, and `keycloak`. Unset keys use the built-in defaults.
+   * Images missing locally are pulled when a container is first created.
+   */
   images?: ContainerBuilderOptions['images'];
+  /**
+   * PostgreSQL user created in the `postgres` container and used by Canton and Splice. Defaults to
+   * `'cnadmin'`.
+   */
   dbUser?: string;
+  /** Password for {@link LocalNetOptions.dbUser}. Defaults to `'supersafe'`. */
   dbPassword?: string;
 }
 
@@ -99,6 +122,19 @@ interface CacheEntry<T> {
   expiresAt: number;
 }
 
+/**
+ * Handle to one LocalNet instance: a Super Validator, the configured validators, and their
+ * supporting containers, identified by {@link LocalNetOptions.instanceId}.
+ *
+ * Create one with {@link LocalNet.fromConfig} (new or resumed instance) or
+ * {@link LocalNet.fromInstanceId} (existing containers). Containers outlive the process that
+ * started them; call {@link LocalNet.stop} or {@link LocalNet.destroy} explicitly.
+ *
+ * Methods that query or change the ledger first check that this object was started or attached,
+ * or that at least one of the instance's containers is running, and throw otherwise. The check
+ * does not confirm that every service is reachable. Read-only query results are cached per object
+ * for 30 seconds; the methods that change ledger state clear the affected cache entries.
+ */
 export class LocalNet {
   private client: DockerClient;
   private networkManager: NetworkManager;
@@ -114,6 +150,12 @@ export class LocalNet {
   private cacheTtlMs = 30_000;
   private baseHost = 'localhost';
   private attachedToRunning = false;
+  /**
+   * Create a handle without touching Docker.
+   *
+   * The config is used as given: no schema validation and no schema defaults. Prefer
+   * {@link LocalNet.fromConfig}, which validates the config first.
+   */
   constructor(config: LocalNetConfig, options?: LocalNetOptions) {
     this.config = config;
     const instanceId = options?.instanceId ?? DEFAULT_INSTANCE_ID;
@@ -132,6 +174,22 @@ export class LocalNet {
     this.initializeApiClients();
   }
 
+  /**
+   * Validate a config and create a handle for it. Does not contact Docker or start anything.
+   *
+   * @param yamlPathOrConfig - Path to a YAML file, loaded with {@link loadConfigFile}, or a config
+   *   object, validated and filled with schema defaults.
+   * @throws If the file cannot be read, an environment variable referenced in the YAML is unset
+   *   and has no default, or the config fails schema validation.
+   *
+   * @example
+   * ```typescript
+   * import { LocalNet } from '@denex/network-manager/sdk';
+   *
+   * const net = await LocalNet.fromConfig('./localnet.yaml', { instanceId: 'demo' });
+   * await net.start({ onProgress: console.log });
+   * ```
+   */
   static async fromConfig(
     yamlPathOrConfig: string | LocalNetConfig,
     options?: LocalNetOptions,
@@ -145,6 +203,33 @@ export class LocalNet {
     return new LocalNet(config, options);
   }
 
+  /**
+   * Attach to an existing instance by its instance ID, using the config stored in its container
+   * labels rather than one supplied by the caller.
+   *
+   * This is an existence check, not a liveness check. Stopped containers count, and the returned
+   * object treats itself as running without checking, so ledger methods do not throw a "not
+   * running" error and `start()` throws "LocalNet is already running" until you call `stop()`.
+   * On a stopped instance, some query methods fail with network errors (for example
+   * `getUsers()` and `getDsoPartyId()`) while those that skip failing validators return empty
+   * results without an error (for example `getParties()` and `getEnvironment()`). Gate on
+   * {@link LocalNet.isRunning} or {@link LocalNet.state} before using it.
+   *
+   * @param options - `labelPrefix` selects the labels to search; `instanceId` is replaced by `id`.
+   * @throws If no container carries the instance label, the labels use an unsupported schema
+   *   version, the config label is missing or does not parse, or Docker is unreachable.
+   *
+   * @example
+   * ```typescript
+   * import { LocalNet } from '@denex/network-manager/sdk';
+   *
+   * const net = await LocalNet.fromInstanceId('demo');
+   * if (!(await net.isRunning())) {
+   *   throw new Error(`Instance demo is ${await net.state()}`);
+   * }
+   * const env = await net.getEnvironment();
+   * ```
+   */
   static async fromInstanceId(
     id: string,
     options?: LocalNetOptions,
@@ -195,6 +280,15 @@ export class LocalNet {
     return localnet;
   }
 
+  /**
+   * List every instance on the Docker daemon, running or not, reconstructed from container labels.
+   *
+   * Instances are sorted by ID. Grouping always reads the default `denex.localnet.*` labels, so
+   * instances started with a custom `labelPrefix` are not reported. Instances whose config label
+   * does not parse are skipped.
+   *
+   * @throws If Docker is unreachable.
+   */
   static async discover(options?: { labelPrefix?: string }): Promise<DiscoveredInstance[]> {
     const labelPrefix = options?.labelPrefix ?? DEFAULT_LABEL_PREFIX;
     const client = new DockerClient({ labelPrefix });
@@ -202,34 +296,102 @@ export class LocalNet {
     return discoverInstances(containers);
   }
 
+  /** The instance ID this handle manages. */
   get instanceId(): string {
     return this.options.instanceId;
   }
 
+  /**
+   * This object's own lifecycle state (`'stopped'`, `'starting'`, `'running'`, `'stopping'`, or
+   * `'error'`), held in memory and not read from Docker. A fresh handle reports `'stopped'` even
+   * if the instance is running. Use {@link LocalNet.state} for the state Docker reports.
+   */
   get currentState(): LocalNetState {
     return this.internalState;
   }
 
+  /** The config this handle uses, returned by reference. */
   getConfig(): LocalNetConfig {
     return this.config;
   }
 
+  /** A copy of the options with defaults filled in. */
   getOptions(): Required<LocalNetOptions> {
     return { ...this.options };
   }
 
+  /**
+   * Docker container ID for a full container name such as `default-canton`.
+   *
+   * Only containers this object started in `start()`, or found in `fromInstanceId()`, are known.
+   * Returns `undefined` otherwise, including on a handle that attached to an already running
+   * instance through `start()` or a ledger method.
+   */
   getContainerId(name: string): string | undefined {
     return this.containerIds.get(name);
   }
 
+  /**
+   * Canton JSON Ledger API client for `'sv'` or a validator name, or `undefined` for an unknown
+   * name. Clients are created with the handle and do not check that the instance is running.
+   */
   getCantonClient(validatorName: string): CantonClient | undefined {
     return this.cantonClients.get(validatorName);
   }
 
+  /**
+   * Validator app admin API client for `'sv'` or a validator name, or `undefined` for an unknown
+   * name. Clients are created with the handle and do not check that the instance is running.
+   */
   getValidatorClient(validatorName: string): ValidatorAdminClient | undefined {
     return this.validatorClients.get(validatorName);
   }
 
+  /**
+   * Create or resume the instance's containers, wait for them, and run initialization.
+   *
+   * In order, `start()`:
+   *
+   * 1. Throws if the instance already has containers whose stored config differs from this
+   *    handle's config or cannot be read.
+   * 2. Returns without changes, marking this object running, if any of the instance's containers
+   *    is already running. A partially running instance is not repaired: its stopped containers
+   *    stay stopped. Check {@link LocalNet.state} first if that matters.
+   * 3. Throws if another Docker container already publishes a required host port. Ports held by
+   *    processes outside Docker are not checked.
+   * 4. Creates the Docker network and the `<instanceId>-postgres-data` volume if missing, then
+   *    starts containers in dependency order. Existing containers are reused by name; missing ones
+   *    are created, pulling images that are not present locally.
+   * 5. Unless `skipInitialization` is set, waits for every validator's APIs and for Scan to become
+   *    ready, then allocates the configured parties and creates the configured users with
+   *    {@link LocalNet.createUser}. A party or user that fails is reported as a warning through
+   *    `onProgress` and does not fail `start()`.
+   *
+   * A failed start is destructive. If `start()` fails after it has created or found the Docker
+   * network, it removes every container, the network, and every volume of the instance before
+   * rethrowing the original error, including resources that existed before the call. A failed
+   * attempt to resume a stopped instance therefore deletes its PostgreSQL volume and ledger state,
+   * as {@link LocalNet.destroy} would, and the next start creates a fresh LocalNet with a new DSO
+   * party.
+   *
+   * @param options - `timeout` (milliseconds, default 300000) is checked before each layer of
+   *   containers is started, not enforced as a wall-clock limit; health-check waits and
+   *   initialization can run past it. `parallel` (default `true`) starts the containers of one
+   *   layer concurrently. `skipHealthChecks` skips waiting for Docker health checks.
+   *   `skipInitialization` skips step 5, including the readiness waits. `onProgress` receives
+   *   progress and warning messages.
+   * @throws If this object is already running or starting, on a config mismatch or port conflict,
+   *   if Docker is unavailable, a container exits or does not become healthy, the timeout check
+   *   fails, or the APIs or Scan do not become ready.
+   *
+   * @example
+   * ```typescript
+   * import { LocalNet, LocalNetBuilder } from '@denex/network-manager/sdk';
+   *
+   * const net = await LocalNet.fromConfig(LocalNetBuilder.create().withValidators(1).build());
+   * await net.start({ timeout: 600_000, onProgress: (message) => console.log(message) });
+   * ```
+   */
   async start(options?: StartOptions): Promise<void> {
     if (this.internalState === 'running') {
       throw new Error('LocalNet is already running');
@@ -335,6 +497,18 @@ export class LocalNet {
     }
   }
 
+  /**
+   * Stop the instance's running containers. Containers, the network, and the PostgreSQL volume
+   * are kept, so a later {@link LocalNet.start} reuses them.
+   *
+   * Works on any instance with this handle's instance ID, whether or not this object started it,
+   * and does nothing if no container is running.
+   *
+   * @param options - `timeout` is the grace period in milliseconds (default 30000) before Docker
+   *   kills a container; it is rounded to whole seconds. The CLI's `--timeout` flag is in seconds.
+   *   `removeVolumes` is ignored.
+   * @throws If a stop is already in progress on this object, or Docker fails.
+   */
   async stop(options?: StopOptions): Promise<void> {
     if (this.internalState === 'stopping') {
       throw new Error('LocalNet is already stopping');
@@ -363,6 +537,15 @@ export class LocalNet {
     }
   }
 
+  /**
+   * Stop the instance, then remove its containers, its Docker network, and its volumes, including
+   * the PostgreSQL data. Ledger state is lost.
+   *
+   * Removal is best-effort: a resource that fails to remove does not stop the others, and the
+   * failure is not reported.
+   *
+   * @param options - Passed to {@link LocalNet.stop}; `timeout` is in milliseconds.
+   */
   async destroy(options?: StopOptions): Promise<void> {
     await this.stop({ timeout: 30_000, ...options });
     await this.cleanupInstanceResources();
@@ -395,11 +578,26 @@ export class LocalNet {
     );
   }
 
+  /**
+   * Call {@link LocalNet.stop} with default options, then {@link LocalNet.start} with `options`.
+   *
+   * `options` reach only `start()`, so `timeout` is the startup timeout and the stop step always
+   * uses the default 30-second grace period.
+   */
   async restart(options?: StartOptions & StopOptions): Promise<void> {
     await this.stop();
     await this.start(options);
   }
 
+  /**
+   * Inspect the instance's containers and network.
+   *
+   * `state` is derived from the containers: `'error'` if any container has exited or is dead
+   * (which includes a cleanly stopped instance), `'running'` if all are running, `'starting'` if
+   * some are, and `'stopped'` if there are no containers or none are running. Use
+   * {@link LocalNet.state} for a plain running/stopped/partial/absent answer. `startedAt` is set
+   * only when this object ran `start()`.
+   */
   async status(): Promise<LocalNetStatus> {
     const containers: ContainerInfo[] = [];
 
@@ -424,6 +622,14 @@ export class LocalNet {
     };
   }
 
+  /**
+   * Compare this handle's config with the config stored on the instance's existing containers.
+   *
+   * Both configs are validated and compared in full, not only by validator names. There is a
+   * mismatch when the containers exist and their stored config differs, is missing, or does not
+   * parse. No containers means no mismatch. `expected` and `actual` list validator names for
+   * display. {@link LocalNet.start} runs this check and throws on a mismatch.
+   */
   async detectConfigMismatch(): Promise<ConfigMismatch> {
     const containers = await this.client.listContainers({
       [`${this.options.labelPrefix}.instance`]: this.options.instanceId,
@@ -486,6 +692,12 @@ export class LocalNet {
     };
   }
 
+  /**
+   * The instance's state as Docker reports it: `'running'` if all of its containers are running,
+   * `'partial'` if some are, `'stopped'` if none are, and `'absent'` if it has no containers.
+   *
+   * Never throws. A Docker error is reported as `'absent'`.
+   */
   async state(): Promise<'running' | 'stopped' | 'partial' | 'absent'> {
     try {
       const containers = await this.client.listContainers({
@@ -501,10 +713,24 @@ export class LocalNet {
     }
   }
 
+  /**
+   * `true` only when {@link LocalNet.state} is `'running'`, that is, every container of the
+   * instance is running. This checks Docker container state, not API readiness.
+   */
   async isRunning(): Promise<boolean> {
     return (await this.state()) === 'running';
   }
 
+  /**
+   * Health, participant ID, validator party, and host ports for `'sv'` or a validator name.
+   *
+   * `isHealthy` reflects the participant's JSON API liveness endpoint. `participantId` is `''` and
+   * `validatorParty` is `undefined` when they cannot be read, for example while the participant is
+   * unhealthy or still initializing. The result is cached for 30 seconds, including an unhealthy
+   * one.
+   *
+   * @throws If the instance is not running or the name is unknown.
+   */
   async getValidatorState(validatorName: string): Promise<ApiValidatorState> {
     await this.requireRunning('getValidatorState');
 
@@ -555,6 +781,7 @@ export class LocalNet {
     return state;
   }
 
+  /** {@link LocalNet.getValidatorState} for the SV and every validator, SV first. */
   async getAllValidatorStates(): Promise<ApiValidatorState[]> {
     await this.requireRunning('getAllValidatorStates');
     const normalizedValidators = normalizeValidators(this.config.validators);
@@ -564,6 +791,16 @@ export class LocalNet {
     return states;
   }
 
+  /**
+   * Party ID of the validator operator for `'sv'` or a validator name, as reported by its
+   * validator app.
+   *
+   * Makes up to 10 attempts, 2 seconds apart, while the party is not yet available. A found ID is
+   * cached for 30 seconds.
+   *
+   * @throws If the instance is not running, the name is unknown, or no party ID is available
+   *   after the retries.
+   */
   async getValidatorPartyId(validatorName: string): Promise<string> {
     await this.requireRunning('getValidatorPartyId');
 
@@ -590,6 +827,17 @@ export class LocalNet {
     throw new Error(`Could not retrieve party ID for ${validatorName} after ${maxRetries} retries`);
   }
 
+  /**
+   * Parties listed by one participant, or by the SV and every validator when `validatorName` is
+   * omitted.
+   *
+   * A validator whose query fails is skipped without an error, and an unknown name yields an
+   * empty list. Each entry's `hint` is the part of the party ID before `::`. Results are cached for
+   * 30 seconds per object; {@link LocalNet.allocateParty} and {@link LocalNet.createUser} clear the
+   * cache.
+   *
+   * @throws If the instance is not running.
+   */
   async getParties(validatorName?: string): Promise<ApiPartyInfo[]> {
     await this.requireRunning('getParties');
 
@@ -623,6 +871,18 @@ export class LocalNet {
     return allParties;
   }
 
+  /**
+   * Allocate a party on one validator's participant.
+   *
+   * Does not check whether a party with this hint already exists; {@link LocalNet.createUser}
+   * reuses existing parties by hint instead.
+   *
+   * @param hint - Party ID hint; the party ID is `<hint>::<namespace>`.
+   * @param displayName - Stored as the party's `displayName` annotation. Defaults to the hint when
+   *   read back through {@link LocalNet.getParties}.
+   * @throws If the instance is not running, the validator name is unknown, or the ledger rejects
+   *   the allocation.
+   */
   async allocateParty(
     hint: string,
     validatorName: string,
@@ -642,6 +902,11 @@ export class LocalNet {
     return this.toPartyInfo(party, validatorName, participantId);
   }
 
+  /**
+   * Ledger API users on one participant. Cached for 30 seconds.
+   *
+   * @throws If the instance is not running, the name is unknown, or the query fails.
+   */
   async getUsers(validatorName: string): Promise<ApiUserInfo[]> {
     await this.requireRunning('getUsers');
 
@@ -659,6 +924,15 @@ export class LocalNet {
     return userInfos;
   }
 
+  /**
+   * Ledger API users with their rights, for one participant or for the SV and every validator
+   * when `validatorName` is omitted.
+   *
+   * A validator whose query fails is skipped, an unknown name yields an empty list, and a user
+   * whose rights query fails is listed with no rights. Cached for 30 seconds.
+   *
+   * @throws If the instance is not running.
+   */
   async getUsersWithRights(validatorName?: string): Promise<ApiUserInfoWithRights[]> {
     await this.requireRunning('getUsersWithRights');
 
@@ -701,6 +975,32 @@ export class LocalNet {
     return allUsers;
   }
 
+  /**
+   * Provision a user on one validator: ledger user, rights, Keycloak login, and wallet.
+   *
+   * Steps, in order:
+   *
+   * 1. Each party hint referenced by `primaryParty` or `parties` is looked up on the validator and
+   *    allocated if missing.
+   * 2. The ledger user is created, with the primary party, unless a user with this ID exists. An
+   *    existing user keeps its primary party.
+   * 3. Rights are granted: `CanActAs` on the primary party; each participant-wide entry in
+   *    `rights`; `CanActAs`, `CanReadAs`, and `CanExecuteAs` entries in `rights` on the primary
+   *    party (ignored without one); and each `parties` entry's rights (default `['CanActAs']`) on
+   *    that party.
+   * 4. A Keycloak user is created in the validator's realm with username and password both set to
+   *    `userId`. An existing Keycloak user with that username is left unchanged, password included.
+   * 5. Only when `primaryParty` is set, the user is onboarded to the wallet through the validator
+   *    app. An HTTP 409 (conflict) response counts as success.
+   *
+   * The steps are not atomic. Each one skips or tolerates work already done, so calling the method
+   * again after a partial failure converges.
+   *
+   * @param validatorName - `'sv'` or a validator name.
+   * @param options - `primaryParty` and `parties[].hint` are party hints, not full party IDs.
+   * @returns The ledger user as read back after the changes.
+   * @throws If the instance is not running, the validator name is unknown, or any step fails.
+   */
   async createUser(
     userId: string,
     validatorName: string,
@@ -854,6 +1154,15 @@ export class LocalNet {
     return this.keycloakAdminClient;
   }
 
+  /**
+   * Intended to list the packages known to one participant, or to the SV and every validator when
+   * `validatorName` is omitted, deduplicated by package ID.
+   *
+   * Known bug: this currently always returns an empty list. The client reads a `packageDetails`
+   * field, but Canton's `GET /v2/packages` returns `{ packageIds: string[] }`.
+   *
+   * @throws If the instance is not running.
+   */
   async getPackages(validatorName?: string): Promise<ApiPackageInfo[]> {
     await this.requireRunning('getPackages');
 
@@ -890,6 +1199,21 @@ export class LocalNet {
     return allPackages;
   }
 
+  /**
+   * Intended to upload a DAR file to one or more participants and return its main package ID.
+   *
+   * Known bug: uploads currently fail against Splice 0.6.6. The DAR is sent to `/v2/dars` as
+   * multipart form data, which Canton rejects with `400 INVALID_DAR` ("Dar file is corrupt"), so
+   * the method throws. Canton's successful response also has no `mainPackageId` field, which this
+   * method reads for its return value.
+   *
+   * Targets are tried one at a time and unknown names in `validatorNames` are skipped. A failed
+   * target does not stop the rest; the failures are collected and thrown together.
+   *
+   * @param filePath - Path to the DAR, read from the local filesystem.
+   * @param validatorNames - `'sv'` and validator names. Defaults to the SV and every validator.
+   * @throws If the instance is not running or any target fails, after all targets are attempted.
+   */
   async uploadDar(filePath: string, validatorNames?: string[]): Promise<string> {
     await this.requireRunning('uploadDar');
 
@@ -921,6 +1245,11 @@ export class LocalNet {
     return mainPackageId;
   }
 
+  /**
+   * Party ID of the DSO, read through the SV validator app's Scan proxy. Cached for 30 seconds.
+   *
+   * @throws If the instance is not running or the request fails.
+   */
   async getDsoPartyId(): Promise<string> {
     await this.requireRunning('getDsoPartyId');
 
@@ -936,6 +1265,15 @@ export class LocalNet {
     return dsoPartyId;
   }
 
+  /**
+   * Validator states, parties, packages, and users in one object, with the time it was taken.
+   *
+   * Built from the cached query methods, so parts can be up to 30 seconds old. Users are read only
+   * from validators reported healthy, and a validator whose user query fails is skipped.
+   * `packages` is currently always empty; see {@link LocalNet.getPackages}.
+   *
+   * @throws If the instance is not running.
+   */
   async getSnapshot(): Promise<ApiLocalNetSnapshot> {
     await this.requireRunning('getSnapshot');
 
@@ -964,6 +1302,23 @@ export class LocalNet {
     };
   }
 
+  /**
+   * Endpoints, auth settings, credentials, and live identifiers for the instance.
+   *
+   * Starts from {@link buildConfigEnvironmentInfo}, then fills in each participant ID, the DSO
+   * party ID, and the party list from the running network. Each live lookup is best-effort: one
+   * that fails leaves its field `null` (or the party list empty) without an error.
+   * `network.domainId` is always `null`.
+   *
+   * @throws If the instance is not running.
+   *
+   * @example
+   * ```typescript
+   * const env = await net.getEnvironment();
+   * const alice = env.validators['alice'];
+   * console.log(alice.endpoints.jsonApi, alice.auth.keycloakTokenUrl, env.network.dsoPartyId);
+   * ```
+   */
   async getEnvironment(): Promise<FullEnvironmentInfo> {
     await this.requireRunning('getEnvironment');
 
@@ -1003,11 +1358,25 @@ export class LocalNet {
     return env;
   }
 
+  /**
+   * Web UI login entries for this instance's config, as returned by the standalone
+   * {@link getCredentials} function. The list is derived from the config; no login is checked,
+   * and some listed wallet logins do not work (see {@link getCredentials}).
+   *
+   * @throws If the instance is not running.
+   */
   async getCredentials(): Promise<CredentialInfo[]> {
     await this.requireRunning('getCredentials');
     return getCredentialsList(this.config.validators, this.config.basePort);
   }
 
+  /**
+   * Host endpoint URLs keyed by `'sv'` and each validator name. The URLs come from the port
+   * allocation, but this method calls {@link LocalNet.getEnvironment} and so makes its live
+   * requests too.
+   *
+   * @throws If the instance is not running.
+   */
   async getEndpoints(): Promise<Record<string, ValidatorEndpoints>> {
     await this.requireRunning('getEndpoints');
     const env = await this.getEnvironment();
@@ -1018,6 +1387,15 @@ export class LocalNet {
     return endpoints;
   }
 
+  /**
+   * Stream a container's stdout and stderr.
+   *
+   * @param containerName - Full container name, such as `default-splice`. Only containers known
+   *   to {@link LocalNet.getContainerId} can be read.
+   * @param options - `tail` is the number of trailing lines (default 100); `follow` keeps the
+   *   stream open for new output (default `false`).
+   * @throws If the instance is not running or the container is not known to this object.
+   */
   async logs(
     containerName: string,
     options?: { tail?: number; follow?: boolean },
@@ -1030,6 +1408,15 @@ export class LocalNet {
     return this.client.getContainerLogs(containerId, options);
   }
 
+  /**
+   * Run a command in a container and wait for it to finish.
+   *
+   * @param containerName - Full container name, such as `default-canton`. Only containers known
+   *   to {@link LocalNet.getContainerId} can be used.
+   * @param cmd - Command and arguments, not run through a shell.
+   * @returns The exit code and the command's stdout and stderr decoded as text.
+   * @throws If the instance is not running or the container is not known to this object.
+   */
   async exec(containerName: string, cmd: string[]): Promise<{ exitCode: number; output: string }> {
     await this.requireRunning('exec');
     const containerId = this.containerIds.get(containerName);
@@ -1374,12 +1761,15 @@ export class LocalNet {
   }
 
   /**
-   * Run post-startup initialization: allocate configured parties, create users,
-   * and onboard wallets. Called automatically by start() unless skipInitialization
-   * is set. Also exposed for the `dnm init` CLI command on already-running instances.
+   * Run post-startup initialization: wait for the validator APIs and Scan, allocate the configured
+   * parties, and create the configured users with {@link LocalNet.createUser}. Called by
+   * `start()` unless `skipInitialization` is set, and by the `dnm init` CLI command.
    *
-   * @internal Do not call directly in application code — use start() instead.
-   * Calling this on an already-initialized instance will create duplicate users.
+   * Users are created idempotently. Parties are allocated for every configured hint without
+   * checking whether they already exist. A party or user that fails is reported as a warning
+   * through `onProgress` and not thrown; only the readiness waits throw.
+   *
+   * @internal Application code should rely on `start()` instead.
    */
   async initializeResources(onProgress?: (msg: string) => void): Promise<void> {
     onProgress?.('Initializing resources...');
@@ -1588,6 +1978,13 @@ done
 `;
 }
 
+/**
+ * Construct a {@link LocalNet} and call {@link LocalNet.start} with default start options.
+ *
+ * Like the `LocalNet` constructor, this does not validate the config or apply schema defaults.
+ * Prefer `LocalNet.fromConfig()` followed by `start()`, which validates first and accepts start
+ * options.
+ */
 export async function createLocalNet(
   config: LocalNetConfig,
   options?: LocalNetOptions,
