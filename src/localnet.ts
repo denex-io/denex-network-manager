@@ -281,11 +281,13 @@ export class LocalNet {
    * postgres volume are missing.
    *
    * Failure is non-destructive: if `start()` fails, it removes only the
-   * containers, network and volume that this call created, and stops again any
-   * pre-existing containers it had started. A failed first start therefore
-   * leaves nothing behind, while a failed resume (for example a timeout)
-   * leaves the stopped containers, the network and the postgres data volume
-   * intact. The instance state returns to `'stopped'`.
+   * containers, network and volume that this call created, starts back any
+   * running dependents it had stopped in order to restart them, and stops
+   * again the pre-existing containers it had started (except after a 409, see
+   * below, when it leaves them running). A failed first start therefore leaves
+   * nothing behind, while a failed resume (for example a timeout) leaves the
+   * stopped containers, the network and the postgres data volume intact. The
+   * instance state returns to `'stopped'`.
    *
    * Returns without changes, marking this object running, only when every
    * container the instance should have is running. A partially running
@@ -295,13 +297,17 @@ export class LocalNet {
    * by this call (nginx and the web UIs after splice) are restarted, and
    * initialization runs again unless `skipInitialization` is set.
    *
-   * Three guards run before anything is changed or created:
+   * Two guards run before anything is changed or created:
    * - a paused container is refused (run `docker unpause <name>`);
-   * - a container in `created` state for under 60 seconds, or a name conflict
-   *   (HTTP 409) on create, means another process is probably starting the
-   *   instance; `start()` aborts without touching containers it did not create;
-   * - a `created` container of 60 seconds or more is treated as stopped and
-   *   started.
+   * - a container in `created` state for under 60 seconds means another
+   *   process is probably starting the instance, and `start()` aborts.
+   * A `created` container of 60 seconds or more is treated as stopped and
+   * started.
+   *
+   * A name conflict (HTTP 409) on create can happen mid-start, after this call
+   * has already changed things. It also means another process is probably
+   * starting the instance: `start()` aborts, removes only the containers this
+   * call created, and does not stop the containers this call started.
    */
   async start(options?: StartOptions): Promise<void> {
     if (this.internalState === 'running') {
@@ -495,16 +501,27 @@ export class LocalNet {
   /**
    * Undo a failed `start()` without touching anything the call did not itself
    * change. Every step is best-effort and independent:
-   * 1. force-remove containers this call created;
-   * 2. stop pre-existing containers this call started, one layer at a time in
-   *    reverse layer order (a layer's stops finish before the previous layer's begin);
-   * 3. remove the network only if this call created it;
-   * 4. remove the postgres volume only if this call created it;
-   * 5. forget the created containers' ids.
+   * 1. start again the running dependents this call stopped to restart;
+   * 2. force-remove containers this call created;
+   * 3. unless a create hit a 409, stop pre-existing containers this call
+   *    started, one layer at a time in reverse layer order (a layer's stops
+   *    finish before the previous layer's begin);
+   * 4. remove the network only if this call created it;
+   * 5. remove the postgres volume only if this call created it;
+   * 6. forget the created containers' ids.
    * A failed resume therefore leaves existing containers, network and data
    * volume in place (stopped), while a failed fresh start leaves nothing.
    */
   private async rollbackStart(rb: StartRollback): Promise<void> {
+    // Dependents that were running before this call and were stopped to restart.
+    // Start them first, while their upstreams still run: nginx has static
+    // proxy_pass hostnames and no resolver, and Docker DNS drops stopped
+    // containers, so an nginx started after its upstreams stop crash-loops with
+    // "host not found in upstream".
+    await Promise.allSettled(
+      [...rb.restarted.values()].map((id) => this.client.startContainer(id)),
+    );
+
     await Promise.allSettled(
       [...rb.created.values()].map((id) => this.client.removeContainer(id, true)),
     );
@@ -523,11 +540,6 @@ export class LocalNet {
         );
       }
     }
-
-    // Dependents that were running before this call and were stopped to restart.
-    await Promise.allSettled(
-      [...rb.restarted.values()].map((id) => this.client.startContainer(id)),
-    );
 
     if (rb.networkCreated) {
       await this.networkManager.remove(this.options.instanceId).catch(() => {});
