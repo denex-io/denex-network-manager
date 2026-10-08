@@ -6,6 +6,9 @@ import {
   assertThrows,
 } from '@std/assert';
 import {
+  ACCEPT_ANY,
+  ACCEPT_LIVE,
+  ACCEPT_RUNNING,
   buildPackageMatrix,
   colors,
   formatHealth,
@@ -155,6 +158,30 @@ Deno.test('resolveInstanceId - a stopped instance is not accepted by live comman
     () => resolveInstanceId([inst('a', 'stopped')], ['running', 'mixed']),
     Error,
     'No running or mixed LocalNet instances found',
+  );
+});
+
+Deno.test('resolveInstanceId - a sole mixed instance is accepted by live commands only', () => {
+  const r = resolveInstanceId([inst('a', 'mixed')], ACCEPT_LIVE);
+  assertEquals(r, { id: 'a', status: 'mixed', ignored: [] });
+  assertThrows(
+    () => resolveInstanceId([inst('a', 'mixed')], ACCEPT_RUNNING),
+    Error,
+    'No running LocalNet instances found',
+  );
+});
+
+Deno.test('resolveInstanceId - ignored lists the others when a fallback tier is chosen', () => {
+  const r = resolveInstanceId([inst('a', 'mixed'), inst('b', 'unsupported')], ACCEPT_ANY);
+  assertEquals(r.id, 'a');
+  assertEquals(r.ignored, [inst('b', 'unsupported')]);
+});
+
+Deno.test('resolveInstanceId - several stopped instances use plural "already stopped"', () => {
+  assertThrows(
+    () => resolveInstanceId([inst('a', 'stopped'), inst('b', 'stopped')], ACCEPT_LIVE, true),
+    Error,
+    'LocalNets are already stopped (a, b)',
   );
 });
 

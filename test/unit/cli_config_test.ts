@@ -46,6 +46,21 @@ Deno.test('dnm config -y - overwrites an existing file after saving a .bak', asy
   }
 });
 
+Deno.test('dnm config -y - shell-quotes an output path with whitespace', async () => {
+  const dir = await Deno.makeTempDir();
+  try {
+    await Deno.mkdir(`${dir}/my dir`);
+    const target = `${dir}/my dir/localnet.yaml`;
+
+    const r = await runConfigYes(target);
+
+    assertEquals(r.code, 0, r.stderr);
+    assertStringIncludes(r.stdout, `dnm start --config '${target}'`);
+  } finally {
+    await Deno.remove(dir, { recursive: true });
+  }
+});
+
 Deno.test('dnm config -y - writes a new file without a .bak', async () => {
   const dir = await Deno.makeTempDir();
   try {

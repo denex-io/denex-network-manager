@@ -157,7 +157,9 @@ async function writeConfig(
 
   console.log(`\n✅ Configuration written to ${outputPath}\n`);
   if (backupPath) console.log(`Previous file saved as ${backupPath}\n`);
-  const quoted = /\s/.test(outputPath) ? `"${outputPath}"` : outputPath;
+  const quoted = /[^\w@%+=:,./-]/.test(outputPath)
+    ? `'${outputPath.replaceAll("'", "'\\''")}'`
+    : outputPath;
   console.log('Next steps:');
   console.log(`  1. Review and edit ${outputPath} if needed`);
   console.log(`  2. Run: dnm start --config ${quoted}`);
