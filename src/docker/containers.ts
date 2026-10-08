@@ -74,6 +74,22 @@ function spliceImage(name: string): string {
   return `${DEFAULT_SPLICE_IMAGE_REPO}/${name}:${DEFAULT_SPLICE_VERSION}`;
 }
 
+/**
+ * Build image overrides for all Splice-family containers at a given version.
+ * Pass the result to `LocalNetOptions.images` to override the defaults.
+ */
+export function buildSpliceImages(version: string): Partial<ContainerImages> {
+  const img = (name: string) => `${DEFAULT_SPLICE_IMAGE_REPO}/${name}:${version}`;
+  return {
+    canton: img('canton'),
+    splice: img('splice-app'),
+    walletWebUi: img('wallet-web-ui'),
+    ansWebUi: img('ans-web-ui'),
+    svWebUi: img('sv-web-ui'),
+    scanWebUi: img('scan-web-ui'),
+  };
+}
+
 export const DEFAULT_IMAGES: ContainerImages = {
   postgres: 'postgres:14',
   nginx: 'nginx:1.27.0',
@@ -461,7 +477,9 @@ function buildWebUiContainer(
     networks: [options.networkName],
     healthCheck: {
       type: 'http',
-      target: 'http://localhost:8080/',
+      // Use 127.0.0.1 explicitly: newer Alpine/BusyBox (≥1.37) resolves
+      // 'localhost' to ::1 (IPv6) first, but nginx listens on IPv4 only.
+      target: 'http://127.0.0.1:8080/',
       interval: 5,
       timeout: 5,
       retries: 3,

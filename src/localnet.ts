@@ -2,6 +2,7 @@ import { DockerClient } from './docker/client.ts';
 import { NetworkManager } from './docker/network.ts';
 import {
   buildAllContainers,
+  buildSpliceImages,
   type ContainerBuilderOptions,
   type GeneratedConfigs,
   getStartupOrder,
@@ -141,6 +142,13 @@ export class LocalNet {
       config = await loadConfigFile(yamlPathOrConfig);
     } else {
       config = parseLocalNetConfig(yamlPathOrConfig);
+    }
+    // If the config YAML specifies a spliceVersion, derive image overrides from
+    // it. Explicit options.images take precedence (merged on top).
+    if (config.spliceVersion) {
+      const versionImages = buildSpliceImages(config.spliceVersion);
+      const mergedImages = { ...versionImages, ...(options?.images ?? {}) };
+      options = { ...options, images: mergedImages };
     }
     return new LocalNet(config, options);
   }
