@@ -136,16 +136,35 @@ one-connection-per-party rule in `guides/dev-stack.md`.
 Renaming a heading changes its anchor. Other pages link into `guides/dev-stack.md` headings, so
 update inbound links in the same change; the link validator catches any you miss.
 
+## API reference
+
+`starlight-typedoc` generates `reference/api/` from the doc comments on the curated SDK entry point,
+`src/sdk/mod.ts`, on every docs build. The generated Markdown is gitignored; never edit it. To
+change what the reference says, edit the doc comment in `src/`.
+
+- `tsconfig.typedoc.json` at the repo root lets TypeScript read the Deno sources
+  (`allowImportingTsExtensions`, `moduleResolution: bundler`). It lists only `src/sdk/mod.ts` under
+  `files`, so the program contains only what the SDK reaches; widening it to all of `src/` pulls in
+  the discovery server's JSR `hono` import, which TypeScript cannot resolve.
+- Bare imports (`zod`, `yaml`, `dockerode`) and `@types/node` resolve through the root
+  `node_modules/` that `deno install` creates. Without it the build still passes but zod-inferred
+  types silently collapse to `infer`. The docs workflow runs `deno install` for this reason, and
+  triggers on `src/**`, `deno.json`, and `deno.lock` as well as `site/**`.
+- Only document what `src/sdk/mod.ts` exports. `{@link}` to a symbol it does not export produces a
+  TypeDoc warning and a dead reference.
+- Doc comments are user-facing documentation: verify behaviour claims against the code as strictly
+  as the site pages.
+
 ## Not yet built
 
-Tracked as follow-up, not missing by accident: an API reference (needs a JSDoc pass — `LocalNet` has
-58 methods with 3 documented), a CI recipe page, a graduated tutorial, and a migration guide from
-upstream Splice LocalNet.
+Tracked as follow-up, not missing by accident: a CI recipe page, a graduated tutorial, and a
+migration guide from upstream Splice LocalNet.
 
 ## Canonical implementation surfaces
 
 - `site/astro.config.mjs`
 - `site/src/content/docs/`
+- `tsconfig.typedoc.json` — TypeScript settings for the API reference
 - `site/src/styles/custom.css` — diagram sizing, no-wrap code in tables, table scroll shadows
 - `site/public/favicon.svg` — placeholder mark until the project has real branding
 - `.github/workflows/docs.yml` — builds on PRs, deploys from `main`

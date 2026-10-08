@@ -5,10 +5,18 @@ name: Docs
     branches: [main]
     paths:
       - 'site/**'
+      - 'src/**'
+      - 'tsconfig.typedoc.json'
+      - 'deno.json'
+      - 'deno.lock'
       - '.github/workflows/docs.yml'
   pull_request:
     paths:
       - 'site/**'
+      - 'src/**'
+      - 'tsconfig.typedoc.json'
+      - 'deno.json'
+      - 'deno.lock'
       - '.github/workflows/docs.yml'
   workflow_dispatch:
 
@@ -39,6 +47,18 @@ jobs:
           node-version: 22
           cache: npm
           cache-dependency-path: site/package-lock.json
+
+      # The API reference is generated from src/ by TypeDoc, which resolves the SDK's npm
+      # dependencies (zod, yaml, dockerode) through the root node_modules that `deno install`
+      # creates. Without it, zod-inferred types collapse to `infer`.
+      # @v2.0.5
+      - uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed
+        name: Setup Deno
+        with:
+          deno-version: v2.x
+
+      - name: Install SDK Dependencies
+        run: deno install
 
       - name: Install Dependencies
         run: npm ci
