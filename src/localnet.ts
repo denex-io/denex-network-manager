@@ -68,7 +68,9 @@ import type {
 } from './api/state-types.ts';
 import { type DiscoveredInstance, discoverInstances } from './api/discovery-utils.ts';
 import { generateNginxConfigString } from './docker/nginx.ts';
-import { readFile } from 'node:fs/promises';
+import { access, readFile } from 'node:fs/promises';
+import process from 'node:process';
+import { dirname, isAbsolute, resolve } from 'node:path';
 
 export interface LocalNetOptions {
   instanceId?: string;
@@ -85,6 +87,24 @@ export interface LocalNetOptions {
    * `LocalNet.warnings`.
    */
   onWarning?: (warning: LocalNetWarning) => void;
+  /**
+   * Directory that relative `packages[].dar` paths resolve against when the packages are
+   * uploaded (falling back to the current directory when the file is not found there).
+   * Not part of the config, so it is never compared by {@link LocalNet.detectConfigMismatch}.
+   * {@link LocalNet.fromConfig} sets it to the YAML file's directory when given a path;
+   * `start()` stores it in the `<labelPrefix>.config-dir` label and
+   * {@link LocalNet.fromInstanceId} reads it back.
+   */
+  configDir?: string;
+}
+
+/** A configured package with its DAR path made absolute and its upload targets filled in. */
+export interface ResolvedPackage {
+  name: string;
+  /** Absolute DAR path. */
+  dar: string;
+  /** `'sv'` and/or validator names. */
+  targets: string[];
 }
 
 export interface ConfigMismatch {
@@ -100,6 +120,57 @@ export interface ConfigMismatch {
  * re-checked against the input rules).
  */
 const trustedConfigs = new WeakMap<object, readonly ConfigWarning[]>();
+
+async function fileExists(path: string): Promise<boolean> {
+  try {
+    await access(path);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Resolves the configured packages for upload without changing the config: a relative
+ * `dar` becomes absolute against `configDir` (the file is then looked for in the current
+ * directory if it is not there; with no `configDir`, only the current directory is used),
+ * and `uploadTo` defaults to `'sv'` plus every validator. When the DAR is found in neither
+ * place the `configDir` candidate is returned, so errors name the expected location.
+ */
+export async function resolvePackages(
+  config: LocalNetConfig,
+  configDir?: string,
+): Promise<ResolvedPackage[]> {
+  const all = ['sv', ...normalizeValidators(config.validators).map((v) => v.name)];
+  const resolved: ResolvedPackage[] = [];
+  for (const pkg of config.packages ?? []) {
+    let dar = pkg.dar;
+    if (!isAbsolute(dar)) {
+      const primary = resolve(configDir ?? process.cwd(), dar);
+      const fallback = resolve(dar);
+      dar = !(await fileExists(primary)) && (await fileExists(fallback)) ? fallback : primary;
+    }
+    resolved.push({ name: pkg.name, dar, targets: pkg.uploadTo ?? all });
+  }
+  return resolved;
+}
+
+/** Returns one message per package whose DAR file does not exist. */
+export async function findMissingPackageFiles(packages: ResolvedPackage[]): Promise<string[]> {
+  const missing: string[] = [];
+  for (const pkg of packages) {
+    if (!(await fileExists(pkg.dar))) {
+      missing.push(`Package '${pkg.name}': DAR file not found: ${pkg.dar}`);
+    }
+  }
+  return missing;
+}
+
+/** Throws if any package's DAR file is missing. */
+export async function assertPackageFilesExist(packages: ResolvedPackage[]): Promise<void> {
+  const missing = await findMissingPackageFiles(packages);
+  if (missing.length > 0) throw new Error(missing.join('; '));
+}
 
 const DEFAULT_INSTANCE_ID = 'default';
 const DEFAULT_LABEL_PREFIX = 'denex.localnet';
@@ -164,7 +235,7 @@ export class LocalNet {
   private networkManager: NetworkManager;
   private config: LocalNetConfig;
   private configWarnings: readonly ConfigWarning[];
-  private options: Required<LocalNetOptions>;
+  private options: Required<Omit<LocalNetOptions, 'configDir'>> & { configDir?: string };
   private internalState: LocalNetState = 'stopped';
   private startedAt?: Date;
   private containerIds: Map<string, string> = new Map();
@@ -211,6 +282,7 @@ export class LocalNet {
       dbUser: options?.dbUser ?? 'cnadmin',
       dbPassword: options?.dbPassword ?? 'supersafe',
       onWarning,
+      configDir: options?.configDir,
     };
 
     this.client = new DockerClient({ labelPrefix });
@@ -235,7 +307,9 @@ export class LocalNet {
       ? await loadConfigFile(yamlPathOrConfig, parseOptions)
       : parseLocalNetConfig(yamlPathOrConfig, parseOptions);
     trustedConfigs.set(config, warnings);
-    return new LocalNet(config, options);
+    const configDir = options?.configDir ??
+      (typeof yamlPathOrConfig === 'string' ? dirname(resolve(yamlPathOrConfig)) : undefined);
+    return new LocalNet(config, { ...options, configDir });
   }
 
   static async fromInstanceId(
@@ -281,7 +355,8 @@ export class LocalNet {
     }
 
     trustedConfigs.set(config, []);
-    const localnet = new LocalNet(config, { ...options, instanceId: id });
+    const configDir = options?.configDir ?? first.labels[`${labelPrefix}.config-dir`];
+    const localnet = new LocalNet(config, { ...options, instanceId: id, configDir });
     localnet.markAttachedToRunning();
     for (const container of containers) {
       localnet.containerIds.set(container.name, container.id);
@@ -317,7 +392,7 @@ export class LocalNet {
     return this.config;
   }
 
-  getOptions(): Required<LocalNetOptions> {
+  getOptions(): Required<Omit<LocalNetOptions, 'configDir'>> & { configDir?: string } {
     return { ...this.options };
   }
 
@@ -424,6 +499,12 @@ export class LocalNet {
     if (running.length > 0) {
       options?.onProgress?.('Instance is partially running; starting stopped containers...');
       for (const c of present) this.containerIds.set(c.name, c.id);
+    }
+
+    // A missing DAR stops a fresh start before Docker is touched. On resume or repair the
+    // instance is worth more than the upload, so initializeResources warns instead.
+    if (present.length === 0 && !options?.skipInitialization) {
+      await assertPackageFilesExist(await resolvePackages(this.config, this.options.configDir));
     }
 
     const timeout = options?.timeout ?? 300000;
@@ -1879,12 +1960,15 @@ export class LocalNet {
 
   /**
    * Run post-startup initialization: allocate configured parties, create users,
-   * and onboard wallets. Called automatically by start() unless skipInitialization
+   * onboard wallets, and upload the configured `packages`. Called automatically by start() unless skipInitialization
    * is set. Also exposed for the `dnm init` CLI command on already-running instances.
    *
    * Safe to re-run: a configured party whose hint is already hosted on its
    * validator's participant is skipped, and users converge on their configured
-   * state (see {@link LocalNet.createUser}).
+   * state (see {@link LocalNet.createUser}). Packages upload to their `uploadTo`
+   * validators (default `sv` and every validator); relative `dar` paths resolve against
+   * `configDir`, then the current directory. A missing DAR or failed upload is a
+   * `'packages'` warning, not an error, and Canton ignores a repeated upload.
    *
    * @internal Do not call directly in application code — use start() instead.
    */
@@ -1977,7 +2061,32 @@ export class LocalNet {
       }
     }
 
+    await this.uploadConfiguredPackages(onProgress);
+
     onProgress?.('Resource initialization complete');
+  }
+
+  /**
+   * Uploads `config.packages` to their targets. A missing DAR or a failed upload is
+   * reported through `onWarning` (`source: 'packages'`) and the next package is tried;
+   * re-uploading a DAR Canton already has is a no-op.
+   */
+  private async uploadConfiguredPackages(onProgress?: (msg: string) => void): Promise<void> {
+    const packages = await resolvePackages(this.config, this.options.configDir);
+    for (const pkg of packages) {
+      try {
+        await assertPackageFilesExist([pkg]);
+        onProgress?.(`Uploading package '${pkg.name}' to ${pkg.targets.join(', ')}...`);
+        const packageId = await this.uploadDar(pkg.dar, pkg.targets);
+        onProgress?.(`Uploaded package '${pkg.name}': ${packageId}`);
+      } catch (error) {
+        const reason = error instanceof Error ? error.message : String(error);
+        this.warn({
+          source: 'packages',
+          message: `Package '${pkg.name}' was not uploaded: ${reason}`,
+        });
+      }
+    }
   }
 
   private deriveStateFromContainers(containers: ContainerInfo[]): LocalNetState {
@@ -2072,6 +2181,9 @@ export class LocalNet {
         [`${this.options.labelPrefix}.instance`]: this.options.instanceId,
         [`${this.options.labelPrefix}.config`]: configJson,
         [`${this.options.labelPrefix}.schema`]: '2',
+        ...(this.options.configDir
+          ? { [`${this.options.labelPrefix}.config-dir`]: this.options.configDir }
+          : {}),
       };
     }
 

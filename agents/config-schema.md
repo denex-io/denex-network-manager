@@ -66,8 +66,10 @@ user-facing schema, fills defaults, and feeds the generator and lifecycle layers
 
 - YAML merge keys (`<<`) and `x-*` anchor keys are not exempt from unknown-key detection; they warn
   as "Unrecognized key".
-- `packages:` is parsed and validated, but startup does not currently auto-upload those DARs. Use
-  `LocalNet.uploadDar()` for runtime uploads.
+- `packages:` is uploaded by `initializeResources()`. The parsed config keeps `dar` as written and
+  `uploadTo` without a default (both are resolved at upload time), because `detectConfigMismatch`
+  compares the whole parsed config with the label. `uploadTo: []` and unknown targets are input-only
+  rules in `checkConfigInvariants`, so stored labels with them still parse.
 - `withDefaults()` does **not** inject a default `discovery` value. If `config.discovery` is absent,
   the output has `discovery: undefined`. Old code that relied on `withDefaults()` always producing a
   `discovery` object will see `undefined` now.

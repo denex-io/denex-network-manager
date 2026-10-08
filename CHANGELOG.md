@@ -7,6 +7,15 @@ All notable changes to this project will be documented in this file. The format 
 
 ### Added
 
+- `packages:` auto-upload: each configured DAR is uploaded to its `uploadTo` participants (default
+  `sv` and every validator) at the end of initialization, so by `dnm start` and again by `dnm init`.
+  A failed upload or a missing DAR on resume warns (`source: 'packages'`) and start continues; a
+  missing DAR on a fresh start fails before anything is created.
+- `LocalNetOptions.configDir` and the `<labelPrefix>.config-dir` container label: the directory that
+  relative `packages[].dar` paths resolve against (then the cwd). `fromConfig(path)` and `dnm start`
+  set it to the config file's directory.
+- `packages[].uploadTo` is checked on input: it must not be empty and may name only `sv` or a
+  configured validator.
 - `ContainerInfo.created` (unix seconds), filled by `DockerClient.listContainers()`.
 - `DockerClient.findNetwork()` / `findVolume()` (null only on 404, other errors rethrown) and
   `NetworkManager.ensure()` (returns `{ id, created }`).
@@ -21,6 +30,10 @@ All notable changes to this project will be documented in this file. The format 
 
 ### Changed
 
+- Existing configs with a `packages:` list now upload those DARs on `dnm start` (previously the
+  field was parsed and ignored). The parsed config is unchanged (`dar` as written, no `uploadTo`
+  default), so instances created by earlier versions still resume without a config mismatch;
+  instances without a `config-dir` label resolve relative paths against the cwd.
 - `dnm config -y` overwrites an existing file after copying it to `<file>.bak` (an existing
   `<file>.bak` is replaced); it used to prompt, and hung without a TTY.
 - `dnm status`, `env` and `credentials` (running, then mixed, then stopped), `stop`, `parties`,

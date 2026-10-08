@@ -334,9 +334,14 @@ unknown or unreachable validator. `getSnapshot()` is best-effort: it returns emp
 hint passed to `createUser` resolves only against parties hosted on that user's validator; a hint
 hosted only elsewhere is allocated afresh there, with the same hint but a different party id.
 
-> **Note:** DAR packages listed in the `packages:` config field are validated on load but are
-> **not** uploaded automatically on startup. Call `net.uploadDar(path)` after start, or use `dnm` to
-> upload after the network is running.
+> **Note:** DAR packages listed in the `packages:` config field are uploaded at the end of
+> initialization, so `dnm start` uploads them and `dnm init` uploads them again (Canton ignores a
+> repeated upload). A relative `dar` resolves against the config file's directory, then the current
+> directory; with the SDK pass `configDir` in the options when you give `LocalNet` a config object.
+> `uploadTo` lists `sv` and/or validator names and defaults to all of them. A missing DAR stops a
+> fresh start before anything is created; on resume, and for any failed upload, you get a warning
+> and the start continues. `--skip-init` / `skipInitialization` skip the upload. Call
+> `net.uploadDar(path)` to upload at any other time.
 
 `createUser` provisions the ledger user, Keycloak user, and wallet onboarding. It is idempotent per
 side, so retries converge after partial failures.

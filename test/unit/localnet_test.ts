@@ -1,10 +1,15 @@
 import { assert, assertEquals, assertExists, assertRejects, assertThrows } from '@std/assert';
 import { ZodError } from 'zod';
-import { mkdtemp, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { DockerClient } from '../../src/docker/client.ts';
-import { createLocalNet, LocalNet } from '../../src/localnet.ts';
+import {
+  assertPackageFilesExist,
+  createLocalNet,
+  LocalNet,
+  resolvePackages,
+} from '../../src/localnet.ts';
 import { createMinimalConfig } from '../../src/utils/yaml.ts';
 import type { LocalNetConfig, PerPartyRight, UserRight } from '../../src/types/config.ts';
 
@@ -247,6 +252,118 @@ Deno.test('LocalNet.fromInstanceId - stored configs are not re-validated', async
       const net = await LocalNet.fromInstanceId('legacy');
       assertEquals(net.getConfig().validators, config.validators);
       assertEquals(net.warnings, []);
+    }
+  } finally {
+    DockerClient.prototype.listContainers = original;
+  }
+});
+
+function packagesConfig(): LocalNetConfig {
+  const config = createMinimalConfig(2);
+  config.packages = [
+    { name: 'rel', dar: 'dars/app.dar' },
+    { name: 'abs', dar: '/abs/other.dar', uploadTo: ['validator-2'] },
+  ];
+  return config;
+}
+
+Deno.test('resolvePackages - resolves relative dar against configDir and defaults targets', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'pkg-resolve-'));
+  const configDir = join(root, 'nested', 'cfg');
+  await mkdir(configDir, { recursive: true });
+  const config = packagesConfig();
+  const resolved = await resolvePackages(config, configDir);
+  assertEquals(resolved, [
+    {
+      name: 'rel',
+      dar: join(configDir, 'dars/app.dar'),
+      targets: ['sv', 'validator-1', 'validator-2'],
+    },
+    { name: 'abs', dar: '/abs/other.dar', targets: ['validator-2'] },
+  ]);
+  // The config itself is untouched.
+  assertEquals(config.packages?.[0], { name: 'rel', dar: 'dars/app.dar' });
+});
+
+Deno.test('resolvePackages - falls back to the current directory when not found in configDir', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'pkg-cwd-'));
+  const cwdDar = resolve('dars-p8-fallback.dar');
+  await writeFile(cwdDar, 'x');
+  try {
+    const config = createMinimalConfig(1);
+    config.packages = [{ name: 'p', dar: 'dars-p8-fallback.dar' }];
+    const [fromFallback] = await resolvePackages(config, join(root, 'empty'));
+    assertEquals(fromFallback.dar, cwdDar);
+    // Found in configDir: configDir wins.
+    await writeFile(join(root, 'dars-p8-fallback.dar'), 'y');
+    const [primary] = await resolvePackages(config, root);
+    assertEquals(primary.dar, join(root, 'dars-p8-fallback.dar'));
+    // No configDir: current directory.
+    const [noDir] = await resolvePackages(config);
+    assertEquals(noDir.dar, cwdDar);
+  } finally {
+    await Deno.remove(cwdDar);
+  }
+});
+
+Deno.test('assertPackageFilesExist - names each missing DAR', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'pkg-exist-'));
+  await writeFile(join(dir, 'ok.dar'), 'x');
+  await assertPackageFilesExist([{ name: 'ok', dar: join(dir, 'ok.dar'), targets: ['sv'] }]);
+  const err = await assertRejects(() =>
+    assertPackageFilesExist([
+      { name: 'ok', dar: join(dir, 'ok.dar'), targets: ['sv'] },
+      { name: 'gone', dar: join(dir, 'gone.dar'), targets: ['sv'] },
+    ])
+  );
+  assert(err instanceof Error);
+  assert(err.message.includes("Package 'gone'"));
+  assert(err.message.includes(join(dir, 'gone.dar')));
+  assertEquals(err.message.includes("'ok'"), false);
+});
+
+Deno.test('LocalNet.fromConfig - a YAML path sets configDir to the file directory', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'cfgdir-'));
+  const path = join(dir, 'localnet.yaml');
+  await writeFile(
+    path,
+    'version: "1.0"\nvalidators: 1\nauth:\n  keycloak:\n    admin: a\n    password: b\n',
+  );
+  const net = await LocalNet.fromConfig(path);
+  assertEquals(net.getOptions().configDir, dirname(resolve(path)));
+  const obj = await LocalNet.fromConfig(createMinimalConfig(1));
+  assertEquals(obj.getOptions().configDir, undefined);
+});
+
+Deno.test('LocalNet.fromInstanceId - reads configDir from the config-dir label', async () => {
+  const original = DockerClient.prototype.listContainers;
+  try {
+    for (const label of ['/the/dir', undefined]) {
+      DockerClient.prototype.listContainers = () =>
+        Promise.resolve([{
+          id: 'c1',
+          name: 'legacy-splice',
+          state: 'running' as const,
+          status: 'Up',
+          image: 'img',
+          ports: [],
+          labels: {
+            'denex.localnet.schema': '2',
+            'denex.localnet.config': JSON.stringify({
+              validators: 1,
+              auth: { keycloak: { admin: 'a', password: 'b' } },
+              // Stored labels are not checked against the input-only package rules.
+              packages: [
+                { name: 'p', dar: 'x.dar', uploadTo: [] },
+                { name: 'q', dar: 'y.dar', uploadTo: ['nope'] },
+              ],
+            }),
+            ...(label ? { 'denex.localnet.config-dir': label } : {}),
+          },
+        }]);
+      const net = await LocalNet.fromInstanceId('legacy');
+      assertEquals(net.getOptions().configDir, label);
+      assertEquals(net.getConfig().packages?.length, 2);
     }
   } finally {
     DockerClient.prototype.listContainers = original;

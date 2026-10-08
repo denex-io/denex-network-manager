@@ -1,5 +1,10 @@
 import { z } from 'zod';
-import { CONFIG_DEFAULTS, getRealmName, type ValidatorConfig } from '../types/config.ts';
+import {
+  CONFIG_DEFAULTS,
+  getRealmName,
+  normalizeValidators,
+  type ValidatorConfig,
+} from '../types/config.ts';
 import type { ConfigWarning } from '../types/state.ts';
 import { getHighestPort, MAX_PORT } from '../utils/ports.ts';
 
@@ -227,7 +232,8 @@ function unknownKeyWarnings(input: unknown): ConfigWarning[] {
  * Input-only rules that are not part of the schema, so stored labels keep parsing: the
  * port limit for the validator count, lowercase and unique validator names that neither
  * equal the reserved `sv` nor derive a Keycloak realm name already in use, and lowercase user
- * ids (Keycloak lowercases usernames).
+ * ids (Keycloak lowercases usernames). Also `packages[].uploadTo`: when present it must be
+ * non-empty and name only `sv` or configured validators.
  */
 function checkConfigInvariants(parsed: ParsedLocalNetConfig): z.ZodIssue[] {
   const issues: z.ZodIssue[] = [];
@@ -307,6 +313,28 @@ function checkConfigInvariants(parsed: ParsedLocalNetConfig): z.ZodIssue[] {
       });
     });
   }
+  const hostNames = new Set(['sv', ...normalizeValidators(parsed.validators).map((v) => v.name)]);
+  (parsed.packages ?? []).forEach((pkg, i) => {
+    if (pkg.uploadTo === undefined) return;
+    if (pkg.uploadTo.length === 0) {
+      issues.push({
+        code: z.ZodIssueCode.custom,
+        path: ['packages', i, 'uploadTo'],
+        message: `packages[${i}].uploadTo must not be empty; omit it to upload to sv and ` +
+          `every validator`,
+      });
+      return;
+    }
+    pkg.uploadTo.forEach((target, j) => {
+      if (hostNames.has(target)) return;
+      issues.push({
+        code: z.ZodIssueCode.custom,
+        path: ['packages', i, 'uploadTo', j],
+        message: `Unknown upload target '${target}'; expected 'sv' or one of: ` +
+          [...hostNames].filter((n) => n !== 'sv').join(', '),
+      });
+    });
+  });
   return issues;
 }
 
