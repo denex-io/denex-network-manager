@@ -1967,16 +1967,18 @@ export class LocalNet {
 
   /**
    * Run post-startup initialization: allocate configured parties, create users,
-   * onboard wallets, and upload the configured `packages`. Called automatically by start()
-   * unless skipInitialization is set. Also exposed for the `dnm init` CLI command on already-running instances.
+   * onboard wallets, and upload the configured `packages`. Called automatically
+   * by start() unless skipInitialization is set. Also exposed for the
+   * `dnm init` CLI command on already-running instances.
    *
    * Safe to re-run: a configured party whose hint is already hosted on its
    * validator's participant is skipped, and users converge on their configured
-   * state (see {@link LocalNet.createUser}). Packages upload to their `uploadTo`
-   * validators (default `sv` and every validator); relative `dar` paths resolve against
-   * `configDir`, then the current directory. A missing DAR or failed upload is a
-   * `'packages'` warning, not an error. Re-uploading an existing DAR is expected to be a
-   * no-op (to be confirmed by live validation).
+   * state (see {@link LocalNet.createUser}). Packages upload to their
+   * `uploadTo` validators (default `sv` and every validator); relative `dar`
+   * paths resolve against `configDir`, then the current directory. A missing
+   * DAR or failed upload is a `'packages'` warning, not an error. Re-uploading
+   * an existing DAR is expected to be a no-op (to be confirmed by live
+   * validation).
    *
    * @internal Do not call directly in application code — use start() instead.
    */
