@@ -60,6 +60,16 @@ export interface ContainerInfo {
   labels: Record<string, string>;
 }
 
+/** Result of running a command in a container with `DockerClient.execInContainer`. */
+export interface ExecResult {
+  /** The command's exit code, or -1 if Docker never reported one. */
+  exitCode: number;
+  /** stdout and stderr merged in arrival order. */
+  output: string;
+  stdout: string;
+  stderr: string;
+}
+
 export interface NetworkInfo {
   id: string;
   name: string;

@@ -130,3 +130,74 @@ Deno.test('LocalNet - createUser accepts UserConfig-shaped options', async () =>
     'is not running',
   );
 });
+
+// --- logs() / exec() container resolution (#22, #23) ---
+
+interface FakeLogsExecClient {
+  listContainers(
+    labels?: Record<string, string>,
+  ): Promise<{ id: string; name: string; state: string }[]>;
+  getContainerLogs(id: string, options?: unknown): Promise<ReadableStream<Uint8Array>>;
+  execInContainer(
+    id: string,
+    cmd: string[],
+  ): Promise<{ exitCode: number; output: string; stdout: string; stderr: string }>;
+}
+
+function makeNetWithFakeDocker(instanceId: string) {
+  const net = new LocalNet(createMinimalConfig(1), { instanceId });
+  const calls = {
+    list: [] as (Record<string, string> | undefined)[],
+    logs: [] as string[],
+    exec: [] as string[],
+  };
+  const fake: FakeLogsExecClient = {
+    listContainers: (labels) => {
+      calls.list.push(labels);
+      return Promise.resolve([
+        { id: 'id-splice', name: `${instanceId}-splice`, state: 'running' },
+        { id: 'id-postgres', name: `${instanceId}-postgres`, state: 'running' },
+      ]);
+    },
+    getContainerLogs: (id) => {
+      calls.logs.push(id);
+      return Promise.resolve(new ReadableStream<Uint8Array>());
+    },
+    execInContainer: (id) => {
+      calls.exec.push(id);
+      return Promise.resolve({ exitCode: 0, output: 'o', stdout: 'o', stderr: '' });
+    },
+  };
+  (net as unknown as { client: FakeLogsExecClient }).client = fake;
+  return { net, calls };
+}
+
+Deno.test('LocalNet.logs/exec resolve by runtime name on an implicitly attached handle', async () => {
+  const { net, calls } = makeNetWithFakeDocker('t-res');
+  // Never started or built with fromInstanceId: containerIds is empty and the
+  // handle attaches through requireRunning's auto-detect.
+  assertEquals(net.getContainerId('t-res-splice'), undefined);
+
+  await net.logs('t-res-splice');
+  assertEquals(calls.logs, ['id-splice']);
+
+  const result = await net.exec('t-res-postgres', ['true']);
+  assertEquals(calls.exec, ['id-postgres']);
+  assertEquals(result.stdout, 'o');
+  assertEquals(result.stderr, '');
+
+  // The lookup is confined to this instance by label.
+  assert(calls.list.some((l) => l?.['denex.localnet.instance'] === 't-res'));
+});
+
+Deno.test('LocalNet.logs/exec reject unknown names and list the instance containers', async () => {
+  const { net } = makeNetWithFakeDocker('t-unk');
+  for (const name of ['other-splice', 'splice']) {
+    for (const call of [() => net.logs(name), () => net.exec(name, ['true'])]) {
+      const err = await assertRejects(call);
+      const msg = String(err);
+      assert(msg.includes(`Container ${name} not found`), msg);
+      assert(msg.includes('t-unk-postgres, t-unk-splice'), msg);
+    }
+  }
+});

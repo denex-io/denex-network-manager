@@ -36,6 +36,8 @@ deno task playwright:install
 - `test/unit/discovery_integration_test.ts`
 - `test/unit/discovery_test.ts`
 - `test/unit/discovery_utils_test.ts`
+- `test/unit/docker_fake_engine_test.ts`
+- `test/unit/docker_stream_test.ts`
 - `test/unit/docker_test.ts`
 - `test/unit/generator_test.ts`
 - `test/unit/keycloak_admin_test.ts`

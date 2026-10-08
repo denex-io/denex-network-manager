@@ -3,6 +3,25 @@
 All notable changes to this project will be documented in this file. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Fixed
+
+- `LocalNet.logs()` no longer throws for `follow: false` (the default), and both `logs()` and
+  `exec()` no longer return Docker's 8-byte stream frame headers mixed into the text. Output is now
+  demultiplexed; stdout and stderr are merged in arrival order. Cancelling a followed log stream now
+  closes the connection.
+- `LocalNet.logs()` and `exec()` now work on any handle of a running instance, including ones
+  attached implicitly. They take the full runtime container name (for example `default-splice`),
+  look it up by the instance label on each call, and list the instance's container names when it is
+  not found.
+
+### Changed
+
+- `LocalNet.exec()` and `DockerClient.execInContainer()` now also return separate `stdout` and
+  `stderr` strings alongside `output`. The exit code is read after a short retry until Docker
+  records it, and output truncated mid-frame is reported as an error.
+
 ## [0.1.0-beta.1] — 2026-07-28
 
 Initial public beta release of `@denex/network-manager`.
