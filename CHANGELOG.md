@@ -15,6 +15,10 @@ All notable changes to this project will be documented in this file. The format 
 - `readDarMainPackageId()` is exported from the API barrel.
 - Discovery `GET /instances/:id/packages` returns 503 when no participant responds and a `failures`
   list alongside the reachable packages on partial results.
+- `parseLocalNetConfigWithWarnings()`, `parseStoredLocalNetConfig()`, `ConfigWarning`,
+  `LocalNet.warnings`, and an optional `{ onWarning }` argument on `parseLocalNetConfig`,
+  `validateLocalNetConfig`, `withDefaults`, `loadConfigFile`, `loadConfigFromDir` and
+  `loadConfigFromString`.
 
 ### Changed
 
@@ -73,7 +77,10 @@ All notable changes to this project will be documented in this file. The format 
   `basePort` including 5000. The port is never published to the host and is not persisted, so
   nothing outside the container sees the change; it removes a collision at `basePort` values such as
   9010 (splice) or 9951 (canton).
-
+- The splice Prometheus metrics reporter now listens on basePort+13 inside the container instead of
+  the image default 10013, at every `basePort` including 5000. The port is never published to the
+  host and is not persisted, so nothing outside the container sees the change; it removes a
+  collision at `basePort` values such as 9010.
 - Unknown config keys now produce a warning (stderr in the CLI, `LocalNetOptions.onWarning` in the
   SDK) instead of being dropped silently; `LocalNet.warnings` holds the construction-time ones. The
   exported `LocalNetConfigSchema` still strips them. Stored instance labels are parsed silently and
@@ -91,10 +98,6 @@ All notable changes to this project will be documented in this file. The format 
 - **Breaking:** `PartyConfig.validator` and `UserConfig.validator` are removed (they were never
   acted on); the keys now warn and are ignored.
 - `dnm config` validates the generated file (duplicate or colliding validator names) before writing.
-- Added `parseLocalNetConfigWithWarnings()`, `parseStoredLocalNetConfig()`, `ConfigWarning`,
-  `LocalNet.warnings`, and an optional `{ onWarning }` argument on `parseLocalNetConfig`,
-  `validateLocalNetConfig`, `withDefaults`, `loadConfigFile`, `loadConfigFromDir` and
-  `loadConfigFromString`.
 
 ### Fixed
 
@@ -128,6 +131,7 @@ All notable changes to this project will be documented in this file. The format 
 - **Breaking:** `SV_INTERNAL_PORTS` is removed from the package root without a deprecation period.
   Its values were only correct at basePort 5000. The internal port helpers are not part of the
   public API. The SV-only port numbers are listed in the README "Port Allocation" section.
+- **Breaking:** the never-used `validator` field on `PartyConfig` and `UserConfig` is removed.
 
 ### Upgrade notes
 

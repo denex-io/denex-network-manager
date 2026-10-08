@@ -80,7 +80,10 @@ export interface LocalNetOptions {
   /**
    * Receives non-fatal problems, for example a validator that did not respond to a
    * query whose other results are still returned. Defaults to `console.warn`.
-   * Runtime query warnings are delivered here on every occurrence.
+   * Runtime query warnings are delivered here on every occurrence and are not stored.
+   * Config warnings (`source: 'config'`, with `path`, for example unknown keys) are
+   * delivered once at construction or in `fromConfig` and are also kept in
+   * `LocalNet.warnings`.
    */
   onWarning?: (warning: LocalNetWarning) => void;
 }
@@ -185,6 +188,8 @@ export class LocalNet {
   constructor(config: LocalNetConfig, options?: LocalNetOptions) {
     const onWarning = options?.onWarning ?? ((w: LocalNetWarning) => console.warn(w.message));
     const trusted = trustedConfigs.get(config);
+    // One-shot: a later mutation of the same object must be validated again.
+    trustedConfigs.delete(config);
     if (trusted) {
       this.config = config;
       this.configWarnings = trusted;

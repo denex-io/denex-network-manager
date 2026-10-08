@@ -489,6 +489,7 @@ Deno.test('validateLocalNetConfig - a typo plus an invalid value fails and still
     onWarning: (w) => warnings.push(w),
   });
   assertEquals(result.success, false);
+  if (!result.success) assertEquals(result.errors.issues[0].path, ['validators']);
   assertEquals(warnings.map((w) => w.path), ['basport']);
 });
 
