@@ -390,9 +390,15 @@ function makeNetWithFakeDocker(instanceId: string) {
   const fake: FakeLogsExecClient = {
     listContainers: (labels) => {
       calls.list.push(labels);
-      return Promise.resolve([
+      const all = [
         { id: 'id-splice', name: `${instanceId}-splice`, state: 'running' },
         { id: 'id-postgres', name: `${instanceId}-postgres`, state: 'running' },
+      ];
+      // Honour the instance filter; an unfiltered call also sees another instance.
+      if (labels?.['denex.localnet.instance'] === instanceId) return Promise.resolve(all);
+      return Promise.resolve([
+        ...all,
+        { id: 'id-other', name: 'other-splice', state: 'running' },
       ]);
     },
     getContainerLogs: (id) => {
@@ -422,8 +428,9 @@ Deno.test('LocalNet.logs/exec resolve by runtime name on an implicitly attached 
   assertEquals(result.stdout, 'o');
   assertEquals(result.stderr, '');
 
-  // The lookup is confined to this instance by label.
-  assert(calls.list.some((l) => l?.['denex.localnet.instance'] === 't-res'));
+  // The lookup is confined to this instance by label: every call carries it.
+  assert(calls.list.length > 0);
+  assert(calls.list.every((l) => l?.['denex.localnet.instance'] === 't-res'));
 });
 
 Deno.test('LocalNet.logs/exec reject unknown names and list the instance containers', async () => {
