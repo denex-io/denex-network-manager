@@ -23,7 +23,9 @@ and exposes running instances over an optional foreground Hono HTTP server.
 ## Working rules
 
 - Label constants use `denex.localnet`: `instance`, `config`, and `schema`.
-- Schema `2` stores full config JSON in the Docker label.
+- Schema `2` stores full config JSON in the Docker label. A separate `config-dir` label holds the
+  directory relative `packages[].dar` paths resolve against; it is not part of the config and
+  discovery ignores it.
 - `DiscoveredInstance.status` is order-independent: `running` only if every counted container runs,
   `stopped` if none does, `mixed` on any disagreement.
 - Instances with unsupported label schema are surfaced as `unsupported` where possible.
