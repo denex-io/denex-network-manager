@@ -1,16 +1,19 @@
 import { Command } from '@cliffy/command';
-import { getRunningLocalNet, printError, renderStatusTable } from '../utils.ts';
+import { ACCEPT_ANY, getRunningLocalNet, printError, renderStatusTable } from '../utils.ts';
 import { getRealmName, normalizeValidators } from '../../types/config.ts';
 import { getKeycloakPort } from '../../utils/ports.ts';
 
 export const statusCommand = new Command()
   .name('status')
   .description('Show LocalNet status')
-  .option('--instance <id:string>', 'Instance ID (auto-resolves if only one running)')
+  .option(
+    '--instance <id:string>',
+    'Instance ID (auto-resolves to the one running, mixed or stopped instance)',
+  )
   .option('--json', 'Output as JSON')
   .action(async (options) => {
     try {
-      const localnet = await getRunningLocalNet(options.instance);
+      const localnet = await getRunningLocalNet(options.instance, undefined, ACCEPT_ANY);
       const status = await localnet.status();
 
       if (options.json) {

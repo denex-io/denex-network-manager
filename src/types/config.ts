@@ -129,7 +129,7 @@ export type AuthConfig = OAuth2Config;
 
 /**
  * Discovery server configuration.
- * @deprecated Use 'localnet discovery serve' command instead. This type will be removed in a future version.
+ * @deprecated Use `dnm discovery serve` (CLI) or `MultiInstanceDiscoveryServer` (SDK) instead. This type will be removed in a future version.
  */
 export interface DiscoveryConfig {
   /** Port to run the discovery server on. */
@@ -184,7 +184,7 @@ export interface LocalNetConfig {
 
   /**
    * Discovery server configuration.
-   * @deprecated Use 'localnet discovery serve' command instead. This field will be removed in a future version.
+   * @deprecated Use `dnm discovery serve` (CLI) or `MultiInstanceDiscoveryServer` (SDK) instead. This field will be removed in a future version.
    */
   discovery?: DiscoveryConfig;
 
