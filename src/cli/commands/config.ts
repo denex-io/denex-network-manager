@@ -4,7 +4,7 @@ import { stringify } from '@std/yaml';
 import { printError, warnToStderr } from '../utils.ts';
 import { CONFIG_DEFAULTS } from '../../types/config.ts';
 import { validateLocalNetConfig } from '../../schemas/mod.ts';
-import { DEFAULT_BASE_PORT, getKeycloakPort } from '../../utils/ports.ts';
+import { DEFAULT_BASE_PORT, getKeycloakPort, MAX_PORT } from '../../utils/ports.ts';
 
 export const configCommand = new Command()
   .description('Generate a localnet.yaml configuration file')
@@ -45,6 +45,8 @@ async function generateInteractive(outputPath: string): Promise<boolean> {
     message: 'Number of validators (excluding the Super Validator which is always created)',
     default: CONFIG_DEFAULTS.validatorCount,
     min: 1,
+    // Highest port at 80 + 100 * count above the default base port must stay <= 65535.
+    max: Math.floor((MAX_PORT - 80 - DEFAULT_BASE_PORT) / 100),
   });
 
   const useDetailedValidators = await Confirm.prompt({

@@ -27,6 +27,7 @@ export const PerPartyRightSchema = z.enum(['CanActAs', 'CanReadAs', 'CanExecuteA
  * unknown keys so they can be reported as warnings.
  */
 function makeSchemas<M extends 'strict' | 'strip'>(mode: M) {
+  // Relies on zod v3's `_def` layout to switch `unknownKeys` on an otherwise identical shape.
   const obj = <T extends z.ZodRawShape>(shape: T): z.ZodObject<T, M> =>
     new z.ZodObject<T, M>({ ...z.object(shape)._def, unknownKeys: mode });
 
@@ -205,8 +206,8 @@ function unknownKeyWarnings(input: unknown): ConfigWarning[] {
       const parent = issue.path[issue.path.length - 2];
       let message = `Unrecognized key '${key}' at ${where || 'root'} (ignored)`;
       if (
-        key === 'validator' && typeof last === 'number' &&
-        (parent === 'parties' || parent === 'users')
+        key === 'validator' && typeof last === 'number' && issue.path.length === 4 &&
+        issue.path[0] === 'validators' && (parent === 'parties' || parent === 'users')
       ) {
         const owner = getAt(input, issue.path.slice(0, -2));
         const name = owner !== null && typeof owner === 'object'

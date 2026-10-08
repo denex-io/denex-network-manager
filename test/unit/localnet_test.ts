@@ -3,6 +3,7 @@ import { ZodError } from 'zod';
 import { mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { DockerClient } from '../../src/docker/client.ts';
 import { createLocalNet, LocalNet } from '../../src/localnet.ts';
 import { createMinimalConfig } from '../../src/utils/yaml.ts';
 import type { LocalNetConfig, PerPartyRight, UserRight } from '../../src/types/config.ts';
@@ -204,4 +205,37 @@ Deno.test('LocalNet.fromConfig - a clean config produces no warnings', async () 
   });
   assertEquals(net.warnings, []);
   assertEquals(warnings, []);
+});
+
+Deno.test('LocalNet.fromInstanceId - stored configs are not re-validated', async () => {
+  const original = DockerClient.prototype.listContainers;
+  const stored = [
+    { validators: [{ name: 'a' }, { name: 'A' }], basePort: 5000 },
+    { validators: 55, basePort: 60000 },
+  ];
+  try {
+    for (const config of stored) {
+      DockerClient.prototype.listContainers = () =>
+        Promise.resolve([{
+          id: 'c1',
+          name: 'legacy-splice',
+          state: 'running' as const,
+          status: 'Up',
+          image: 'img',
+          ports: [],
+          labels: {
+            'denex.localnet.schema': '2',
+            'denex.localnet.config': JSON.stringify({
+              ...config,
+              auth: { keycloak: { admin: 'a', password: 'b' } },
+            }),
+          },
+        }]);
+      const net = await LocalNet.fromInstanceId('legacy');
+      assertEquals(net.getConfig().validators, config.validators);
+      assertEquals(net.warnings, []);
+    }
+  } finally {
+    DockerClient.prototype.listContainers = original;
+  }
 });
