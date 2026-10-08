@@ -17,7 +17,8 @@ export const PORT_SUFFIXES = {
  * a validator port (basePort + 100 * (i + 1) + suffix).
  *
  * The sequencer and mediator ports are bound inside the canton container. The Scan and SV
- * admin ports and the Prometheus reporter are bound inside the splice container. Only Scan
+ * admin ports and its Prometheus reporter are bound inside the splice container; canton's
+ * Prometheus reporter is bound inside the canton container. Only Scan
  * and SV admin are published to the host, on the same number as the container port.
  */
 export const SV_INTERNAL_PORT_OFFSETS = {
@@ -29,6 +30,7 @@ export const SV_INTERNAL_PORT_OFFSETS = {
   svAdmin: 14,
   sequencerGrpcHealth: 62,
   mediatorGrpcHealth: 63,
+  cantonPrometheus: 64,
 } as const;
 
 /** The highest port number a host can use. */
@@ -39,7 +41,7 @@ export type SvInternalPorts = { [K in keyof typeof SV_INTERNAL_PORT_OFFSETS]: nu
 
 /**
  * Returns the SV-only ports for a given basePort: sequencer (public, admin, gRPC health),
- * mediator (admin, gRPC health), Scan admin, SV admin and the splice Prometheus reporter.
+ * mediator (admin, gRPC health), Scan admin, SV admin and the splice and canton Prometheus reporters.
  *
  * Every consumer (the HOCON/app.conf bind, the Docker port mapping, the healthcheck, nginx
  * `proxy_pass` and in-process URLs) must take its value from here, so the bind and the
@@ -56,6 +58,7 @@ export function getSvInternalPorts(basePort: number = DEFAULT_BASE_PORT): SvInte
     svAdmin: basePort + SV_INTERNAL_PORT_OFFSETS.svAdmin,
     sequencerGrpcHealth: basePort + SV_INTERNAL_PORT_OFFSETS.sequencerGrpcHealth,
     mediatorGrpcHealth: basePort + SV_INTERNAL_PORT_OFFSETS.mediatorGrpcHealth,
+    cantonPrometheus: basePort + SV_INTERNAL_PORT_OFFSETS.cantonPrometheus,
   };
 }
 

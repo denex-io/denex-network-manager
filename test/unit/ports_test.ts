@@ -18,6 +18,7 @@ Deno.test('getSvInternalPorts - default basePort', () => {
     sequencerAdmin: 5009,
     scanAdmin: 5012,
     splicePrometheus: 5013,
+    cantonPrometheus: 5064,
     svAdmin: 5014,
     sequencerGrpcHealth: 5062,
     mediatorGrpcHealth: 5063,
@@ -32,6 +33,7 @@ Deno.test('getSvInternalPorts - basePort 7000', () => {
     sequencerAdmin: 7009,
     scanAdmin: 7012,
     splicePrometheus: 7013,
+    cantonPrometheus: 7064,
     svAdmin: 7014,
     sequencerGrpcHealth: 7062,
     mediatorGrpcHealth: 7063,
@@ -81,6 +83,7 @@ function assertNoCollisions(basePort: number, validators: number): void {
     internal.sequencerGrpcHealth,
     internal.mediatorAdmin,
     internal.mediatorGrpcHealth,
+    internal.cantonPrometheus,
     ...v.flatMap((p) => [p.ledgerApi, p.adminApi, p.jsonApi, p.httpHealth, p.grpcHealth]),
   ];
   const splice = [

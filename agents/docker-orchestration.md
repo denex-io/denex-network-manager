@@ -42,9 +42,10 @@ health, and labels resources for discovery and cleanup.
 - **All SV-only ports are basePort-relative** via `getSvInternalPorts(basePort)` in
   `src/utils/ports.ts` (offsets in `SV_INTERNAL_PORT_OFFSETS`): `mediatorAdmin +7`,
   `sequencerPublic +8`, `sequencerAdmin +9`, `scanAdmin +12`, `splicePrometheus +13`, `svAdmin +14`,
-  `sequencerGrpcHealth +62`, `mediatorGrpcHealth +63`. Sequencer and mediator ports are bound inside
-  `canton`; Scan/SV admin and the Prometheus reporter inside `splice`. Only Scan and SV admin are
-  published to the host, and the container port equals the host port.
+  `sequencerGrpcHealth +62`, `mediatorGrpcHealth +63`, `cantonPrometheus +64`. Sequencer and
+  mediator ports are bound inside `canton`; Scan/SV admin and the Prometheus reporter inside
+  `splice`. Only Scan and SV admin are published to the host, and the container port equals the host
+  port.
 - All offsets are below 100 and distinct from `PORT_SUFFIXES`, so no SV-level port can equal a
   validator port. `test/unit/ports_test.ts` brute-forces this.
 - `SV_INTERNAL_PORTS` no longer exists. The helpers are internal: they are not exported from
@@ -77,10 +78,9 @@ health, and labels resources for discovery and cleanup.
 - Every bind (HOCON/app.conf), Docker port mapping, healthcheck, nginx `proxy_pass` and in-process
   URL for an SV-only port must use the same `getSvInternalPorts(basePort)` value. A mismatch between
   them was the 0.1.0-beta.1 bug (mapping pointed at a port nothing listened on).
-- The splice container's Prometheus reporter is generated at `basePort + 13`
-  (`canton.monitoring.metrics.reporters`), overriding the image's fixed default (10013). It is never
-  published. Canton's own reporter is not overridden; if a live check shows canton binding the image
-  default, add a `cantonPrometheus: 64` offset.
+- The splice container's Prometheus reporter is generated at `basePort + 13` and canton's at
+  `basePort + 64` (`canton.monitoring.metrics.reporters`), overriding the image's fixed default
+  (10013). Live check L1(d) showed both images bind 10013. Neither is published.
 
 ## Editing guidance
 
