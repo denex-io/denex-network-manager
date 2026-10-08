@@ -256,6 +256,7 @@ export class DockerClient {
       })),
       health: 'none' as const,
       labels: c.Labels ?? {},
+      created: c.Created,
     }));
   }
 
