@@ -45,6 +45,17 @@ exclusion exists — do not remove it.
 - **Mermaid needs `astro-mermaid` ordered before `starlight`** in `integrations`. Otherwise
   Expressive Code claims ```mermaid fences first and renders them as ordinary highlighted code.
   There are currently 7 diagrams, all in `how-it-works/architecture.md`.
+- **Diagrams render at natural size and scroll, by design.** `astro-mermaid` makes `pre.mermaid` a
+  flex container and caps the SVG at `max-width: 100%`, which shrank wide diagrams to ~4px labels on
+  mobile. `useMaxWidth: false` in `astro.config.mjs` plus the overrides in
+  `site/src/styles/custom.css` undo both and show diagrams at 75% (12px labels). If a diagram needs
+  to scroll on desktop, split or re-lay it out rather than shrinking it. With `autoTheme` on,
+  `astro-mermaid` forces Mermaid's `default` theme in light mode, so `theme:` and `themeVariables`
+  in config do not change the light palette.
+- **Inline code in table cells and aside titles never wraps** (`custom.css`). Hyphen breaks turned
+  `validator-1` into `validator-` / `1` and `--skip-health-checks` into two pieces. Keep flag tables
+  to three columns (`Flag` with its value placeholder, `Default`, `Description`) so they stay usable
+  on mobile.
 - **Pin `astro` and `@astrojs/starlight` exactly.** Starlight makes breaking config changes in minor
   releases — `social` became an array in 0.33, and labelled `autogenerate` sidebar groups were
   removed in 0.39. Read the Starlight changelog before bumping, and re-run the build.
@@ -92,6 +103,39 @@ in the same change:
 Regenerate CLI flag tables from the CLI itself (`deno task cli <command> --help`) rather than from
 memory or from `README.md`.
 
+## Writing style
+
+Rules for every page under `site/src/content/docs/`. They come from a style review of the first
+version of the site, which was largely AI-drafted; most of them target its habits.
+
+1. The tool is `denex-network-manager`, `dnm`, or "the SDK". "A LocalNet" is the network it starts.
+   Do not use LocalNet as the product name.
+2. Sentence-case headings. Guide H2s are imperative ("Wait for readiness"); troubleshooting headings
+   name the symptom. No teaser or "not X" headings, and no code-only headings (they render as a huge
+   monospace block and change anchors when reworded).
+3. American spelling, "for example" rather than "e.g.", and "ID" (party ID, client ID, instance ID).
+4. Product names: Canton, Splice, Keycloak, PostgreSQL, Nginx, Docker, Super Validator (then SV),
+   Global Synchronizer, "validator app". Container names go in backticks (`splice`, `nginx`).
+5. Second person, present tense, imperative steps. No rhetorical questions, no "will".
+6. Introduce every code block with one sentence, and say what it produces when that is not obvious.
+7. Tag every code fence: `bash`, `typescript`, `yaml`, `text` (output, errors, illustrations).
+8. In prose, methods take `()`: `LocalNet.fromConfig()` for statics, `net.start()` for instance
+   methods. Config keys in backticks as dotted paths with no trailing colon (`auth.keycloak.admin`).
+   Placeholders are `<kebab-name>`.
+9. No bold in prose or table cells. Warnings go in a `:::caution` or `:::note` aside.
+10. At most one em dash per paragraph, and never as a dramatic coda.
+11. Delete "note that", "worth noting/knowing", "it is important/essential", "dramatically",
+    "deliberately", and section intros that restate the heading. Use a "not X, but Y" contrast at
+    most once per section, and only against a misconception readers actually hold.
+12. End each page with a "Next" bulleted list: `- [Page](link): what it covers`.
+
+Passages that already follow these rules and are good models: the 12-character caution in
+`reference/configuration.md`, "Stop or destroy it" in `start/quick-start.md`, and the
+one-connection-per-party rule in `guides/dev-stack.md`.
+
+Renaming a heading changes its anchor. Other pages link into `guides/dev-stack.md` headings, so
+update inbound links in the same change; the link validator catches any you miss.
+
 ## Not yet built
 
 Tracked as follow-up, not missing by accident: an API reference (needs a JSDoc pass — `LocalNet` has
@@ -102,5 +146,7 @@ upstream Splice LocalNet.
 
 - `site/astro.config.mjs`
 - `site/src/content/docs/`
+- `site/src/styles/custom.css` — diagram sizing, no-wrap code in tables, table scroll shadows
+- `site/public/favicon.svg` — placeholder mark until the project has real branding
 - `.github/workflows/docs.yml` — builds on PRs, deploys from `main`
 - `deno.json` — `docs:*` tasks, and the `site/` exclusions in `fmt`/`lint`
