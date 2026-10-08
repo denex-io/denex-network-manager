@@ -330,8 +330,8 @@ function checkConfigInvariants(parsed: ParsedLocalNetConfig): z.ZodIssue[] {
       issues.push({
         code: z.ZodIssueCode.custom,
         path: ['packages', i, 'uploadTo', j],
-        message: `Unknown upload target '${target}'; expected 'sv' or one of: ` +
-          [...hostNames].filter((n) => n !== 'sv').join(', '),
+        message: `Unknown upload target '${target}'; expected one of: ` +
+          [...hostNames].join(', '),
       });
     });
   });
