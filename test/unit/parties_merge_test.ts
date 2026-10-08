@@ -88,3 +88,24 @@ Deno.test('mergeHostedParties - party ids keep the full text; hint is the part b
   const { parties } = mergeHostedParties(['sv'], [ok('PAR::sv::1', party('app-operator::1220ff'))]);
   assertEquals(parties[0].party.party.split('::')[0], 'app-operator');
 });
+
+Deno.test('mergeHostedParties - later host display name replaces only the display name', () => {
+  const first: PartyDetails = {
+    party: 'p::a',
+    isLocal: true,
+    localMetadata: { resourceVersion: 'v1', annotations: { other: 'x' } },
+  };
+  const second: PartyDetails = {
+    party: 'p::a',
+    isLocal: true,
+    localMetadata: { resourceVersion: 'v2', annotations: { displayName: 'P' } },
+  };
+  const { parties } = mergeHostedParties(['a', 'b'], [
+    { status: 'fulfilled', value: { participantId: 'A', parties: [first] } },
+    { status: 'fulfilled', value: { participantId: 'B', parties: [second] } },
+  ]);
+  assertEquals(parties[0].party.localMetadata, {
+    resourceVersion: 'v1',
+    annotations: { other: 'x', displayName: 'P' },
+  });
+});

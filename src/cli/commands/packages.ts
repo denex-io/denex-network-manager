@@ -1,6 +1,12 @@
 import { Command } from '@cliffy/command';
 import { Table } from '@cliffy/table';
-import { colors, getRunningLocalNet, printError, warnToStderr } from '../utils.ts';
+import {
+  buildPackageMatrix,
+  colors,
+  getRunningLocalNet,
+  printError,
+  warnToStderr,
+} from '../utils.ts';
 import { normalizeValidators } from '../../types/config.ts';
 
 export const packagesCommand = new Command()
@@ -35,21 +41,8 @@ export const packagesCommand = new Command()
         ? [options.validator]
         : ['sv', ...normalizeValidators(localnet.getConfig().validators).map((v) => v.name)];
 
-      const table = new Table()
-        .header([
-          'Package ID',
-          ...participants.map((p) => unreachable.has(p) ? `${p} (unreachable)` : p),
-        ])
-        .border(false);
-
-      for (const pkg of packages) {
-        table.push([
-          pkg.packageId,
-          ...participants.map((p) =>
-            unreachable.has(p) ? '?' : pkg.validators.includes(p) ? colors.green('✓') : ''
-          ),
-        ]);
-      }
+      const { header, rows } = buildPackageMatrix(participants, unreachable, packages);
+      const table = new Table().header(header).body(rows).border(false);
 
       console.log();
       console.log(colors.bold(`Packages (${packages.length})`));

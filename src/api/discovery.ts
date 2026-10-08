@@ -37,6 +37,8 @@ export interface PartiesResponse {
 export interface PackagesResponse {
   packages: ApiPackageInfo[];
   count: number;
+  /** Present when some participants did not respond; their packages are missing from `packages`. */
+  failures?: Array<{ validator: string; error: string }>;
 }
 
 interface CacheEntry<T> {
@@ -189,9 +191,21 @@ export class MultiInstanceDiscoveryServer {
         return c.json({ error: 'Instance not found', instanceId: id }, 404);
       }
 
-      const packages = await localnet.getPackages();
-      const response: PackagesResponse = { packages, count: packages.length };
-      return c.json(response);
+      try {
+        const { packages, failures } = await localnet.listPackagesWithFailures();
+        const response: PackagesResponse = { packages, count: packages.length };
+        if (failures.length > 0) response.failures = failures;
+        return c.json(response);
+      } catch (error) {
+        return c.json(
+          {
+            error: 'Could not list packages',
+            detail: error instanceof Error ? error.message : String(error),
+            instanceId: id,
+          },
+          503,
+        );
+      }
     });
 
     app.get('/instances/:id/env', async (c): Promise<Response> => {

@@ -10,6 +10,14 @@ All notable changes to this project will be documented in this file. The format 
 - `DockerClient.findNetwork()` / `findVolume()` (null only on 404, other errors rethrown) and
   `NetworkManager.ensure()` (returns `{ id, created }`).
 
+### Added
+
+- `LocalNet.listPartiesWithFailures()` and `LocalNet.listPackagesWithFailures()` return the
+  reachable results together with per-validator failures instead of calling `onWarning`.
+- `readDarMainPackageId()` is exported from the API barrel.
+- Discovery `GET /instances/:id/packages` returns 503 when no participant responds and a `failures`
+  list alongside the reachable packages on partial results.
+
 ### Changed
 
 - **Breaking:** `ApiPartyInfo.isLocal` is removed (also from `dnm parties --json`, the discovery

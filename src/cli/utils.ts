@@ -214,6 +214,29 @@ export function warnToStderr(warning: LocalNetWarning): void {
   console.error(colors.yellow('Warning:'), warning.message);
 }
 
+/**
+ * Header and rows for the `dnm packages` matrix. A participant in `unreachable` gets an
+ * `(unreachable)` header and `?` in every row instead of a (misleading) blank.
+ */
+export function buildPackageMatrix(
+  participants: string[],
+  unreachable: ReadonlySet<string>,
+  packages: ReadonlyArray<{ packageId: string; validators: string[] }>,
+): { header: string[]; rows: string[][] } {
+  return {
+    header: [
+      'Package ID',
+      ...participants.map((p) => unreachable.has(p) ? `${p} (unreachable)` : p),
+    ],
+    rows: packages.map((pkg) => [
+      pkg.packageId,
+      ...participants.map((p) =>
+        unreachable.has(p) ? '?' : pkg.validators.includes(p) ? colors.green('✓') : ''
+      ),
+    ]),
+  };
+}
+
 export function printWarning(message: string): void {
   console.log(colors.yellow('!'), message);
 }

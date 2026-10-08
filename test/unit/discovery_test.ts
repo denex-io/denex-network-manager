@@ -441,7 +441,10 @@ Deno.test('MultiInstanceDiscoveryServer - GET /instances includes unsupported en
   assertEquals(unsupported.status, 'unsupported');
 });
 
-async function serverWithLocalNet(listPartiesWithFailures: () => Promise<unknown>) {
+async function serverWithLocalNet(
+  listPartiesWithFailures: () => Promise<unknown>,
+  listPackagesWithFailures: () => Promise<unknown> = () => Promise.resolve({}),
+) {
   const server = new MultiInstanceDiscoveryServer(
     createMockDockerClient(TEST_CONTAINERS) as unknown as DockerClient,
     { cacheTtlMs: 60_000 },
@@ -449,7 +452,7 @@ async function serverWithLocalNet(listPartiesWithFailures: () => Promise<unknown
   // Warm the instance cache: a refresh clears the LocalNet cache the stub is injected into.
   await server.honoApp.request('/instances');
   const cache = (server as unknown as { localnetCache: Map<string, unknown> }).localnetCache;
-  cache.set('test-1', { listPartiesWithFailures });
+  cache.set('test-1', { listPartiesWithFailures, listPackagesWithFailures });
   return server;
 }
 
@@ -496,4 +499,30 @@ Deno.test('MultiInstanceDiscoveryServer - GET /instances/:id/parties omits failu
   assertEquals(res.status, 200);
   const body = await res.json();
   assertEquals(body, { parties: [], count: 0 });
+});
+
+Deno.test('MultiInstanceDiscoveryServer - GET /instances/:id/packages returns 503 when no participant responds', async () => {
+  const server = await serverWithLocalNet(
+    () => Promise.resolve({}),
+    () => Promise.reject(new Error('Could not list packages: no participant responded (sv: down)')),
+  );
+
+  const res = await server.honoApp.request('/instances/test-1/packages');
+  assertEquals(res.status, 503);
+  const body = await res.json();
+  assertEquals(body.error, 'Could not list packages');
+  assertEquals(body.instanceId, 'test-1');
+});
+
+Deno.test('MultiInstanceDiscoveryServer - GET /instances/:id/packages returns 200 with failures on partial results', async () => {
+  const packages = [{ packageId: 'p1', validators: ['sv'] }];
+  const failures = [{ validator: 'validator-1', error: 'connection refused' }];
+  const server = await serverWithLocalNet(
+    () => Promise.resolve({}),
+    () => Promise.resolve({ packages, failures }),
+  );
+
+  const res = await server.honoApp.request('/instances/test-1/packages');
+  assertEquals(res.status, 200);
+  assertEquals(await res.json(), { packages, count: 1, failures });
 });

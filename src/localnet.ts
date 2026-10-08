@@ -52,7 +52,7 @@ import {
 } from './api/canton.ts';
 import { ValidatorAdminClient, ValidatorApiError } from './api/validator.ts';
 import { readDarMainPackageId } from './api/dar.ts';
-import { type HostedParties, type MergeFailure, mergeHostedParties } from './api/parties.ts';
+import { type HostedParties, mergeHostedParties } from './api/parties.ts';
 import { KeycloakAdminClient } from './api/keycloak-admin.ts';
 import type {
   ApiLocalNetSnapshot,
@@ -732,8 +732,10 @@ export class LocalNet {
    *
    * @throws If no participant responds.
    */
-  async listPartiesWithFailures(): Promise<{ parties: ApiPartyInfo[]; failures: MergeFailure[] }> {
-    await this.requireRunning('getParties');
+  async listPartiesWithFailures(): Promise<
+    { parties: ApiPartyInfo[]; failures: Array<{ validator: string; error: string }> }
+  > {
+    await this.requireRunning('listPartiesWithFailures');
 
     const names = this.hostNames();
     const settled = await Promise.allSettled(names.map((n) => this.getHostedPartiesCached(n)));
@@ -874,11 +876,13 @@ export class LocalNet {
 
     const users = await client.listUsers();
     const result: ApiUserInfoWithRights[] = [];
+    let complete = true;
     for (const user of users) {
       let rights: ApiUserRight[] = [];
       try {
         rights = await client.listApiUserRights(user.id);
       } catch (err) {
+        complete = false;
         this.warn({
           source: 'query',
           validator: name,
@@ -890,7 +894,8 @@ export class LocalNet {
       result.push({ ...this.toUserInfo(user, name), rights });
     }
 
-    this.setCache(cacheKey, result);
+    // A partial result is never cached, so the next call re-queries the failed rights.
+    if (complete) this.setCache(cacheKey, result);
     return result;
   }
 
@@ -1075,23 +1080,48 @@ export class LocalNet {
   async getPackages(validatorName?: string): Promise<ApiPackageInfo[]> {
     await this.requireRunning('getPackages');
 
+    const { packages, failures } = await this.collectPackages(validatorName);
+    for (const failure of failures) {
+      this.warn({
+        source: 'query',
+        validator: failure.validator,
+        message:
+          `Could not list packages on ${failure.validator}: ${failure.error}; its packages are omitted`,
+      });
+    }
+    return packages;
+  }
+
+  /**
+   * Like {@link LocalNet.getPackages} with no name, but returns the per-validator failures
+   * instead of passing them to `onWarning`. Used by the discovery server.
+   *
+   * @throws If no participant responds.
+   */
+  async listPackagesWithFailures(): Promise<
+    { packages: ApiPackageInfo[]; failures: Array<{ validator: string; error: string }> }
+  > {
+    await this.requireRunning('listPackagesWithFailures');
+    return await this.collectPackages();
+  }
+
+  private async collectPackages(
+    validatorName?: string,
+  ): Promise<
+    { packages: ApiPackageInfo[]; failures: Array<{ validator: string; error: string }> }
+  > {
     const names = validatorName ? [validatorName] : this.hostNames();
     const settled = await Promise.allSettled(names.map((n) => this.getPackageIdsCached(n)));
 
     const validatorsByPackage = new Map<string, string[]>();
-    const failures: string[] = [];
+    const failures: Array<{ validator: string; error: string }> = [];
     settled.forEach((result, index) => {
       const name = names[index];
       if (result.status === 'rejected') {
         if (validatorName) throw result.reason;
-        const error = result.reason instanceof Error
-          ? result.reason.message
-          : String(result.reason);
-        failures.push(`${name}: ${error}`);
-        this.warn({
-          source: 'query',
+        failures.push({
           validator: name,
-          message: `Could not list packages on ${name}: ${error}; its packages are omitted`,
+          error: result.reason instanceof Error ? result.reason.message : String(result.reason),
         });
         return;
       }
@@ -1102,12 +1132,14 @@ export class LocalNet {
       }
     });
     if (failures.length === names.length) {
-      throw new Error(`Could not list packages: no participant responded (${failures.join('; ')})`);
+      const detail = failures.map((f) => `${f.validator}: ${f.error}`).join('; ');
+      throw new Error(`Could not list packages: no participant responded (${detail})`);
     }
 
-    return [...validatorsByPackage.entries()]
+    const packages = [...validatorsByPackage.entries()]
       .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
       .map(([packageId, validators]) => ({ packageId, validators }));
+    return { packages, failures };
   }
 
   private async getPackageIdsCached(name: string): Promise<string[]> {

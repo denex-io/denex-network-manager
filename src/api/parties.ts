@@ -74,10 +74,17 @@ export function mergeHostedParties(
         continue;
       }
       existing.hosts.push(name);
-      if (!displayNameOf(existing.party) && displayNameOf(party)) {
+      const laterName = displayNameOf(party);
+      if (!displayNameOf(existing.party) && laterName) {
         existing.party = {
           ...existing.party,
-          localMetadata: { ...existing.party.localMetadata, ...party.localMetadata },
+          localMetadata: {
+            ...existing.party.localMetadata,
+            annotations: {
+              ...existing.party.localMetadata?.annotations,
+              displayName: laterName,
+            },
+          },
         };
       }
     }

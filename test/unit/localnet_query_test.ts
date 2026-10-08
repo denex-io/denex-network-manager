@@ -53,6 +53,15 @@ class FakeCantonClient {
     this.allocated.push(hint);
     return Promise.resolve({ party: `${hint}::new`, isLocal: true });
   }
+  /** Records the primary party and stops createUser right after hint resolution. */
+  createdWith: Array<string | undefined> = [];
+  getUser(): Promise<UserDetails> {
+    return Promise.reject(new Error('not found'));
+  }
+  createUser(_userId: string, primaryPartyId?: string): Promise<UserDetails> {
+    this.createdWith.push(primaryPartyId);
+    return Promise.reject(new Error('stop after resolution'));
+  }
 }
 
 interface Harness {
@@ -71,8 +80,10 @@ function harness(specs: Record<string, FakeClientSpec>): Harness {
   const internals = net as unknown as {
     attachedToRunning: boolean;
     cantonClients: Map<string, CantonClient>;
+    validatorClients: Map<string, unknown>;
   };
   internals.attachedToRunning = true;
+  for (const name of Object.keys(specs)) internals.validatorClients.set(name, {});
   const fakes: Record<string, FakeCantonClient> = {};
   for (const [name, spec] of Object.entries(specs)) {
     const fake = new FakeCantonClient(spec);
@@ -340,4 +351,58 @@ Deno.test('uploadDar - rejects an empty or unknown target list and an invalid DA
   await assertRejects(() => net.uploadDar(path, ['nope']), Error, 'Unknown validator: nope');
   await assertRejects(() => net.uploadDar(path, ['sv']), Error, 'Invalid DAR:');
   assertEquals(fakes['sv'].calls, []);
+});
+
+Deno.test('createUser - prefers the party in the participant own namespace', async () => {
+  const { net, fakes } = harness(threeNodes({
+    'validator-1': {
+      parties: [hosted('shared::zz'), hosted('shared::bb')],
+    },
+  }));
+  await assertRejects(
+    () => net.createUser('u1', 'validator-1', { primaryParty: 'shared' }),
+    Error,
+    'stop after resolution',
+  );
+  assertEquals(fakes['validator-1'].createdWith, ['shared::bb']);
+  assertEquals(fakes['validator-1'].allocated, []);
+});
+
+Deno.test('createUser - a hint hosted only elsewhere is allocated on the home validator', async () => {
+  const { net, fakes } = harness(threeNodes());
+  // carol is hosted on validator-2 only, and alice::bb is remote on validator-2.
+  await assertRejects(
+    () => net.createUser('u1', 'validator-1', { primaryParty: 'carol' }),
+    Error,
+    'stop after resolution',
+  );
+  assertEquals(fakes['validator-1'].allocated, ['carol']);
+  assertEquals(fakes['validator-1'].createdWith, ['carol::new']);
+  assertEquals(fakes['validator-2'].allocated, []);
+});
+
+Deno.test('createUser - parties hosted elsewhere (isLocal false) are never matched', async () => {
+  const { net, fakes } = harness(threeNodes());
+  // validator-2 lists alice::bb as remote; validator-2 must allocate its own alice.
+  await assertRejects(
+    () => net.createUser('u1', 'validator-2', { primaryParty: 'alice' }),
+    Error,
+    'stop after resolution',
+  );
+  assertEquals(fakes['validator-2'].allocated, ['alice']);
+  assertEquals(fakes['validator-2'].createdWith, ['alice::new']);
+});
+
+Deno.test('getUsersWithRights - a partial result is not cached', async () => {
+  const { net, fakes, warnings } = harness({
+    'validator-1': {
+      participantId: 'PAR::validator-1::bb',
+      users: [{ id: 'u1' } as UserDetails],
+      rights: { u1: new Error('rights down') },
+    },
+  });
+  await net.getUsersWithRights('validator-1');
+  await net.getUsersWithRights('validator-1');
+  assertEquals(fakes['validator-1'].calls.filter((c) => c === 'listApiUserRights').length, 2);
+  assertEquals(warnings.length, 2);
 });
