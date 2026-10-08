@@ -65,10 +65,12 @@ export function getCredentials(
     });
 
     if (validator.users) {
-      const seen = new Set<string>([walletAdminId]);
+      const seen = new Set<string>([walletAdminId.toLowerCase()]);
       for (const user of validator.users) {
-        if (seen.has(user.id)) continue;
-        seen.add(user.id);
+        // Keycloak lowercases usernames, so ids differing only by case are one user.
+        const key = user.id.toLowerCase();
+        if (seen.has(key)) continue;
+        seen.add(key);
         credentials.push({
           realm: realmName,
           url: `http://wallet.localhost:${uiPort}`,
@@ -76,7 +78,7 @@ export function getCredentials(
           password: user.id,
           purpose: user.primaryParty
             ? `${user.id} (custom user)`
-            : `${user.id} (custom user, not onboarded — no primaryParty, wallet login will not work)`,
+            : `${user.id} (custom user, not onboarded — wallet UI self-onboarding creates a new party)`,
         });
       }
     }
