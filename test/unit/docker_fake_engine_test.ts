@@ -205,7 +205,8 @@ Deno.test({
 });
 
 Deno.test({
-  name: 'fake engine - cancelling a followed log closes the connection and does not crash on a late write',
+  name:
+    'fake engine - cancelling a followed log closes the connection and does not crash on a late write',
   ...opts,
   async fn() {
     let serverRes: ServerResponse | undefined;
