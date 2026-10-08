@@ -144,10 +144,9 @@ class FakeDockerClient {
 
   startContainer(idOrName: string): Promise<void> {
     const f = this.find(idOrName);
-    if (f && this.failStart.has(f.name)) {
-      return Promise.reject(new Error(`start failed: ${f.name}`));
-    }
-    if (f && this.failStartOnce.delete(f.name)) {
+    if (f && (this.failStart.has(f.name) || this.failStartOnce.delete(f.name))) {
+      // Not a mutation: recorded so tests can split calls before and after a failure.
+      this.calls.push(`startFailed:${idOrName}`);
       return Promise.reject(new Error(`start failed: ${f.name}`));
     }
     if (f) f.c.state = this.exitsAfterStart.has(f.name) ? 'exited' : 'running';
@@ -503,6 +502,39 @@ Deno.test('start repair - a failure after restarting dependents leaves them runn
       assertEquals(stops.filter((s) => s === `stopContainer:old-${n}`).length, 1);
     }
     assertEquals(fake.containers.get(`${ID}-sv-web-ui`)?.state, 'running');
+  });
+});
+
+/** Mutations issued after the failed start of `idOrName`, i.e. by the rollback. */
+function rollbackMutations(fake: FakeDockerClient, idOrName: string): string[] {
+  const failedAt = fake.calls.indexOf(`startFailed:${idOrName}`);
+  assert(failedAt >= 0, `expected a failed start of ${idOrName}`);
+  return fake.calls.slice(failedAt + 1).filter((c) => MUTATING.some((m) => c.startsWith(`${m}:`)));
+}
+
+Deno.test('start repair - rollback starts restarted dependents before stopping their upstreams', async () => {
+  await withFakeNet(async (net, fake) => {
+    fake.seedExisting(ALL_NAMES, 'running');
+    fake.containers.get(`${ID}-splice`)!.state = 'exited';
+    fake.failStartOnce.add(`${ID}-nginx`);
+    await assertRejects(() => net.start(START), Error, 'start failed');
+
+    // nginx resolves its upstreams only at startup, so it must start before splice stops.
+    const rollback = rollbackMutations(fake, `old-${ID}-nginx`);
+    assertEquals(rollback[0], `startContainer:old-${ID}-nginx`);
+    assert(rollback.includes(`stopContainer:old-${ID}-splice`));
+  });
+});
+
+Deno.test('start repair - rollback starts restarted dependents before removing created upstreams', async () => {
+  await withFakeNet(async (net, fake) => {
+    fake.seedExisting(ALL_BUT(`${ID}-splice`), 'running');
+    fake.failStartOnce.add(`${ID}-nginx`);
+    await assertRejects(() => net.start(START), Error, 'start failed');
+
+    const rollback = rollbackMutations(fake, `old-${ID}-nginx`);
+    assertEquals(rollback[0], `startContainer:old-${ID}-nginx`);
+    assert(rollback.includes(`removeContainer:new-${ID}-splice`));
   });
 });
 

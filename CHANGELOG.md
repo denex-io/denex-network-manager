@@ -54,6 +54,8 @@ All notable changes to this project will be documented in this file. The format 
 - `initializeResources()` (and so `dnm init` and a repairing `start()`) skips configured parties
   whose hint is already hosted on the validator, instead of re-allocating them and logging failures;
   its docstring no longer claims re-running creates duplicate users.
+- `initializeResources()`, `dnm init`, and a `start()` that runs init now fail instead of
+  re-allocating blindly when the hosted-party query fails for a validator with configured parties.
 - A failed `start()` (and therefore `restart()` and `dnm start`) no longer destroys an existing
   instance. It removes only the containers, network and postgres volume that the failing call
   created, and stops again any pre-existing containers it had started. A failed first start still

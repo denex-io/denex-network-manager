@@ -37,12 +37,22 @@ initialization, and runtime operations.
   intersects the containers started or created by this call (`rb.touched`) are restarted (not
   recorded in `rb.started`, so rollback leaves them running). nginx depends on the web UIs, so it
   gets its own layer.
+- Rollback (`rollbackStart`) first starts again the dependents it stopped for a restart and whose
+  start then failed (`rb.restarted`), then removes `rb.created`, then stops `rb.started` layer by
+  layer. The order matters: nginx uses static `proxy_pass` hostnames with no `resolver`, and Docker
+  DNS drops stopped containers, so an nginx started after its upstreams stop crash-loops with "host
+  not found in upstream".
 - Repair guards: a paused container is refused (`docker unpause` hint); a `created` container under
-  60 s old (from list `ContainerInfo.created`) or a 409 on create aborts with "appears to be
-  starting in another process" and never stops containers this call did not start; an older
-  `created` container is started normally.
+  60 s old (from list `ContainerInfo.created`) aborts with "appears to be starting in another
+  process" before anything changes; an older `created` container is started normally. A 409 on
+  create can happen mid-start; it sets `rb.conflict`, and rollback then removes only the containers
+  this call created and does not stop the containers this call started. The concurrency guard is
+  best-effort: it cannot see another process that is already in its health-wait phase.
 - `start()` runs `initializeResources()` unless `skipInitialization` is set. Init is idempotent: the
-  party loop pre-checks `fetchHostedParties()` and skips hints already hosted.
+  party loop pre-checks `fetchHostedParties()` and skips hints already hosted. If that query fails
+  for a validator with configured parties, init throws "Cannot check existing parties on
+  '<validator>'" instead of re-allocating blindly, so a transient query failure aborts init and
+  rolls back a `start()`.
 - State-query methods call `requireRunning()` and may attach lazily to running containers.
 
 ## Critical gotchas
