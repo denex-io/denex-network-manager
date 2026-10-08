@@ -16,7 +16,6 @@ export {
   getValidatorPort,
   getValidatorPorts,
   PORT_SUFFIXES,
-  SV_INTERNAL_PORTS,
 } from './ports.ts';
 
 export type { SvInternalPorts, ValidatorPorts } from './ports.ts';

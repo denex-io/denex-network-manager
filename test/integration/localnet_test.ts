@@ -8,7 +8,12 @@ import {
 import { LocalNet } from '../../src/localnet.ts';
 import type { LocalNetConfig } from '../../src/types/config.ts';
 import { waitForHealthy } from '../../src/docker/health.ts';
-import { getKeycloakPort, getSvPorts, getValidatorPorts } from '../../src/utils/ports.ts';
+import {
+  getKeycloakPort,
+  getSvInternalPorts,
+  getSvPorts,
+  getValidatorPorts,
+} from '../../src/utils/ports.ts';
 
 // Config for fast lifecycle tests
 const LIFECYCLE_TEST_CONFIG: LocalNetConfig = {
@@ -378,7 +383,10 @@ Deno.test({
 
       // Verify Scan API
       const scanHealth = await waitForHealthy(
-        { type: 'http', target: 'http://localhost:5012/api/scan/status' },
+        {
+          type: 'http',
+          target: `http://localhost:${getSvInternalPorts().scanAdmin}/api/scan/status`,
+        },
         { timeout: 5000, retries: 10, retryDelay: 1000 },
       );
       assertEquals(scanHealth.healthy, true, 'Scan API should be healthy');

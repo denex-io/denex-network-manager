@@ -14,7 +14,6 @@ import {
   getSvInternalPorts,
   getSvPorts,
   getValidatorPorts,
-  SV_INTERNAL_PORTS,
 } from '../utils/ports.ts';
 
 function portServiceLabels(ports: PortBinding[], labelPrefix: string): Record<string, string> {
@@ -259,17 +258,16 @@ export function buildSpliceContainer(
       host: svPorts.validatorAdminApi,
       service: 'SV Validator Admin',
     },
-    // Scan and SV Admin always listen on fixed ports inside the container
-    // (see agents/config-generation.md — nginx proxies to splice:5012/5014 over
-    // the instance's isolated Docker network). Only the host side is
-    // basePort-relative, so concurrent instances don't collide on the host.
+    // Scan and SV Admin are bound by app.conf, published by this mapping, probed by the
+    // healthcheck and proxied by nginx. All four must use the same getSvInternalPorts(basePort)
+    // value, so the container port equals the host port.
     {
-      container: SV_INTERNAL_PORTS.scanAdmin,
+      container: svInternalPorts.scanAdmin,
       host: svInternalPorts.scanAdmin,
       service: 'Scan Admin',
     },
     {
-      container: SV_INTERNAL_PORTS.svAdmin,
+      container: svInternalPorts.svAdmin,
       host: svInternalPorts.svAdmin,
       service: 'SV Admin',
     },
@@ -304,7 +302,7 @@ export function buildSpliceContainer(
     networks: [options.networkName],
     healthCheck: {
       type: 'http',
-      target: `http://localhost:${SV_INTERNAL_PORTS.scanAdmin}/api/scan/status`,
+      target: `http://localhost:${svInternalPorts.scanAdmin}/api/scan/status`,
       interval: 5,
       timeout: 40,
       retries: 30,

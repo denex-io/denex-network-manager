@@ -13,7 +13,6 @@ import {
   getSvPorts,
   getValidatorPorts,
   PORT_SUFFIXES,
-  SV_INTERNAL_PORTS,
 } from '../utils/ports.ts';
 
 export interface EnvGeneratorConfig {
@@ -260,10 +259,10 @@ export function generatePortMappingEnv(
     `SV_HTTP_HEALTH_PORT=${svPorts.httpHealth}`,
     `SV_GRPC_HEALTH_PORT=${svPorts.grpcHealth}`,
     '',
-    '# SV Internal ports (host-published; container-to-container ports are fixed)',
-    `SV_SEQUENCER_PUBLIC_PORT=${SV_INTERNAL_PORTS.sequencerPublic}`,
-    `SV_SEQUENCER_ADMIN_PORT=${SV_INTERNAL_PORTS.sequencerAdmin}`,
-    `SV_MEDIATOR_ADMIN_PORT=${SV_INTERNAL_PORTS.mediatorAdmin}`,
+    '# SV Internal ports (all basePort-relative; only Scan and SV admin are host-published)',
+    `SV_SEQUENCER_PUBLIC_PORT=${svInternalPorts.sequencerPublic}`,
+    `SV_SEQUENCER_ADMIN_PORT=${svInternalPorts.sequencerAdmin}`,
+    `SV_MEDIATOR_ADMIN_PORT=${svInternalPorts.mediatorAdmin}`,
     `SV_SCAN_ADMIN_PORT=${svInternalPorts.scanAdmin}`,
     `SV_SV_ADMIN_PORT=${svInternalPorts.svAdmin}`,
   ];

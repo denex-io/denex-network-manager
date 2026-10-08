@@ -6,7 +6,7 @@ import {
   getValidatorClientId,
   normalizeValidators,
 } from '../types/config.ts';
-import { getSvPorts, getValidatorPorts, SV_INTERNAL_PORTS } from '../utils/ports.ts';
+import { getSvInternalPorts, getSvPorts, getValidatorPorts } from '../utils/ports.ts';
 
 function generateLedgerApiAuthServices(realmName: string): string {
   const jwksUrl = `http://keycloak:8080/realms/${realmName}/protocol/openid-connect/certs`;
@@ -124,6 +124,7 @@ _participant {
 
 export function generateSvCantonConfig(basePort?: number): string {
   const ports = getSvPorts(basePort);
+  const internal = getSvInternalPorts(basePort);
   const adminUser = getServiceAccountUserId(getValidatorClientId('sv'));
   return `canton.participants.sv = \${_participant} {
   storage.config.properties.databaseName = "participant-sv"
@@ -155,17 +156,17 @@ canton.sequencers.sequencer {
 
   public-api {
     address = "0.0.0.0"
-    port = ${SV_INTERNAL_PORTS.sequencerPublic}
+    port = ${internal.sequencerPublic}
   }
 
   admin-api {
     address = "0.0.0.0"
-    port = ${SV_INTERNAL_PORTS.sequencerAdmin}
+    port = ${internal.sequencerAdmin}
   }
 
   monitoring.grpc-health-server {
     address = "0.0.0.0"
-    port = 5062
+    port = ${internal.sequencerGrpcHealth}
   }
 
   sequencer {
@@ -196,12 +197,12 @@ canton.mediators.mediator {
 
   admin-api {
     address = "0.0.0.0"
-    port = ${SV_INTERNAL_PORTS.mediatorAdmin}
+    port = ${internal.mediatorAdmin}
   }
 
   monitoring.grpc-health-server {
     address = "0.0.0.0"
-    port = ${SV_INTERNAL_PORTS.mediatorGrpcHealth}
+    port = ${internal.mediatorGrpcHealth}
   }
 }
 `;
