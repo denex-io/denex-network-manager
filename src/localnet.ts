@@ -1052,8 +1052,8 @@ export class LocalNet {
    * instance ID (for example `default-postgres`); see {@link LocalNet.logs}
    * for how it is resolved.
    *
-   * @returns The exit code (`-1` if Docker never reported one), `output` (stdout and stderr merged in arrival
-   *   order) and the separate `stdout` and `stderr` text.
+   * @returns The exit code (`-1` if Docker never reported one), `output` (stdout and stderr merged
+   *   in arrival order) and the separate `stdout` and `stderr` text.
    * @throws If the instance is not running, or the instance has no container
    *   with that name.
    */

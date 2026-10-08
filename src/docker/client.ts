@@ -299,7 +299,14 @@ export class DockerClient {
       const body = logsResultToBytes(result);
       let bytes: Uint8Array = body;
       if (!tty) {
-        bytes = concatBytes(demuxDockerOutput(body).frames.map((f) => f.data));
+        const demuxed = demuxDockerOutput(body);
+        if (demuxed.leftoverBytes > 0) {
+          throw new Error(
+            `Log output was truncated: ${demuxed.leftoverBytes} trailing bytes ` +
+              `did not form a complete frame`,
+          );
+        }
+        bytes = concatBytes(demuxed.frames.map((f) => f.data));
       }
       return new ReadableStream<Uint8Array>({
         start(controller) {
@@ -316,6 +323,7 @@ export class DockerClient {
     }) as unknown as Readable;
     const demuxer = tty ? null : new DockerStreamDemuxer();
     let settled = false;
+    let ended = false;
 
     return new ReadableStream<Uint8Array>({
       start(controller) {
@@ -335,7 +343,17 @@ export class DockerClient {
         });
         logStream.on('end', () => {
           if (settled) return;
+          ended = true;
           settled = true;
+          if (demuxer && demuxer.bufferedBytes > 0) {
+            controller.error(
+              new Error(
+                `Log stream truncated: ${demuxer.bufferedBytes} trailing bytes ` +
+                  `did not form a complete frame`,
+              ),
+            );
+            return;
+          }
           controller.close();
         });
         logStream.on('error', (err: Error) => {
@@ -346,6 +364,10 @@ export class DockerClient {
         logStream.on('close', () => {
           if (settled) return;
           settled = true;
+          if (!ended) {
+            controller.error(new Error('Log stream truncated: connection closed before end'));
+            return;
+          }
           controller.close();
         });
       },
@@ -489,6 +511,7 @@ export class DockerClient {
         if (settled) return;
         settled = true;
         if (streamError) {
+          stream.destroy();
           reject(streamError);
           return;
         }
@@ -508,6 +531,7 @@ export class DockerClient {
             stderr: decoder.decode(concatBytes(stderr)),
           });
         } catch (err) {
+          stream.destroy();
           reject(err);
         }
       };
@@ -549,6 +573,8 @@ function logsResultToBytes(result: unknown): Uint8Array {
   if (result instanceof Uint8Array) return new Uint8Array(result);
   if (typeof result === 'string') return new TextEncoder().encode(result);
   // docker-modem JSON-parses bodies that happen to be valid JSON (for example
-  // TTY output that is just a number).
+  // TTY output that is just a number). Such bodies are re-serialized, so
+  // quotes and whitespace of a JSON-looking TTY body can differ from the raw
+  // bytes. Only TTY containers are affected; the SDK starts none.
   return new TextEncoder().encode(JSON.stringify(result));
 }

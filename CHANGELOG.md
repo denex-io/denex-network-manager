@@ -20,7 +20,8 @@ All notable changes to this project will be documented in this file. The format 
 
 - `LocalNet.exec()` and `DockerClient.execInContainer()` now also return separate `stdout` and
   `stderr` strings alongside `output`. The exit code is read after a short retry until Docker
-  records it, and output truncated mid-frame is reported as an error.
+  records it, and output truncated mid-frame is reported as an error. The new `ExecResult` type
+  (`exitCode`, `output`, `stdout`, `stderr`) is exported from the package root.
 
 ## [0.1.0-beta.1] — 2026-07-28
 
