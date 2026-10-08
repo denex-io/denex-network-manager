@@ -254,5 +254,17 @@ export function generateFullCantonConfig(
     config += generateValidatorCantonConfig(normalizedValidators[i].name, i, basePort);
   }
 
+  // The canton image also loads monitoring.conf and binds a Prometheus reporter on a fixed
+  // in-container port (10013). HOCON replaces arrays, so this overrides that reporter.
+  config += `
+canton.monitoring.metrics.reporters = [
+  {
+    type = prometheus
+    address = "0.0.0.0"
+    port = ${getSvInternalPorts(basePort).cantonPrometheus}
+  }
+]
+`;
+
   return config;
 }

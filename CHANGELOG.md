@@ -69,10 +69,11 @@ All notable changes to this project will be documented in this file. The format 
   and SV admin are published on the same number). Nothing changes at basePort 5000. Previously these
   were fixed at 5007-5014/5062-5063, so some `basePort` values (for example 4847 or 4947) made a
   participant port collide with the sequencer or mediator and the instance could not start.
-- The splice Prometheus metrics reporter now listens on basePort+13 inside the container instead of
-  the image default 10013, at every `basePort` including 5000. The port is never published to the
-  host and is not persisted, so nothing outside the container sees the change; it removes a
-  collision at `basePort` values such as 9010.
+- The splice and canton Prometheus metrics reporters now listen on basePort+13 (splice) and
+  basePort+64 (canton) inside their containers instead of the image default 10013, at every
+  `basePort` including 5000. The port is never published to the host and is not persisted, so
+  nothing outside the container sees the change; it removes a collision at `basePort` values such
+  as 9010.
 
 ### Fixed
 

@@ -526,10 +526,15 @@ Deno.test('generateFullSpliceConfig - Prometheus reporter follows basePort', () 
   }
 });
 
-Deno.test('generateFullCantonConfig - has no Prometheus reporter override', () => {
-  assert(
-    !generateFullCantonConfig({ ...TEST_CONFIG, basePort: 7000 }).includes('type = prometheus'),
-  );
+Deno.test('generateFullCantonConfig - Prometheus reporter follows basePort', () => {
+  for (const [basePort, expected] of [[undefined, 5064], [7000, 7064], [7400, 7464]] as const) {
+    const config = generateFullCantonConfig(
+      basePort === undefined ? TEST_CONFIG : { ...TEST_CONFIG, basePort },
+    );
+    assertEquals(config.match(/type = prometheus/g)?.length, 1);
+    assertStringIncludes(config, `canton.monitoring.metrics.reporters = [`);
+    assertStringIncludes(config, `    port = ${expected}\n`);
+  }
 });
 
 Deno.test('generatePortMappingEnv - SV internal ports follow basePort', () => {
