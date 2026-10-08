@@ -149,9 +149,41 @@ Deno.test({
   },
 });
 
+const dockerAvailable = await (await import('./helpers.ts')).isDockerAvailable();
+
+async function startSleeper(
+  client: ReturnType<typeof createTestDockerClient>,
+  instanceId: string,
+  command: string[] = ['sleep', '3600'],
+): Promise<string> {
+  await client.pullImage(TEST_IMAGES.alpine);
+  const containerId = await client.createContainer({
+    name: `${instanceId}-exec-test`,
+    image: TEST_IMAGES.alpine,
+    command,
+    labels: {
+      'localnet.instance': instanceId,
+    },
+  });
+  await client.startContainer(containerId);
+  return containerId;
+}
+
+async function readAll(stream: ReadableStream<Uint8Array>): Promise<string> {
+  const reader = stream.getReader();
+  const parts: string[] = [];
+  const decoder = new TextDecoder();
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    parts.push(decoder.decode(value, { stream: true }));
+  }
+  return parts.join('');
+}
+
 Deno.test({
   name: 'DockerClient.execInContainer - executes command and returns output',
-  ignore: true,
+  ignore: !dockerAvailable,
   sanitizeOps: false,
   sanitizeResources: false,
   async fn() {
@@ -159,23 +191,96 @@ Deno.test({
     const instanceId = generateTestInstanceId();
 
     try {
-      await client.pullImage(TEST_IMAGES.alpine);
-
-      const containerId = await client.createContainer({
-        name: `${instanceId}-exec-test`,
-        image: TEST_IMAGES.alpine,
-        command: ['sleep', '3600'],
-        labels: {
-          'localnet.instance': instanceId,
-        },
-      });
-
-      await client.startContainer(containerId);
+      const containerId = await startSleeper(client, instanceId);
 
       const result = await client.execInContainer(containerId, ['echo', 'hello world']);
 
       assertEquals(result.exitCode, 0);
-      assertEquals(result.output.includes('hello world'), true);
+      assertEquals(result.output, 'hello world\n');
+    } finally {
+      await cleanupTestResources(client, instanceId);
+    }
+  },
+});
+
+Deno.test({
+  name: 'DockerClient.execInContainer - separates stdout and stderr and reports the exit code',
+  ignore: !dockerAvailable,
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    const client = createTestDockerClient();
+    const instanceId = generateTestInstanceId();
+
+    try {
+      const containerId = await startSleeper(client, instanceId);
+
+      const result = await client.execInContainer(containerId, [
+        'sh',
+        '-c',
+        'echo out; echo err >&2; exit 3',
+      ]);
+
+      assertEquals(result.exitCode, 3);
+      assertEquals(result.stdout, 'out\n');
+      assertEquals(result.stderr, 'err\n');
+      assertEquals(result.output.length, 'out\nerr\n'.length);
+    } finally {
+      await cleanupTestResources(client, instanceId);
+    }
+  },
+});
+
+Deno.test({
+  name: 'DockerClient.getContainerLogs - returns clean text for stdout and stderr',
+  ignore: !dockerAvailable,
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    const client = createTestDockerClient();
+    const instanceId = generateTestInstanceId();
+
+    try {
+      const containerId = await startSleeper(client, instanceId, [
+        'sh',
+        '-c',
+        'echo to-stdout; echo to-stderr >&2; sleep 3600',
+      ]);
+      await new Promise((r) => setTimeout(r, 1000));
+
+      const text = await readAll(await client.getContainerLogs(containerId, { tail: 50 }));
+
+      assertEquals(text.includes('to-stdout\n'), true);
+      assertEquals(text.includes('to-stderr\n'), true);
+      assertEquals(/[\x00-\x08]/.test(text), false);
+    } finally {
+      await cleanupTestResources(client, instanceId);
+    }
+  },
+});
+
+Deno.test({
+  name: 'DockerClient.getContainerLogs - follow yields new output and cancel returns',
+  ignore: !dockerAvailable,
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    const client = createTestDockerClient();
+    const instanceId = generateTestInstanceId();
+
+    try {
+      const containerId = await startSleeper(client, instanceId, [
+        'sh',
+        '-c',
+        'while true; do echo tick; sleep 1; done',
+      ]);
+
+      const stream = await client.getContainerLogs(containerId, { tail: 1, follow: true });
+      const reader = stream.getReader();
+      const first = await reader.read();
+      assertEquals(first.done, false);
+      assertEquals(new TextDecoder().decode(first.value).includes('tick'), true);
+      await reader.cancel();
     } finally {
       await cleanupTestResources(client, instanceId);
     }

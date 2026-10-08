@@ -104,8 +104,12 @@ initialization, and runtime operations.
 - `detectConfigMismatch()` returns `{ hasMismatch: true, ... }` on mismatch rather than throwing.
   `start()` reads the return value and throws from there. Callers that call `detectConfigMismatch()`
   directly for diagnostics should check `hasMismatch`, not catch exceptions.
-- `logs()` and `exec()` work after `fromInstanceId()` — `containerIds` is populated from the
-  container list fetched during attach.
+- `logs()` and `exec()` take the full runtime container name (`<instanceId>-splice`) and resolve it
+  on every call through a `<labelPrefix>.instance` filtered `listContainers`, so they work on any
+  handle (including ones attached implicitly by `requireRunning` or after `start()`'s early return),
+  and never read `containerIds`. An unknown name throws and lists the instance's container names.
+  `exec()` returns `{ exitCode, output, stdout, stderr }`. `containerIds`/`getContainerId()` are for
+  the lifecycle code only.
 - `initializeResources()` carries `@internal` JSDoc and should not be called by application code —
   use `start()`. It remains public because the CLI `init` command depends on it.
 - `uploadDar()` validates its arguments first (empty target list, `Unknown validator: <name>` both

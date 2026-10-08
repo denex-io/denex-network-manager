@@ -18,6 +18,8 @@ health, and labels resources for discovery and cleanup.
 ## Main modules
 
 - `src/docker/client.ts`: Dockerode wrapper for containers, networks, volumes, logs, and exec.
+- `src/docker/stream.ts`: internal Docker stream demultiplexer (`DockerStreamDemuxer`,
+  `demuxDockerOutput`, `concatBytes`); no runtime-specific APIs.
 - `src/docker/containers.ts`: container specs, image pins, dependency graph, health checks.
 - `src/docker/network.ts`: per-instance bridge network management.
 - `src/docker/health.ts`: health waiting helpers.
@@ -65,6 +67,14 @@ health, and labels resources for discovery and cleanup.
 
 ## Critical gotchas
 
+- Containers run without a TTY, so logs and exec output are multiplexed with 8-byte frame headers.
+  `getContainerLogs` and `execInContainer` demultiplex them (`Config.Tty` is checked via inspect for
+  logs; exec is created with `Tty: false`). `getContainerLogs({ follow: false })` is a buffer, not a
+  stream, in dockerode; the client wraps it in a one-shot `ReadableStream`. Followed logs honour
+  backpressure and `cancel()` destroys the connection.
+- `execInContainer` settles on `end`, `error` and `close`, retries `exec.inspect()` briefly until an
+  exit code is recorded, and rejects on output cut mid-frame. If the `hijack: true` start ever hangs
+  on a real Unix-socket daemon, fall back to `exec.start({ hijack: false, stdin: false })`.
 - Port conflict detection checks other Docker containers' published ports, not arbitrary host
   processes.
 - Bun cannot reliably use Docker Unix sockets through `node:http`; configure Docker over TCP for
@@ -99,6 +109,8 @@ health, and labels resources for discovery and cleanup.
 - `src/docker/types.ts`
 - `src/utils/ports.ts`
 - `test/unit/docker_test.ts`
+- `test/unit/docker_stream_test.ts`
+- `test/unit/docker_fake_engine_test.ts` (fake Engine API on loopback TCP)
 - `test/integration/docker_client_test.ts`
 - `test/integration/network_test.ts`
 - `test/integration/postgres_test.ts`
