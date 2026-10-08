@@ -250,6 +250,10 @@ Ports use `basePort` with `+100` increments per validator:
 | Web UI              | 5080 | 5180        | 5280        |
 | Keycloak            | 5082 | -           | -           |
 
+SV-only internal ports also follow `basePort`: mediator admin +7, sequencer public +8, sequencer
+admin +9, Scan admin +12, splice Prometheus +13, SV admin +14, sequencer gRPC health +62, mediator
+gRPC health +63. Scan admin and SV admin are published on the same number.
+
 With `basePort: 6000`, the same layout starts at `6000`, `6100`, `6200`, and so on.
 
 ## SDK Usage

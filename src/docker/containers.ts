@@ -259,7 +259,8 @@ export function buildSpliceContainer(
       service: 'SV Validator Admin',
     },
     // Scan and SV Admin are bound by app.conf, published by this mapping, probed by the
-    // healthcheck and proxied by nginx. All four must use the same getSvInternalPorts(basePort)
+    // healthcheck and proxied by nginx, and read by in-process URLs (waitForScanActive, splice
+    // scan/sv client URLs, env.ts). Every consumer must use the same getSvInternalPorts(basePort)
     // value, so the container port equals the host port.
     {
       container: svInternalPorts.scanAdmin,

@@ -104,7 +104,7 @@ All notable changes to this project will be documented in this file. The format 
 
 - **Breaking:** `SV_INTERNAL_PORTS` is removed from the package root without a deprecation period.
   Its values were only correct at basePort 5000. The internal port helpers are not part of the
-  public API.
+  public API. The SV-only port numbers are listed in the README "Port Allocation" section.
 
 ### Upgrade notes
 
