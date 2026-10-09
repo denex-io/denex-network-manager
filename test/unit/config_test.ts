@@ -582,7 +582,6 @@ Deno.test('parseLocalNetConfig - rejects duplicate, reserved and colliding valid
     ['a/a', ['a', 'a']],
     ['Alice/alice', ['Alice', 'alice']],
     ['aLice/alice', ['aLice', 'alice']],
-    ['alice-val/aliceVal', ['alice-val', 'aliceVal']],
     ['sv', ['sv']],
     ['SV', ['SV']],
     ['s-v', ['s-v']],
@@ -603,6 +602,42 @@ Deno.test('parseLocalNetConfig - rejects duplicate, reserved and colliding valid
     auth: AUTH,
   });
   assert(ok.success);
+});
+
+Deno.test('parseLocalNetConfig - lowercase names that share a Keycloak realm are rejected by the realm rule', () => {
+  const cases: [string[], string][] = [
+    [['ab', 'ab-'], "maps to Keycloak realm 'Ab'"],
+    [['a-b', 'a--b'], "maps to Keycloak realm 'AB'"],
+    [['a', 'a'], 'Duplicate validator name'],
+    [['s-v'], "maps to Keycloak realm 'SV'"],
+  ];
+  for (const [names, message] of cases) {
+    const result = validateLocalNetConfig({
+      validators: names.map((name) => ({ name })),
+      auth: AUTH,
+    });
+    assert(!result.success, `${names} should be rejected`);
+    assertEquals(
+      result.errors.issues.map((i) => i.message).filter((m) => m.includes(message)).length,
+      1,
+      `${names}: ${result.errors.message}`,
+    );
+    assert(
+      !result.errors.issues.some((i) => i.message.includes('must be lowercase')),
+      `${names} are lowercase`,
+    );
+  }
+});
+
+Deno.test('parseLocalNetConfig - user ids that differ only by case are rejected on input', () => {
+  const result = validateLocalNetConfig({
+    validators: [{ name: 'v1', users: [{ id: 'Alice' }, { id: 'alice' }] }],
+    auth: AUTH,
+  });
+  assert(!result.success);
+  const issue = result.errors.issues.find((i) => i.path.join('.') === 'validators.0.users.1.id');
+  assert(issue, result.errors.message);
+  assert(issue.message.includes("differs from 'Alice' only by case"));
 });
 
 Deno.test('parseLocalNetConfig - rejects uppercase validator names (Keycloak lowercases usernames)', () => {

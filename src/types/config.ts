@@ -165,8 +165,9 @@ export interface LocalNetConfig {
   /**
    * Regular Validators to create.
    * Can be a simple count (creates validator-1, validator-2, etc.; at least 1)
-   * or a non-empty list of detailed configurations. Names must be unique
-   * (case-insensitive), not `sv`, and must not map to the same Keycloak realm.
+   * or a non-empty list of detailed configurations. Names must be lowercase,
+   * unique, not `sv`, and must not map to the same Keycloak realm; user ids within a validator
+   * must be unique case-insensitively.
    * The highest port derived from `basePort` and the validator count must be
    * at most 65535 (see {@link LocalNetConfig.basePort}). These rules apply to
    * input; configs stored in container labels by older versions are not

@@ -216,8 +216,8 @@ export class LocalNetBuilder {
    * If no validators were configured, defaults to 2 validators.
    *
    * @returns A fully validated {@link ParsedLocalNetConfig}.
-   * @throws {ZodError} If the resulting config fails validation: a schema error, a duplicate
-   * (case-insensitive) or reserved (`sv`) validator name, two names that map to the same
+   * @throws {ZodError} If the resulting config fails validation: a schema error, a validator name that is
+   * not lowercase, duplicate or reserved (`sv`), two names that map to the same
    * Keycloak realm, or a highest derived port above 65535 for the base port and validator
    * count.
    *

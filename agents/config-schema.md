@@ -71,7 +71,9 @@ user-facing schema, fills defaults, and feeds the generator and lifecycle layers
 - `withDefaults()` does **not** inject a default `discovery` value. If `config.discovery` is absent,
   the output has `discovery: undefined`. Old code that relied on `withDefaults()` always producing a
   `discovery` object will see `undefined` now.
-- `PartyConfig.hint` and `ValidatorConfig.name` must match `/^[a-z][a-z0-9-]*$/i`.
+- `PartyConfig.hint` and `ValidatorConfig.name` must match `/^[a-z][a-z0-9-]*$/i`; on input a
+  validator name must also be lowercase (`checkConfigInvariants`), and user ids that differ only by
+  case within a validator are rejected.
 - `UserConfig.rights` accepts all rights for backward compatibility, but per-party rights should be
   modeled with `UserConfig.parties`.
 

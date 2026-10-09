@@ -78,10 +78,6 @@ All notable changes to this project will be documented in this file. The format 
   `basePort` including 5000. The port is never published to the host and is not persisted, so
   nothing outside the container sees the change; it removes a collision at `basePort` values such as
   9010 (splice) or 9951 (canton).
-- The splice Prometheus metrics reporter now listens on basePort+13 inside the container instead of
-  the image default 10013, at every `basePort` including 5000. The port is never published to the
-  host and is not persisted, so nothing outside the container sees the change; it removes a
-  collision at `basePort` values such as 9010.
 - Unknown config keys now produce a warning (stderr in the CLI, `LocalNetOptions.onWarning` in the
   SDK) instead of being dropped silently; `LocalNet.warnings` holds the construction-time ones. The
   exported `LocalNetConfigSchema` still strips them. Stored instance labels are parsed silently and
@@ -91,15 +87,13 @@ All notable changes to this project will be documented in this file. The format 
   example 55 validators at `basePort: 60000`.
 - **Breaking:** validator names must be lowercase (Keycloak lowercases usernames, so a name such as
   `App` left the validator backend retrying `PERMISSION_DENIED` forever), unique, must not be `sv`,
-  and must not map to the same Keycloak realm as another validator (`alice-val` and `aliceVal`).
-  Checked on input only. `withValidators(count)` throws `RangeError` for a non-integer or `< 1`
-  count.
+  and must not map to the same Keycloak realm as another validator (`ab` and `ab-`). User ids that
+  differ only by case within a validator are rejected as duplicates. Checked on input only.
+  `withValidators(count)` throws `RangeError` for a non-integer or `< 1` count.
 - **Breaking:** the `LocalNet` constructor (and so `createLocalNet`) validates its config and throws
   `ZodError`, applies schema defaults and reports warnings; `getConfig()` returns the normalized
   copy, not the object passed in. Existing instances remain discoverable, stoppable and destroyable;
   resuming from YAML requires the YAML to pass the new rules.
-- **Breaking:** `PartyConfig.validator` and `UserConfig.validator` are removed (they were never
-  acted on); the keys now warn and are ignored.
 - `dnm config` validates the generated file (duplicate or colliding validator names) before writing.
 
 ### Fixed
@@ -134,7 +128,8 @@ All notable changes to this project will be documented in this file. The format 
 - **Breaking:** `SV_INTERNAL_PORTS` is removed from the package root without a deprecation period.
   Its values were only correct at basePort 5000. The internal port helpers are not part of the
   public API. The SV-only port numbers are listed in the README "Port Allocation" section.
-- **Breaking:** the never-used `validator` field on `PartyConfig` and `UserConfig` is removed.
+- **Breaking:** the never-used `validator` field on `PartyConfig` and `UserConfig` is removed; the
+  keys now warn and are ignored.
 
 ### Upgrade notes
 
