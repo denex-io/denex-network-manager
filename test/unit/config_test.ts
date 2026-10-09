@@ -629,15 +629,25 @@ Deno.test('parseLocalNetConfig - lowercase names that share a Keycloak realm are
   }
 });
 
-Deno.test('parseLocalNetConfig - user ids that differ only by case are rejected on input', () => {
-  const result = validateLocalNetConfig({
-    validators: [{ name: 'v1', users: [{ id: 'Alice' }, { id: 'alice' }] }],
+Deno.test('parseLocalNetConfig - rejects uppercase user ids on input, stored labels stay lenient', () => {
+  const config = {
+    validators: [{ name: 'v1', users: [{ id: 'alice' }, { id: 'Alice' }] }],
     auth: AUTH,
-  });
+  };
+  const result = validateLocalNetConfig(config);
   assert(!result.success);
-  const issue = result.errors.issues.find((i) => i.path.join('.') === 'validators.0.users.1.id');
-  assert(issue, result.errors.message);
-  assert(issue.message.includes("differs from 'Alice' only by case"));
+  assertEquals(result.errors.issues.length, 1);
+  assertEquals(result.errors.issues[0].path, ['validators', 0, 'users', 1, 'id']);
+  assertEquals(
+    result.errors.issues[0].message,
+    "User id 'Alice' must be lowercase (Keycloak lowercases usernames); use 'alice'",
+  );
+  assert(
+    validateLocalNetConfig({ ...config, validators: [{ name: 'v1', users: [{ id: 'alice' }] }] })
+      .success,
+  );
+  const stored = parseStoredLocalNetConfig(config);
+  assertEquals((stored.validators as { users: { id: string }[] }[])[0].users[1].id, 'Alice');
 });
 
 Deno.test('parseLocalNetConfig - rejects uppercase validator names (Keycloak lowercases usernames)', () => {

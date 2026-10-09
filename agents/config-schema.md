@@ -45,8 +45,8 @@ user-facing schema, fills defaults, and feeds the generator and lifecycle layers
 - Input (YAML, objects given to `fromConfig()`/the `LocalNet` constructor, builder output) goes
   through `parseLocalNetConfig()`, `validateLocalNetConfig()` or `withDefaults()`: strip parse plus
   unknown-key warnings plus `checkConfigInvariants()` (port limit, lowercase and unique names,
-  reserved `sv`, Keycloak realm collisions via `getRealmName`). These invariants are not in the
-  exported Zod schema, so the schema type is unchanged.
+  lowercase user ids, reserved `sv`, Keycloak realm collisions via `getRealmName`). These invariants
+  are not in the exported Zod schema, so the schema type is unchanged.
 - Stored labels (`fromInstanceId()`, `discover()`, `reconstructConfigFromLabels()`,
   `detectConfigMismatch()` on both sides) use `parseStoredLocalNetConfig()`: strip parse only, no
   warnings, no invariants. Instances created by older versions (11+ validators, case-variant names,
@@ -72,8 +72,8 @@ user-facing schema, fills defaults, and feeds the generator and lifecycle layers
   the output has `discovery: undefined`. Old code that relied on `withDefaults()` always producing a
   `discovery` object will see `undefined` now.
 - `PartyConfig.hint` and `ValidatorConfig.name` must match `/^[a-z][a-z0-9-]*$/i`; on input a
-  validator name must also be lowercase (`checkConfigInvariants`), and user ids that differ only by
-  case within a validator are rejected.
+  validator name must also be lowercase (`checkConfigInvariants`), and user ids must be lowercase
+  too (`validators[i].users[j].id`). Stored labels stay lenient for both.
 - `UserConfig.rights` accepts all rights for backward compatibility, but per-party rights should be
   modeled with `UserConfig.parties`.
 
