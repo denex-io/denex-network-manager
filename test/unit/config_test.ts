@@ -722,3 +722,38 @@ Deno.test('packages.uploadTo - validator names are checked for the numeric count
   });
   assert(!bad.success);
 });
+
+Deno.test('validateLocalNetConfig - a huge validator count returns the port error and does not throw', () => {
+  for (const count of [5e9, 1e12]) {
+    const result = validateLocalNetConfig({ validators: count, auth: AUTH });
+    assert(!result.success, `${count}`);
+    assert(result.errors.issues[0].message.includes('65535'), result.errors.message);
+  }
+  // With packages the numeric form is not expanded either.
+  const withPackages = validateLocalNetConfig({
+    validators: 5e9,
+    auth: AUTH,
+    packages: [{ name: 'p', dar: 'p.dar', uploadTo: ['validator-3', 'validator-0', 'nope'] }],
+  });
+  assert(!withPackages.success);
+  const targets = withPackages.errors.issues.filter((i) => i.path[0] === 'packages').map((i) =>
+    i.path[3]
+  );
+  assertEquals(targets, [1, 2]);
+});
+
+Deno.test('validateLocalNetConfig - numeric validators accept sv and validator-1..N as upload targets', () => {
+  const ok = validateLocalNetConfig({
+    validators: 3,
+    auth: AUTH,
+    packages: [{ name: 'p', dar: 'p.dar', uploadTo: ['sv', 'validator-1', 'validator-3'] }],
+  });
+  assert(ok.success);
+  const bad = validateLocalNetConfig({
+    validators: 3,
+    auth: AUTH,
+    packages: [{ name: 'p', dar: 'p.dar', uploadTo: ['validator-4'] }],
+  });
+  assert(!bad.success);
+  assert(bad.errors.message.includes('sv, validator-1, validator-2, validator-3'));
+});
