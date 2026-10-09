@@ -4,7 +4,7 @@ import { concatBytes, demuxDockerOutput, DockerStreamDemuxer } from '../../src/d
 const enc = new TextEncoder();
 const dec = new TextDecoder();
 
-function frame(type: 0 | 1 | 2, payload: Uint8Array): Uint8Array {
+function frame(type: 0 | 1 | 2 | 3, payload: Uint8Array): Uint8Array {
   const out = new Uint8Array(8 + payload.length);
   out[0] = type;
   new DataView(out.buffer).setUint32(4, payload.length, false);
@@ -125,4 +125,9 @@ Deno.test('concatBytes - empty and multiple inputs', () => {
     concatBytes([new Uint8Array([1]), new Uint8Array([2, 3])]),
     new Uint8Array([1, 2, 3]),
   );
+});
+
+Deno.test('demux - stream type 3 is a daemon message, reported as system', () => {
+  const frames = new DockerStreamDemuxer().push(frame(3, enc.encode('Error grabbing logs: x')));
+  assertEquals(frames.map((f) => f.stream), ['system']);
 });

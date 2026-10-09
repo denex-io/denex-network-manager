@@ -322,6 +322,9 @@ export class DockerClient {
               `did not form a complete frame`,
           );
         }
+        for (const f of demuxed.frames) {
+          if (f.stream === 'system') throw daemonStreamError(f.data);
+        }
         bytes = concatBytes(demuxed.frames.map((f) => f.data));
       }
       return new ReadableStream<Uint8Array>({
@@ -348,6 +351,12 @@ export class DockerClient {
           const bytes = new Uint8Array(chunk);
           if (demuxer) {
             for (const frame of demuxer.push(bytes)) {
+              if (frame.stream === 'system') {
+                settled = true;
+                controller.error(daemonStreamError(frame.data));
+                logStream.destroy();
+                return;
+              }
               if (frame.data.length > 0) controller.enqueue(frame.data);
             }
           } else {
@@ -621,6 +630,11 @@ export class DockerClient {
     }
     return inspectData.ExitCode ?? -1;
   }
+}
+
+/** The error Docker's own `StdCopy` raises for a daemon-side (type 3) frame. */
+function daemonStreamError(payload: Uint8Array): Error {
+  return new Error(`error from daemon in stream: ${new TextDecoder().decode(payload).trim()}`);
 }
 
 /** Normalizes the non-streaming `logs()` result to bytes. */
