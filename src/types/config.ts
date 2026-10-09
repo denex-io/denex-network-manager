@@ -50,16 +50,16 @@ export interface PartyConfig {
 
   /** Optional display name for the party. Defaults to hint if not specified. */
   displayName?: string;
-
-  /** Which validator hosts this party. Defaults to first validator if not specified. */
-  validator?: string;
 }
 
 /**
  * Configuration for a user to be created on a Participant.
  */
 export interface UserConfig {
-  /** Unique user ID within the Participant. */
+  /**
+   * Unique user ID within the Participant. Must be lowercase (Keycloak lowercases usernames);
+   * rejected on input otherwise.
+   */
   id: string;
 
   /** Reference to party hint that this user's primary party will be. Optional — omit for users with only participant-wide rights. */
@@ -70,9 +70,6 @@ export interface UserConfig {
 
   /** Additional party rights beyond primaryParty. Each entry specifies a party hint and optional rights (defaults to CanActAs). */
   parties?: UserPartyConfig[];
-
-  /** Which validator this user belongs to. Defaults to same validator as primaryParty. */
-  validator?: string;
 }
 
 /**
@@ -170,8 +167,14 @@ export interface LocalNetConfig {
 
   /**
    * Regular Validators to create.
-   * Can be a simple count (creates validator-1, validator-2, etc.)
-   * or detailed configurations.
+   * Can be a simple count (creates validator-1, validator-2, etc.; at least 1)
+   * or a non-empty list of detailed configurations. Names must be lowercase,
+   * unique, not `sv`, and must not map to the same Keycloak realm; user ids within a validator
+   * must be unique and lowercase.
+   * The highest port derived from `basePort` and the validator count must be
+   * at most 65535 (see {@link LocalNetConfig.basePort}). These rules apply to
+   * input; configs stored in container labels by older versions are not
+   * re-checked.
    * The Super Validator is ALWAYS created automatically.
    */
   validators: number | ValidatorConfig[];
@@ -191,6 +194,8 @@ export interface LocalNetConfig {
   /**
    * Base port for port allocation.
    * SV uses ports starting at basePort, validators use basePort + (index * 100).
+   * Between 1024 and 60000; the highest derived port (which grows with the validator
+   * count) must also be at most 65535, or the config is rejected.
    * @default 5000
    */
   basePort?: number;

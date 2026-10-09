@@ -1,6 +1,6 @@
 import type { LocalNetConfig } from '../types/config.ts';
 import { normalizeValidators } from '../types/config.ts';
-import { parseLocalNetConfig } from '../schemas/mod.ts';
+import { parseStoredLocalNetConfig } from '../schemas/mod.ts';
 
 /**
  * Label key constants for Docker container labels.
@@ -43,7 +43,8 @@ export interface DiscoveredInstance {
 /**
  * Reconstruct a LocalNetConfig from Docker container labels.
  *
- * Reads the denex.localnet.config label (schema 2) and re-validates via parseLocalNetConfig.
+ * Reads the denex.localnet.config label (schema 2) and re-validates via parseStoredLocalNetConfig
+ * (strip parse only: no input-only rules and no warnings, so instances created by older versions stay discoverable).
  * Returns null on schema mismatch, missing label, malformed JSON, or validation failure.
  *
  * @param labels - Docker container labels (Record<string, string>)
@@ -63,7 +64,7 @@ export function reconstructConfigFromLabels(labels: Record<string, string>): Loc
 
   try {
     const raw = JSON.parse(configJson);
-    return parseLocalNetConfig(raw);
+    return parseStoredLocalNetConfig(raw);
   } catch {
     return null;
   }

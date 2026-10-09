@@ -38,7 +38,10 @@ every low-level generator or Docker helper.
 
 - Keep Deno-only CLI imports out of `src/mod.ts` and `src/sdk/mod.ts`.
 - Builder `withValidators()` has overloads for count and names; `addValidator()` appends detailed
-  validator specs.
+  validator specs. A count must be an integer >= 1 (`RangeError` otherwise) and has no upper cap;
+  `build()` throws `ZodError` for duplicate/reserved/colliding names and for a count whose ports
+  exceed 65535 (checked there because `withBasePort` and `withValidators` may be called in either
+  order).
 - `LocalNetBuilderConfig` is internal builder state, not a public config contract.
 - Builder user specs currently cover `id`, `primaryParty`, and `rights`; preserve schema conversion
   explicitly when expanding it.

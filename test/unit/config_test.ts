@@ -1,11 +1,15 @@
-import { assertEquals, assertExists } from '@std/assert';
+import { assert, assertEquals, assertExists, assertStringIncludes } from '@std/assert';
 import {
   buildConfigEnvironmentInfo,
+  type ConfigWarning,
   getSvPorts,
   getValidatorPorts,
   loadConfigFromString,
+  LocalNetConfigSchema,
   normalizeValidators,
   parseLocalNetConfig,
+  parseLocalNetConfigWithWarnings,
+  parseStoredLocalNetConfig,
   validateLocalNetConfig,
   withDefaults,
 } from '../../src/mod.ts';
@@ -395,4 +399,268 @@ Deno.test('buildConfigEnvironmentInfo - SV participantId is null without live da
 
   assertEquals(info.validators.sv.participantId, null);
   assertEquals(info.validators['validator-1'].participantId, null);
+});
+
+// --- unknown-key warnings, input-only rules, stored-label leniency ---
+
+const AUTH = { keycloak: { admin: 'admin', password: 'admin' } };
+
+function collectWarnings(input: unknown) {
+  const warnings: ConfigWarning[] = [];
+  const config = parseLocalNetConfig(input, { onWarning: (w) => warnings.push(w) });
+  return { config, warnings };
+}
+
+Deno.test('parseLocalNetConfig - a misspelt key warns, is dropped and the default applies', () => {
+  const { config, warnings } = collectWarnings({ validators: 2, auth: AUTH, basport: 7000 });
+  assertEquals(config.basePort, 5000);
+  assertEquals(warnings.length, 1);
+  assertEquals(warnings[0].source, 'config');
+  assertEquals(warnings[0].path, 'basport');
+  assertStringIncludes(warnings[0].message, "Unrecognized key 'basport' at root (ignored)");
+});
+
+Deno.test('parseLocalNetConfig - nested unknown keys warn once each with their path', () => {
+  const { warnings } = collectWarnings({
+    validators: [{ name: 'alice', partys: [], parties: [{ hint: 'a', dispalyName: 'x' }] }],
+    auth: { keycloak: { admin: 'a', password: 'b', extra: 1 } },
+    packages: [{ name: 'p', dar: 'p.dar', upload: [] }],
+  });
+  assertEquals(warnings.map((w) => w.path).sort(), [
+    'auth.keycloak.extra',
+    'packages[0].upload',
+    'validators[0].parties[0].dispalyName',
+    'validators[0].partys',
+  ]);
+});
+
+Deno.test('parseLocalNetConfig - onWarning receives warnings and console.warn is not called', () => {
+  const original = console.warn;
+  let consoleCalls = 0;
+  console.warn = () => consoleCalls++;
+  try {
+    const received: ConfigWarning[] = [];
+    parseLocalNetConfig({ validators: 1, auth: AUTH, nope: true }, {
+      onWarning: (w) => received.push(w),
+    });
+    assertEquals(received.length, 1);
+    assertEquals(consoleCalls, 0);
+
+    parseLocalNetConfig({ validators: 1, auth: AUTH, nope: true });
+    assertEquals(consoleCalls, 1);
+  } finally {
+    console.warn = original;
+  }
+});
+
+Deno.test('parseLocalNetConfig - prototype-ish keys warn', () => {
+  const input = JSON.parse(
+    '{"validators":1,"auth":{"keycloak":{"admin":"a","password":"b"}},' +
+      '"toString":1,"constructor":2}',
+  );
+  const { warnings } = collectWarnings(input);
+  assertEquals(warnings.map((w) => w.path).sort(), ['constructor', 'toString']);
+});
+
+Deno.test('parseLocalNetConfig - known optional keys do not warn', () => {
+  const { warnings } = collectWarnings({
+    version: '1.0',
+    validators: [{
+      name: 'alice',
+      parties: [{ hint: 'a', displayName: 'A' }],
+      users: [{
+        id: 'u',
+        primaryParty: 'a',
+        rights: ['ParticipantAdmin'],
+        parties: [{ hint: 'a' }],
+      }],
+    }],
+    auth: { mode: 'oauth2', keycloak: { admin: 'a', password: 'b' } },
+    packages: [{ name: 'p', dar: 'p.dar', uploadTo: ['alice'] }],
+    discovery: { port: 8080, host: 'localhost' },
+    basePort: 6000,
+  });
+  assertEquals(warnings, []);
+});
+
+Deno.test('validateLocalNetConfig - a typo plus an invalid value fails and still reports the typo', () => {
+  const warnings: ConfigWarning[] = [];
+  const result = validateLocalNetConfig({ validators: 0, auth: AUTH, basport: 1 }, {
+    onWarning: (w) => warnings.push(w),
+  });
+  assertEquals(result.success, false);
+  if (!result.success) assertEquals(result.errors.issues[0].path, ['validators']);
+  assertEquals(warnings.map((w) => w.path), ['basport']);
+});
+
+Deno.test('parseLocalNetConfigWithWarnings - returns warnings without calling console.warn', () => {
+  const original = console.warn;
+  let calls = 0;
+  console.warn = () => calls++;
+  try {
+    const { config, warnings } = parseLocalNetConfigWithWarnings({
+      validators: 1,
+      auth: AUTH,
+      typo: 1,
+    });
+    assertEquals(config.basePort, 5000);
+    assertEquals(warnings.length, 1);
+    assertEquals(calls, 0);
+  } finally {
+    console.warn = original;
+  }
+});
+
+Deno.test('parseStoredLocalNetConfig - strips unknown keys silently and skips input rules', () => {
+  const original = console.warn;
+  let calls = 0;
+  console.warn = () => calls++;
+  try {
+    const config = parseStoredLocalNetConfig({
+      validators: [
+        { name: 'Alice', parties: [{ hint: 'a', validator: 'bob' }] },
+        { name: 'alice', users: [{ id: 'u', validator: 'bob' }] },
+      ],
+      auth: AUTH,
+      typo: 1,
+    });
+    assertEquals(calls, 0);
+    assertEquals('typo' in config, false);
+    assertEquals(normalizeValidators(config.validators).length, 2);
+    // 11 validators (old cap was 10) and the highest port over the limit still parse.
+    parseStoredLocalNetConfig({ validators: 55, auth: AUTH, basePort: 60000 });
+  } finally {
+    console.warn = original;
+  }
+});
+
+Deno.test('parseLocalNetConfig - party and user validator keys warn and are dropped', () => {
+  const { config, warnings } = collectWarnings({
+    validators: [{
+      name: 'alice',
+      parties: [{ hint: 'a', validator: 'bob' }],
+      users: [{ id: 'u', validator: 'bob' }],
+    }],
+    auth: AUTH,
+  });
+  assertEquals(warnings.map((w) => w.path).sort(), [
+    'validators[0].parties[0].validator',
+    'validators[0].users[0].validator',
+  ]);
+  for (const w of warnings) {
+    assertStringIncludes(w.message, 'ignored');
+    assertStringIncludes(w.message, "'alice'");
+  }
+  const v = normalizeValidators(config.validators)[0];
+  assertEquals('validator' in v.parties![0], false);
+  assertEquals('validator' in v.users![0], false);
+});
+
+Deno.test('parseLocalNetConfig - port limit: 54 validators at basePort 60000 pass, 55 fail', () => {
+  parseLocalNetConfig({ validators: 54, auth: AUTH, basePort: 60000 });
+  const result = validateLocalNetConfig({ validators: 55, auth: AUTH, basePort: 60000 });
+  assert(!result.success);
+  assertEquals(result.errors.issues[0].path, ['validators']);
+  assertStringIncludes(result.errors.issues[0].message, '55 validators at basePort 60000');
+  assertStringIncludes(result.errors.issues[0].message, 'at most 54');
+});
+
+Deno.test('parseLocalNetConfig - the 10-validator cap is gone', () => {
+  const config = parseLocalNetConfig({ validators: 11, auth: AUTH });
+  assertEquals(config.validators, 11);
+});
+
+Deno.test('parseLocalNetConfig - a 60-entry list at basePort 60000 is rejected', () => {
+  const validators = Array.from({ length: 60 }, (_, i) => ({ name: `v${i}` }));
+  const result = validateLocalNetConfig({ validators, auth: AUTH, basePort: 60000 });
+  assert(!result.success);
+  assertEquals(result.errors.issues[0].path, ['validators']);
+});
+
+Deno.test('parseLocalNetConfig - rejects duplicate, reserved and colliding validator names', () => {
+  const rejected: [string, string[]][] = [
+    ['a/a', ['a', 'a']],
+    ['Alice/alice', ['Alice', 'alice']],
+    ['aLice/alice', ['aLice', 'alice']],
+    ['sv', ['sv']],
+    ['SV', ['SV']],
+    ['s-v', ['s-v']],
+  ];
+  for (const [label, names] of rejected) {
+    const result = validateLocalNetConfig({
+      validators: names.map((name) => ({ name })),
+      auth: AUTH,
+    });
+    assert(!result.success, `${label} should be rejected`);
+    const issue = result.errors.issues.find((i) =>
+      i.path[0] === 'validators' && i.path[2] === 'name'
+    );
+    assert(issue, `${label}: issue anchored at validators[i].name`);
+  }
+  const ok = validateLocalNetConfig({
+    validators: [{ name: 'app' }, { name: 'users-val' }],
+    auth: AUTH,
+  });
+  assert(ok.success);
+});
+
+Deno.test('parseLocalNetConfig - lowercase names that share a Keycloak realm are rejected by the realm rule', () => {
+  const cases: [string[], string][] = [
+    [['ab', 'ab-'], "maps to Keycloak realm 'Ab'"],
+    [['a-b', 'a--b'], "maps to Keycloak realm 'AB'"],
+    [['a', 'a'], 'Duplicate validator name'],
+    [['s-v'], "maps to Keycloak realm 'SV'"],
+  ];
+  for (const [names, message] of cases) {
+    const result = validateLocalNetConfig({
+      validators: names.map((name) => ({ name })),
+      auth: AUTH,
+    });
+    assert(!result.success, `${names} should be rejected`);
+    assertEquals(
+      result.errors.issues.map((i) => i.message).filter((m) => m.includes(message)).length,
+      1,
+      `${names}: ${result.errors.message}`,
+    );
+    assert(
+      !result.errors.issues.some((i) => i.message.includes('must be lowercase')),
+      `${names} are lowercase`,
+    );
+  }
+});
+
+Deno.test('parseLocalNetConfig - rejects uppercase user ids on input, stored labels stay lenient', () => {
+  const config = {
+    validators: [{ name: 'v1', users: [{ id: 'alice' }, { id: 'Alice' }] }],
+    auth: AUTH,
+  };
+  const result = validateLocalNetConfig(config);
+  assert(!result.success);
+  assertEquals(result.errors.issues.length, 1);
+  assertEquals(result.errors.issues[0].path, ['validators', 0, 'users', 1, 'id']);
+  assertEquals(
+    result.errors.issues[0].message,
+    "User id 'Alice' must be lowercase (Keycloak lowercases usernames); use 'alice'",
+  );
+  assert(
+    validateLocalNetConfig({ ...config, validators: [{ name: 'v1', users: [{ id: 'alice' }] }] })
+      .success,
+  );
+  const stored = parseStoredLocalNetConfig(config);
+  assertEquals((stored.validators as { users: { id: string }[] }[])[0].users[1].id, 'Alice');
+});
+
+Deno.test('parseLocalNetConfig - rejects uppercase validator names (Keycloak lowercases usernames)', () => {
+  const bad = validateLocalNetConfig({ validators: [{ name: 'App' }], auth: AUTH });
+  assert(!bad.success);
+  assertEquals(bad.errors.issues[0].path, ['validators', 0, 'name']);
+  assert(bad.errors.issues[0].message.includes("use 'app'"));
+  // Stored labels written by older SDKs stay readable.
+  const stored = parseStoredLocalNetConfig({ validators: [{ name: 'App' }], auth: AUTH });
+  assertEquals((stored.validators as { name: string }[])[0].name, 'App');
+});
+
+Deno.test('LocalNetConfigSchema - stays a strip-mode object that removes unknown keys', () => {
+  const out = LocalNetConfigSchema.parse({ validators: 1, auth: AUTH, junk: 1 });
+  assertEquals('junk' in out, false);
 });

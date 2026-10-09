@@ -672,3 +672,38 @@ Deno.test('start rollback - a transient inspect error is not mistaken for a 409'
     assertEquals(net.currentState, 'stopped');
   });
 });
+
+// --- detectConfigMismatch compares through the stored-label (silent, lenient) parse ---
+
+Deno.test('detectConfigMismatch - a label carrying parties[].validator matches the YAML without it', async () => {
+  await withFakeNet(async (net, fake) => {
+    fake.seedExisting(ALL_NAMES);
+    const stored = {
+      ...parseLocalNetConfig(net.getConfig()),
+      validators: [{ name: 'validator-1', parties: [{ hint: 'p', validator: 'validator-1' }] }],
+    };
+    fake.setConfig(JSON.stringify(stored));
+    Reflect.set(
+      net,
+      'config',
+      parseLocalNetConfig({
+        ...net.getConfig(),
+        validators: [{ name: 'validator-1', parties: [{ hint: 'p' }] }],
+      }),
+    );
+    assertEquals((await net.detectConfigMismatch()).hasMismatch, false);
+  });
+});
+
+Deno.test('detectConfigMismatch - a label that fails the input rules does not throw', async () => {
+  await withFakeNet(async (net, fake) => {
+    fake.seedExisting(ALL_NAMES);
+    fake.setConfig(JSON.stringify({
+      ...net.getConfig(),
+      validators: [{ name: 'a' }, { name: 'A' }],
+    }));
+    const result = await net.detectConfigMismatch();
+    assertEquals(result.hasMismatch, true);
+    assertEquals(result.actual.validators, ['a', 'A']);
+  });
+});

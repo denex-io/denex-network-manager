@@ -14,6 +14,10 @@ All notable changes to this project will be documented in this file. The format 
   reachable results together with per-validator failures instead of calling `onWarning`.
 - Discovery `GET /instances/:id/packages` returns 503 when no participant responds and a `failures`
   list alongside the reachable packages on partial results.
+- `parseLocalNetConfigWithWarnings()`, `parseStoredLocalNetConfig()`, `ConfigWarning`,
+  `LocalNet.warnings`, and an optional `{ onWarning }` argument on `parseLocalNetConfig`,
+  `validateLocalNetConfig`, `withDefaults`, `loadConfigFile`, `loadConfigFromDir` and
+  `loadConfigFromString`.
 
 ### Changed
 
@@ -74,6 +78,25 @@ All notable changes to this project will be documented in this file. The format 
   `basePort` including 5000. The port is never published to the host and is not persisted, so
   nothing outside the container sees the change; it removes a collision at `basePort` values such as
   9010 (splice) or 9951 (canton).
+- Unknown config keys now produce a warning (stderr in the CLI, `LocalNetOptions.onWarning` in the
+  SDK) instead of being dropped silently; `LocalNet.warnings` holds the construction-time ones. The
+  exported `LocalNetConfigSchema` still strips them. Stored instance labels are parsed silently and
+  leniently.
+- **Breaking:** the validator count no longer has a cap of 10 (config, `dnm config` prompt,
+  `withValidators`); instead a config whose highest derived port exceeds 65535 is rejected, for
+  example 55 validators at `basePort: 60000`.
+- **Breaking:** validator names must be lowercase (Keycloak lowercases usernames, so a name such as
+  `App` left the validator backend retrying `PERMISSION_DENIED` forever), unique, must not be `sv`,
+  and must not map to the same Keycloak realm as another validator (`ab` and `ab-`). User ids must
+  be lowercase for the same reason (`Alice` is rejected, use `alice`); this rule covers config input
+  and runtime `LocalNet.createUser()`. Stored labels from older SDKs are not re-checked and still
+  load; a stored user with an uppercase id is reported as a warning at startup instead of created.
+  `withValidators(count)` throws `RangeError` for a non-integer or `< 1` count.
+- **Breaking:** the `LocalNet` constructor (and so `createLocalNet`) validates its config and throws
+  `ZodError`, applies schema defaults and reports warnings; `getConfig()` returns the normalized
+  copy, not the object passed in. Existing instances remain discoverable, stoppable and destroyable;
+  resuming from YAML requires the YAML to pass the new rules.
+- `dnm config` validates the generated file (duplicate or colliding validator names) before writing.
 
 ### Fixed
 
@@ -107,6 +130,8 @@ All notable changes to this project will be documented in this file. The format 
 - **Breaking:** `SV_INTERNAL_PORTS` is removed from the package root without a deprecation period.
   Its values were only correct at basePort 5000. The internal port helpers are not part of the
   public API. The SV-only port numbers are listed in the README "Port Allocation" section.
+- **Breaking:** the never-used `validator` field on `PartyConfig` and `UserConfig` is removed; the
+  keys now warn and are ignored.
 
 ### Upgrade notes
 

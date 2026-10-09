@@ -25,7 +25,7 @@ import {
   resolveRealmName,
   type UserRight,
 } from './types/config.ts';
-import { parseLocalNetConfig } from './schemas/mod.ts';
+import { parseLocalNetConfig, parseStoredLocalNetConfig } from './schemas/mod.ts';
 import {
   BOOTSTRAP_ADMIN_USERNAME,
   generateAllRealmsJson,
@@ -36,7 +36,12 @@ import { getSvInternalPorts, getSvPorts, getValidatorPorts } from './utils/ports
 import { loadConfigFile } from './utils/yaml.ts';
 import { buildConfigEnvironmentInfo } from './utils/env-info.ts';
 import { type CredentialInfo, getCredentials as getCredentialsList } from './utils/credentials.ts';
-import type { FullEnvironmentInfo, LocalNetWarning, ValidatorEndpoints } from './types/state.ts';
+import type {
+  ConfigWarning,
+  FullEnvironmentInfo,
+  LocalNetWarning,
+  ValidatorEndpoints,
+} from './types/state.ts';
 import {
   type ApiUserRight,
   CantonClient,
@@ -74,7 +79,10 @@ export interface LocalNetOptions {
   /**
    * Receives non-fatal problems, for example a validator that did not respond to a
    * query whose other results are still returned. Defaults to `console.warn`.
-   * Runtime query warnings are delivered here on every occurrence.
+   * Runtime query warnings are delivered here on every occurrence and are not stored.
+   * Config warnings (`source: 'config'`, with `path`, for example unknown keys) are
+   * delivered once at construction or in `fromConfig` and are also kept in
+   * `LocalNet.warnings`.
    */
   onWarning?: (warning: LocalNetWarning) => void;
 }
@@ -85,6 +93,13 @@ export interface ConfigMismatch {
   actual: { validators: string[] };
   message: string;
 }
+
+/**
+ * Configs that `fromConfig` and `fromInstanceId` already parsed, with the warnings the
+ * parse produced. The constructor does not parse these again (stored configs must not be
+ * re-checked against the input rules).
+ */
+const trustedConfigs = new WeakMap<object, readonly ConfigWarning[]>();
 
 const DEFAULT_INSTANCE_ID = 'default';
 const DEFAULT_LABEL_PREFIX = 'denex.localnet';
@@ -148,6 +163,7 @@ export class LocalNet {
   private client: DockerClient;
   private networkManager: NetworkManager;
   private config: LocalNetConfig;
+  private configWarnings: readonly ConfigWarning[];
   private options: Required<LocalNetOptions>;
   private internalState: LocalNetState = 'stopped';
   private startedAt?: Date;
@@ -159,8 +175,33 @@ export class LocalNet {
   private cacheTtlMs = 30_000;
   private baseHost = 'localhost';
   private attachedToRunning = false;
+  /**
+   * Creates a handle for `config`. The config is validated like any input: schema
+   * defaults are applied, unknown keys are reported through `onWarning`, and the input
+   * rules (unique validator names, the 65535 port limit) are enforced. A config that
+   * {@link LocalNet.fromConfig} or {@link LocalNet.fromInstanceId} already parsed is not
+   * checked again. {@link LocalNet.getConfig} returns the normalized copy, not `config`.
+   *
+   * @throws {ZodError} If the config is invalid.
+   */
   constructor(config: LocalNetConfig, options?: LocalNetOptions) {
-    this.config = config;
+    const onWarning = options?.onWarning ?? ((w: LocalNetWarning) => console.warn(w.message));
+    const trusted = trustedConfigs.get(config);
+    // One-shot: a later mutation of the same object must be validated again.
+    trustedConfigs.delete(config);
+    if (trusted) {
+      this.config = config;
+      this.configWarnings = trusted;
+    } else {
+      const warnings: ConfigWarning[] = [];
+      this.config = parseLocalNetConfig(config, {
+        onWarning: (w) => {
+          warnings.push(w);
+          onWarning(w);
+        },
+      });
+      this.configWarnings = warnings;
+    }
     const instanceId = options?.instanceId ?? DEFAULT_INSTANCE_ID;
     const labelPrefix = options?.labelPrefix ?? DEFAULT_LABEL_PREFIX;
     this.options = {
@@ -169,7 +210,7 @@ export class LocalNet {
       images: options?.images ?? {},
       dbUser: options?.dbUser ?? 'cnadmin',
       dbPassword: options?.dbPassword ?? 'supersafe',
-      onWarning: options?.onWarning ?? ((w) => console.warn(w.message)),
+      onWarning,
     };
 
     this.client = new DockerClient({ labelPrefix });
@@ -182,12 +223,18 @@ export class LocalNet {
     yamlPathOrConfig: string | LocalNetConfig,
     options?: LocalNetOptions,
   ): Promise<LocalNet> {
-    let config: LocalNetConfig;
-    if (typeof yamlPathOrConfig === 'string') {
-      config = await loadConfigFile(yamlPathOrConfig);
-    } else {
-      config = parseLocalNetConfig(yamlPathOrConfig);
-    }
+    const warnings: ConfigWarning[] = [];
+    const report = options?.onWarning ?? ((w: LocalNetWarning) => console.warn(w.message));
+    const parseOptions = {
+      onWarning: (w: ConfigWarning) => {
+        warnings.push(w);
+        report(w);
+      },
+    };
+    const config = typeof yamlPathOrConfig === 'string'
+      ? await loadConfigFile(yamlPathOrConfig, parseOptions)
+      : parseLocalNetConfig(yamlPathOrConfig, parseOptions);
+    trustedConfigs.set(config, warnings);
     return new LocalNet(config, options);
   }
 
@@ -225,7 +272,7 @@ export class LocalNet {
     let config: LocalNetConfig;
     try {
       const raw = JSON.parse(configJson);
-      config = parseLocalNetConfig(raw);
+      config = parseStoredLocalNetConfig(raw);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       throw new Error(
@@ -233,6 +280,7 @@ export class LocalNet {
       );
     }
 
+    trustedConfigs.set(config, []);
     const localnet = new LocalNet(config, { ...options, instanceId: id });
     localnet.markAttachedToRunning();
     for (const container of containers) {
@@ -254,6 +302,15 @@ export class LocalNet {
 
   get currentState(): LocalNetState {
     return this.internalState;
+  }
+
+  /**
+   * Warnings about the config this handle was created from (for example unknown keys
+   * that were ignored). Fixed at construction; runtime query warnings go to `onWarning`
+   * and are not stored here.
+   */
+  get warnings(): readonly LocalNetWarning[] {
+    return this.configWarnings;
   }
 
   getConfig(): LocalNetConfig {
@@ -656,7 +713,7 @@ export class LocalNet {
     let runningConfig: LocalNetConfig;
     try {
       const parsed = JSON.parse(configJson);
-      runningConfig = parseLocalNetConfig(parsed);
+      runningConfig = parseStoredLocalNetConfig(parsed);
     } catch {
       return {
         hasMismatch: true,
@@ -666,7 +723,7 @@ export class LocalNet {
       };
     }
 
-    const currentConfigJson = JSON.stringify(parseLocalNetConfig(this.config));
+    const currentConfigJson = JSON.stringify(parseStoredLocalNetConfig(this.config));
     const runningConfigJson = JSON.stringify(runningConfig);
 
     if (currentConfigJson !== runningConfigJson) {
@@ -1017,6 +1074,11 @@ export class LocalNet {
    * on another validator is allocated afresh here, with the same hint but this
    * participant's namespace, so it is a different party id. A failure to query the
    * validator's parties fails the call instead of re-allocating blindly.
+   *
+   * `userId` must be lowercase, the same rule config input follows: Keycloak lowercases
+   * usernames, so a mixed-case id would never match its token's subject.
+   *
+   * @throws {Error} If `userId` is not lowercase.
    */
   async createUser(
     userId: string,
@@ -1027,6 +1089,13 @@ export class LocalNet {
       parties?: Array<{ hint: string; rights?: PerPartyRight[] }>;
     },
   ): Promise<ApiUserInfo> {
+    const lowerUserId = userId.toLowerCase();
+    if (userId !== lowerUserId) {
+      throw new Error(
+        `User id '${userId}' must be lowercase (Keycloak lowercases usernames); ` +
+          `use '${lowerUserId}'`,
+      );
+    }
     await this.requireRunning('createUser');
 
     const client = this.cantonClients.get(validatorName);
