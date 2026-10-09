@@ -40,7 +40,7 @@ const MUTATING = [
   'removeContainer',
 ];
 
-type FakeState = 'running' | 'exited' | 'created' | 'paused';
+type FakeState = 'running' | 'exited' | 'created' | 'paused' | 'restarting';
 
 /** Records every Docker call; only the methods start() touches are implemented. */
 class FakeDockerClient {
@@ -54,6 +54,8 @@ class FakeDockerClient {
   failCreate = new Set<string>();
   /** createContainer for these names rejects with an HTTP 409 name conflict. */
   conflictCreate = new Set<string>();
+  /** findContainer rejects with this error for these names (a transient inspect failure). */
+  inspectError = new Map<string, Error>();
   findNetworkError: Error | null = null;
   findVolumeError: Error | null = null;
   /** These containers are not running right after startContainer returns. */
@@ -121,6 +123,12 @@ class FakeDockerClient {
     return Promise.resolve(f ? this.info(f.name, f.c) : null);
   }
 
+  findContainer(idOrName: string): Promise<ContainerInfo | null> {
+    const err = this.inspectError.get(idOrName);
+    if (err) return Promise.reject(err);
+    return this.getContainerInfo(idOrName);
+  }
+
   imageExists(): Promise<boolean> {
     return Promise.resolve(true);
   }
@@ -149,7 +157,10 @@ class FakeDockerClient {
       this.calls.push(`startFailed:${idOrName}`);
       return Promise.reject(new Error(`start failed: ${f.name}`));
     }
-    if (f) f.c.state = this.exitsAfterStart.has(f.name) ? 'exited' : 'running';
+    // Docker counts a container in restart backoff as running: a start is a 304 no-op.
+    if (f && f.c.state !== 'restarting') {
+      f.c.state = this.exitsAfterStart.has(f.name) ? 'exited' : 'running';
+    }
     this.calls.push(`startContainer:${idOrName}`);
     return Promise.resolve();
   }
@@ -307,8 +318,9 @@ Deno.test('start rollback - existing network and volume without containers are k
 Deno.test('start rollback - a failing sibling never races a still-creating one', async () => {
   await withFakeNet(async (net, fake) => {
     let release!: () => void;
+    // Both are in layer 4: the failing create must wait for the latched one.
     fake.latch.set(`${ID}-sv-web-ui`, new Promise<void>((r) => (release = r)));
-    fake.failCreate.add(`${ID}-nginx`);
+    fake.failCreate.add(`${ID}-scan-web-ui`);
     setTimeout(() => release(), 50);
 
     await assertRejects(() => net.start(START), Error, 'create failed');
@@ -621,5 +633,42 @@ Deno.test('state - a missing expected container makes the instance partial, not 
     fake.containers.delete(`${ID}-splice`);
     assertEquals(await net.state(), 'partial');
     assertEquals(await net.isRunning(), false);
+  });
+});
+
+Deno.test('start repair - nginx crash-looping (restarting) is stopped and started, with health checks', async () => {
+  await withFakeNet(async (net, fake) => {
+    fake.seedExisting(ALL_NAMES, 'exited');
+    fake.containers.get(`${ID}-nginx`)!.state = 'restarting';
+    await net.start({ skipInitialization: true });
+    for (const n of ALL_NAMES) assertEquals(fake.containers.get(n)?.state, 'running', n);
+    assert(fake.mutations.includes(`stopContainer:old-${ID}-nginx`));
+    assertEquals(net.currentState, 'running');
+  });
+});
+
+Deno.test('start rollback - a 409 leaves the network and volume this call created', async () => {
+  await withFakeNet(async (net, fake) => {
+    fake.conflictCreate.add(`${ID}-postgres`);
+    await assertRejects(() => net.start(START), Error, 'starting in another process');
+    assert(fake.mutations.some((m) => m.startsWith('createNetwork:')));
+    assertEquals(fake.mutations.filter((m) => m.startsWith('removeNetwork')), []);
+    assertEquals(fake.mutations.filter((m) => m.startsWith('removeVolume')), []);
+    assert(fake.networkExists && fake.volumeExists);
+  });
+});
+
+Deno.test('start rollback - a transient inspect error is not mistaken for a 409', async () => {
+  await withFakeNet(async (net, fake) => {
+    fake.seedExisting(ALL_NAMES, 'exited');
+    // The container exists, so a create would 409; the inspect error must abort first.
+    fake.inspectError.set(`${ID}-splice`, new Error('socket hang up'));
+    fake.conflictCreate.add(`${ID}-splice`);
+    await assertRejects(() => net.start(START), Error, 'socket hang up');
+    // Not a conflict: everything this call started is stopped again.
+    for (const n of [...LAYER_1, ...LAYER_2]) {
+      assertEquals(fake.containers.get(n)?.state, 'exited', n);
+    }
+    assertEquals(net.currentState, 'stopped');
   });
 });

@@ -186,6 +186,21 @@ export class DockerClient {
     }
   }
 
+  /**
+   * Like {@link DockerClient.getContainerInfo}, but only a 404 means "absent":
+   * any other inspect error is rethrown instead of being mistaken for a missing
+   * container (like findNetwork and findVolume).
+   */
+  async findContainer(idOrName: string): Promise<ContainerInfo | null> {
+    try {
+      const data = await this.docker.getContainer(idOrName).inspect();
+      return this.parseContainerInfo(data);
+    } catch (err) {
+      if ((err as { statusCode?: number }).statusCode === 404) return null;
+      throw err;
+    }
+  }
+
   private parseContainerInfo(data: Dockerode.ContainerInspectInfo): ContainerInfo {
     const labels = data.Config?.Labels ?? {};
     const portBindings = data.HostConfig?.PortBindings ?? {};
