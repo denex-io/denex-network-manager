@@ -1,0 +1,80 @@
+---
+title: Quick start
+description: Bring up a Canton LocalNet from a single YAML file, inspect it, and tear it down.
+---
+
+## Write a config
+
+Create `localnet.yaml`:
+
+```yaml
+version: '1.0'
+
+validators: 2
+
+auth:
+  keycloak:
+    admin: admin
+    password: admin
+```
+
+The Super Validator is always created automatically, so this gives you three participants: the SV
+plus the two validators you declared.
+
+`dnm config` generates this file interactively, or with `-y` accepts every default. It validates the
+file before writing it, and with `-y` it overwrites an existing file after saving it as
+`localnet.yaml.bak`:
+
+```bash
+dnm config -y
+```
+
+## Start it
+
+```bash
+dnm start
+```
+
+A cold first run takes several minutes — it pulls images, brings up PostgreSQL, Canton, Splice,
+Keycloak, and Nginx, then allocates parties, creates users on the ledger and in Keycloak, onboards
+users that have a `primaryParty` to the Splice wallet, and uploads any `packages` DARs.
+
+## Inspect it
+
+```bash
+dnm status       # container state and health
+dnm env          # API URLs, auth config, DSO party ID
+dnm credentials  # web UI login credentials
+```
+
+Add `--json` to any of these to get machine-readable output, or `--shell` on `dnm env` to get
+`export`-able variables.
+
+```bash
+dnm parties       # each party once, under the validator that hosts it
+dnm entitlements  # users with their rights
+dnm packages      # packages known to each participant, built-ins included
+```
+
+## Stop or destroy it
+
+```bash
+dnm stop            # stop containers, keep ledger state
+dnm destroy --force # remove containers, networks, and volumes
+```
+
+`stop` leaves the containers and the PostgreSQL volume in place, so a later `dnm start` resumes with
+the same ledger state instead of rebuilding. If that resume fails, it removes nothing that existed
+before, so you can run `dnm start` again. `destroy` removes containers, networks, and volumes;
+without `--force` it asks for confirmation.
+
+:::note
+Nothing is written to your host filesystem — configuration reaches the containers through environment
+variables, so there is no generated directory to clean up.
+:::
+
+## Next
+
+- [Web UIs and credentials](/denex-network-manager/start/web-uis/) — where to log in
+- [Using the SDK](/denex-network-manager/guides/sdk/) — drive all of this from TypeScript
+- [CLI reference](/denex-network-manager/reference/cli/) — every command

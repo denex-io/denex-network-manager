@@ -7,7 +7,7 @@
 - Read when: changing `src/docker/`, port allocation, lifecycle startup, or container
   troubleshooting.
 - Excludes: detailed Canton/Splice generated config syntax.
-- Supporting docs: `src/docker/types.ts` and `docs/localnet-architecture.md`.
+- Supporting docs: `src/docker/types.ts` and `site/src/content/docs/how-it-works/architecture.md`.
 
 ## What this subsystem is
 
@@ -60,8 +60,9 @@ health, and labels resources for discovery and cleanup.
   `denex.localnet.instance`. `destroy()` removes it via the existing instance-label volume query. A
   failed `start()` removes it only if that call created it (`findVolume` returned 404 first), so a
   failed resume keeps the data.
-- Config files (canton/splice app.conf, Keycloak realms, nginx.conf, postgres entrypoint script)
-  remain as host bind mounts written to `configDir` by `generateConfigs()`.
+- Generated configs (Canton/Splice HOCON, Keycloak realms, nginx.conf, postgres init script) are
+  built in memory by `buildGeneratedConfigs()` and delivered through container environment
+  variables. There are no host bind mounts, which is why the SDK works over a remote Docker socket.
 - `ContainerBuilderOptions.instanceId` is used to derive the volume name in
   `buildPostgresContainer()`; falls back to `labelPrefix` if not provided.
 
@@ -83,14 +84,16 @@ health, and labels resources for discovery and cleanup.
 - Nginx `dependsOn` splice and every web UI (wallet UIs, sv, scan), so it starts in its own layer
   after them and is restarted when one of them is restarted by a repair (nginx resolves upstream
   addresses once).
-- Nginx uses `restart: 'always'`; most other containers use `unless-stopped`.
+- Nginx uses `restart: 'always'`; postgres, canton, splice and keycloak use `unless-stopped`; the
+  web UI containers have no restart policy.
 - `ansWebUi` exists in `ContainerImages` but no ANS web UI container is currently built.
 - Every bind (HOCON/app.conf), Docker port mapping, healthcheck, nginx `proxy_pass` and in-process
   URL for an SV-only port must use the same `getSvInternalPorts(basePort)` value. A mismatch between
   them was the 0.1.0-beta.1 bug (mapping pointed at a port nothing listened on).
 - The splice container's Prometheus reporter is generated at `basePort + 13` and canton's at
   `basePort + 64` (`canton.monitoring.metrics.reporters`), overriding the image's fixed default
-  (10013). Live check L1(d) showed both images bind 10013. Neither is published.
+  (10013). Without the override, both images bind their reporter on 10013 (observed in a running
+  instance), which can collide with a derived port at some basePorts. Neither is published.
 
 ## Editing guidance
 
