@@ -36,8 +36,9 @@ runtime YAML-defined users are also created in the relevant validator realm.
 - The only wallet user Splice onboards per validator is `getWalletAdminUserId(name)`
   (`<name with - as _>-wallet-admin`). Splice config, Keycloak realm, `WALLET_ADMIN_USER_NAME` env
   and `getCredentials()` must all use that helper; do not report `validator.name` as a wallet login.
-  YAML users are wallet-onboarded only with `primaryParty`. Uppercase validator names are unverified
-  (Keycloak lowercases usernames).
+  YAML users are wallet-onboarded only with `primaryParty`. Keycloak lowercases usernames, while
+  `getWalletAdminUserId()` keeps the validator name's case, so for a name with uppercase letters the
+  realm stores the wallet-admin user in lowercase.
 - `getCredentials()` covers web UI logins only. The CLI adds the Keycloak admin entry
   (`keycloakAdminCredential(config)`, realm `master`) to `dnm credentials` text and `--json`.
 - The persistent master realm admin comes from `auth.keycloak.admin/password`.
