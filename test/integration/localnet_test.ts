@@ -457,6 +457,7 @@ Deno.test({
       assertEquals(await client.findNetwork(`denex.localnet-${instanceId}`), null);
       assertEquals(await client.findVolume(`${instanceId}-postgres-data`), null);
     } finally {
+      await localnet.destroy({ removeVolumes: true }).catch(() => {});
       await cleanupTestResources(client, instanceId);
     }
   },
