@@ -605,6 +605,16 @@ Deno.test('parseLocalNetConfig - rejects duplicate, reserved and colliding valid
   assert(ok.success);
 });
 
+Deno.test('parseLocalNetConfig - rejects uppercase validator names (Keycloak lowercases usernames)', () => {
+  const bad = validateLocalNetConfig({ validators: [{ name: 'App' }], auth: AUTH });
+  assert(!bad.success);
+  assertEquals(bad.errors.issues[0].path, ['validators', 0, 'name']);
+  assert(bad.errors.issues[0].message.includes("use 'app'"));
+  // Stored labels written by older SDKs stay readable.
+  const stored = parseStoredLocalNetConfig({ validators: [{ name: 'App' }], auth: AUTH });
+  assertEquals((stored.validators as { name: string }[])[0].name, 'App');
+});
+
 Deno.test('LocalNetConfigSchema - stays a strip-mode object that removes unknown keys', () => {
   const out = LocalNetConfigSchema.parse({ validators: 1, auth: AUTH, junk: 1 });
   assertEquals('junk' in out, false);

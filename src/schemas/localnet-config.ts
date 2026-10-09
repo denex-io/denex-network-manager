@@ -257,6 +257,17 @@ function checkConfigInvariants(parsed: ParsedLocalNetConfig): z.ZodIssue[] {
         });
         return;
       }
+      if (v.name !== lower) {
+        // Keycloak lowercases usernames, so the service account it issues tokens
+        // for is 'service-account-<lowercase>-validator' while Splice expects the
+        // configured spelling; the validator backend then retries on PERMISSION_DENIED forever.
+        issues.push({
+          code: z.ZodIssueCode.custom,
+          path,
+          message: `Validator name '${v.name}' must be lowercase (Keycloak lowercases usernames, ` +
+            `so the validator's service account would not match); use '${lower}'`,
+        });
+      }
       const previous = names.get(lower);
       if (previous !== undefined) {
         issues.push({
