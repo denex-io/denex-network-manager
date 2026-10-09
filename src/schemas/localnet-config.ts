@@ -107,6 +107,7 @@ export const LocalNetConfigSchema = z.object({
   // @deprecated — kept for backward compatibility. Use 'localnet discovery serve' instead.
   discovery: DiscoveryConfigSchema.optional(),
   basePort: z.number().int().min(1024).max(60000).default(5000),
+  spliceVersion: z.string().optional(),
 });
 
 export type ParsedLocalNetConfig = z.infer<typeof LocalNetConfigSchema>;

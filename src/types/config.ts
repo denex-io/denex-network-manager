@@ -194,6 +194,18 @@ export interface LocalNetConfig {
    * @default 5000
    */
   basePort?: number;
+
+  /**
+   * Override the Splice and Canton image versions for all Splice-family containers.
+   * Sets `canton`, `splice`, `walletWebUi`, `ansWebUi`, `svWebUi`, and
+   * `scanWebUi` to the corresponding images at the specified version.
+   *
+   * Explicit per-image overrides passed to `LocalNetOptions.images` take
+   * precedence over images derived from this field.
+   *
+   * @example "0.9.0"
+   */
+  spliceVersion?: string;
 }
 
 export const DEFAULT_AUDIENCE = 'https://canton.network.global';
