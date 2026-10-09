@@ -47,18 +47,16 @@ All notable changes to this project will be documented in this file. The format 
   network and the data volume. The progress message is now "Startup failed; removing resources
   created by this attempt...". `restart()` whose start step fails leaves the instance stopped.
 - `getParties()` listed every party once per participant (18 rows for 6 parties); it now lists each
-  party once, under the validator whose participant hosts it, with the host's display name (#24,
-  #18).
+  party once, under the validator whose participant hosts it, with the host's display name.
 - `createUser` bound hints to parties hosted on other validators; hints now resolve against the
   user's own validator, and a hint hosted only elsewhere is allocated on it (a different party id).
 - `CantonClient.listParties()` ignored pagination; it now follows `nextPageToken`.
 - `getUsersWithRights()` and `getSnapshot()` silently omitted validators that failed to respond;
   they now return the reachable results and warn for each failed validator.
-- `uploadDar()` sent a multipart body Canton rejects (#15), returned an empty package id (#16), and
-  silently skipped unknown validators; it now sends a raw octet-stream body, returns the main
-  package id computed from the DAR, and throws on an unknown validator, an empty target list or an
-  invalid DAR.
-- `getPackages()` and `listPackages()` always returned an empty list (#17).
+- `uploadDar()` sent a multipart body Canton rejects, returned an empty package id, and silently
+  skipped unknown validators; it now sends a raw octet-stream body, returns the main package id
+  computed from the DAR, and throws on an unknown validator, an empty target list or an invalid DAR.
+- `getPackages()` and `listPackages()` always returned an empty list.
 
 ## [0.1.0-beta.1] — 2026-07-28
 

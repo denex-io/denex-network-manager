@@ -104,8 +104,8 @@ Deno.test({
       assertExists(bobParty, 'bob party should exist');
       assertEquals(bobParty.displayName, 'Bob');
 
-      // Each party is listed once, under the validator that hosts it (#24), and the
-      // displayName comes from the hosting participant's annotation (#18 regression guard).
+      // Each party is listed once, under the validator that hosts it, and the
+      // displayName comes from the hosting participant's annotation (regression guard).
       const partyIds = allParties.map((p) => p.partyId);
       assertEquals(new Set(partyIds).size, partyIds.length, 'partyIds should be unique');
       assertEquals(aliceParty.validator, 'alice');
