@@ -27,10 +27,11 @@
  */
 export interface ValidatorSpec {
   /**
-   * Validator name.
+   * Validator name, such as `'alice'`, `'bob-val'`, or `'validator-1'`.
    *
-   * Used for identification, port allocation, and Keycloak realm naming.
-   * Examples: 'alice', 'bob-val', 'validator-1'.
+   * Identifies the validator in SDK methods and names its Keycloak realm, built by title-casing
+   * each hyphen-separated segment (`'alice-val'` becomes realm `AliceVal`). Ports are assigned by
+   * the validator's position in the list, not by its name.
    *
    * Must be lowercase (Keycloak lowercases usernames, so 'Alice' would never authenticate;
    * `build()` throws a ZodError), unique across all validators in the LocalNet, must not be
@@ -43,27 +44,20 @@ export interface ValidatorSpec {
   name: string;
 
   /**
-   * Party hints to allocate on this validator.
+   * Party hints to allocate on this validator during `start()`.
    *
-   * Each string is a party hint that will be allocated during initialization.
-   * Hints are normalized to match the pattern `<org>-<function>-<enumerator>`.
-   * Example: 'alice' → 'alice-party-0'.
+   * Each hint is passed to the ledger as given, so the party ID is `<hint>::<namespace>`. Hints
+   * must start with a letter and contain only letters, digits, and hyphens.
    *
-   * Maps to ValidatorConfig.parties[].hint in the lower-level config.
-   *
-   * @default undefined (no parties allocated)
+   * Maps to `ValidatorConfig.parties[].hint`.
    */
   parties?: string[];
 
   /**
-   * Users to create on this validator.
+   * Users to create on this validator during `start()`, each with
+   * {@link LocalNet.createUser}.
    *
-   * Each user is created on the validator's Participant node during initialization.
-   * Users can have primary parties and multi-party rights.
-   *
-   * Maps to ValidatorConfig.users in the lower-level config.
-   *
-   * @default undefined (no users created)
+   * Maps to `ValidatorConfig.users`.
    */
   users?: UserSpec[];
 }
@@ -85,41 +79,32 @@ export interface ValidatorSpec {
  */
 export interface UserSpec {
   /**
-   * User ID.
+   * User ID on the participant, unique within its validator.
    *
-   * Unique identifier for this user within the Participant.
-   * Also used as the default password in Keycloak (username = password).
+   * Also the user's Keycloak username and password.
    *
-   * Maps to UserConfig.id in the lower-level config.
+   * Maps to `UserConfig.id`.
    */
   id: string;
 
   /**
-   * Primary party hint.
+   * Hint of the user's primary party. The party is allocated if it does not exist, the user gets
+   * `CanActAs` on it, and the user is onboarded to the validator's wallet.
    *
-   * The party that this user's primary identity is associated with.
-   * The user automatically gets CanActAs rights on this party.
+   * Omit for users without a primary party, such as admin-only users; they are not onboarded to
+   * the wallet.
    *
-   * If omitted, the user has no primary party (useful for admin-only users).
-   *
-   * Maps to UserConfig.primaryParty in the lower-level config.
-   *
-   * @default undefined
+   * Maps to `UserConfig.primaryParty`.
    */
   primaryParty?: string;
 
   /**
-   * Participant-wide rights.
+   * Rights to grant. `'ParticipantAdmin'`, `'CanReadAsAnyParty'`, `'CanExecuteAsAnyParty'`, and
+   * `'IdentityProviderAdmin'` apply participant-wide. `'CanActAs'`, `'CanReadAs'`, and
+   * `'CanExecuteAs'` apply to the primary party and are ignored without one. Other values fail
+   * validation in {@link LocalNetBuilder.build}.
    *
-   * Rights that don't require a specific party. Valid values:
-   * - 'ParticipantAdmin' — Full admin access (list/create users, grant rights)
-   * - 'CanReadAsAnyParty' — Read transactions for any party
-   * - 'CanExecuteAsAnyParty' — Execute commands as any party
-   * - 'IdentityProviderAdmin' — Manage identity providers
-   *
-   * Maps to UserConfig.rights in the lower-level config.
-   *
-   * @default undefined (no participant-wide rights)
+   * Maps to `UserConfig.rights`.
    */
   rights?: string[];
 }
@@ -152,11 +137,11 @@ export interface LocalNetBuilderConfig {
   /**
    * Base port for port allocation.
    *
-   * The Super Validator uses ports starting at basePort.
-   * Regular validators use basePort + (index * 100).
-   * Example: basePort=5000 → SV at 5000-5099, validator-1 at 5100-5199, etc.
+   * The Super Validator's ports are offsets from basePort; validator N (counting from 1) uses
+   * offsets from basePort + N × 100. Example: basePort=5000 puts the SV in 5000-5099 and
+   * validator-1 in 5100-5199.
    *
-   * Maps to LocalNetConfig.basePort in the lower-level config.
+   * Maps to `LocalNetConfig.basePort`.
    */
   basePort: number;
 
@@ -171,12 +156,9 @@ export interface LocalNetBuilderConfig {
   validators: ValidatorSpec[];
 
   /**
-   * Keycloak admin credentials.
+   * Keycloak admin username and password.
    *
-   * Used to configure the OAuth2 identity provider.
-   * Both username and password are set to the same value.
-   *
-   * Maps to LocalNetConfig.auth.keycloak in the lower-level config.
+   * Maps to `LocalNetConfig.auth.keycloak`.
    */
   auth: {
     /** Keycloak admin username. */

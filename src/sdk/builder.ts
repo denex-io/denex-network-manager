@@ -5,8 +5,7 @@
  * objects without writing YAML or manually assembling config objects.
  *
  * The builder converts high-level {@link ValidatorSpec} objects into the lower-level
- * {@link ValidatorConfig} format, then delegates to {@link withDefaults} for Zod
- * schema validation and default population.
+ * {@link ValidatorConfig} format, then runs schema validation and fills in schema defaults.
  *
  * @example Simple usage with validator count
  * ```typescript
@@ -38,20 +37,23 @@ import type { LocalNetBuilderConfig, UserSpec, ValidatorSpec } from './types.ts'
 /**
  * Fluent builder for constructing LocalNet configurations programmatically.
  *
- * Creates a valid {@link ParsedLocalNetConfig} through method chaining.
- * All methods return `this` for fluent chaining. Call {@link build} to
- * produce the final validated config.
+ * Create one with {@link LocalNetBuilder.create}; the constructor is private. Every setter
+ * returns the builder for chaining. {@link LocalNetBuilder.build} returns a validated config,
+ * not a running network: pass it to {@link LocalNet.fromConfig}.
  *
- * The Super Validator (SV) is always implicit — only regular validators
- * are configured through the builder.
+ * The Super Validator (SV) is always created; only regular validators are configured here.
+ * Runtime settings such as the instance ID are {@link LocalNetOptions}, not builder methods.
  *
  * @example
  * ```typescript
+ * import { LocalNet, LocalNetBuilder } from '@denex/network-manager/sdk';
+ *
  * const config = LocalNetBuilder.create()
  *   .withValidators('alice', 'bob')
  *   .withBasePort(6000)
  *   .withAuth('myadmin', 'secret')
  *   .build();
+ * const net = await LocalNet.fromConfig(config, { instanceId: 'demo' });
  * ```
  */
 export class LocalNetBuilder {
@@ -66,19 +68,17 @@ export class LocalNetBuilder {
   }
 
   /**
-   * Create a new builder instance with default settings.
+   * Create a new builder.
    *
-   * Defaults: basePort=5000, no validators, auth=admin/admin.
-   * If {@link build} is called without adding validators, defaults to 2.
-   *
-   * @returns A new {@link LocalNetBuilder} instance.
+   * Defaults: base port 5000 and Keycloak admin `admin`/`admin`. If no validators are added,
+   * {@link LocalNetBuilder.build} creates 2 (`validator-1` and `validator-2`).
    */
   static create(): LocalNetBuilder {
     return new LocalNetBuilder();
   }
 
   /**
-   * Set validators by count, creating default names (validator-1, validator-2, etc.).
+   * Set validators by count, named `validator-1`, `validator-2`, and so on.
    *
    * Replaces any previously configured validators.
    *
@@ -98,10 +98,10 @@ export class LocalNetBuilder {
    * Set validators by name.
    *
    * Replaces any previously configured validators. Each name becomes a validator
-   * with no parties or users (add those with {@link addValidator} instead).
+   * with no parties or users (add those with {@link LocalNetBuilder.addValidator} instead).
    *
-   * @param names - One or more validator names.
-   * @returns This builder for chaining.
+   * @param names - One or more validator names: at most 12 characters, starting with a letter,
+   *   and containing only letters, digits, and hyphens. Checked by {@link LocalNetBuilder.build}.
    *
    * @example
    * ```typescript
@@ -139,9 +139,10 @@ export class LocalNetBuilder {
    * Appends to the existing validator list (does not replace).
    * Use this for detailed per-validator configuration.
    *
-   * @param name - Validator name. Must be unique across all validators.
-   * @param options - Optional parties (as hint strings) and users.
-   * @returns This builder for chaining.
+   * @param name - Validator name, with the same rules as {@link LocalNetBuilder.withValidators}.
+   *   Give each validator a distinct name; `build()` does not check for duplicates.
+   * @param options - Party hints to allocate and users to create on this validator during
+   *   `start()`.
    *
    * @example
    * ```typescript
@@ -169,7 +170,7 @@ export class LocalNetBuilder {
   }
 
   /**
-   * Set the base port for port allocation.
+   * Set the base port for port allocation. Defaults to 5000.
    *
    * The SV uses ports starting at basePort. Regular validators use
    * basePort + (index × 100). Must be between 1024 and 60000, and low enough that
@@ -190,16 +191,8 @@ export class LocalNetBuilder {
   }
 
   /**
-   * Set Keycloak admin credentials.
-   *
-   * @param admin - Keycloak admin username.
-   * @param password - Keycloak admin password.
-   * @returns This builder for chaining.
-   *
-   * @example
-   * ```typescript
-   * builder.withAuth('myadmin', 'secretpass');
-   * ```
+   * Set the Keycloak admin username and password (`auth.keycloak.admin` and
+   * `auth.keycloak.password`). Defaults to `admin`/`admin`.
    */
   withAuth(admin: string, password: string): LocalNetBuilder {
     this.config.auth = { admin, password };
@@ -207,11 +200,12 @@ export class LocalNetBuilder {
   }
 
   /**
-   * Build the final validated configuration.
+   * Build the validated config.
    *
-   * Converts the accumulated builder state into a {@link ParsedLocalNetConfig}
-   * by mapping {@link ValidatorSpec} objects to {@link ValidatorConfig} format,
-   * then passing through Zod validation via {@link withDefaults}.
+   * Maps each {@link ValidatorSpec} to a {@link ValidatorConfig}, validates the result against
+   * the config schema, and fills in schema defaults. If no validators were configured, the config
+   * has 2. The result is a config only; pass it to {@link LocalNet.fromConfig} to get a
+   * {@link LocalNet}.
    *
    * If no validators were configured, defaults to 2 validators.
    *

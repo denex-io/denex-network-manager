@@ -154,6 +154,11 @@ export const {
   LocalNetConfigSchema,
 } = stripSchemas;
 
+/**
+ * A {@link LocalNetConfig} after schema validation, with defaults filled in: `version` is set
+ * (default `'1.0'`) and `basePort` is set (default 5000). Unknown keys are removed. Returned by
+ * the config loaders and {@link LocalNetBuilder.build}.
+ */
 export type ParsedLocalNetConfig = z.infer<typeof LocalNetConfigSchema>;
 
 /** Options for the input parsers. */

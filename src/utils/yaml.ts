@@ -45,10 +45,14 @@ export function expandEnvVarsWithDefaults(content: string): string {
 }
 
 /**
- * Loads and validates a YAML config file. Environment variables are expanded first.
- * Unknown keys are ignored and reported through `options.onWarning` (default `console.warn`).
+ * Loads and validates a YAML config file.
  *
- * @throws {ZodError} If the config is invalid (see {@link parseLocalNetConfig}).
+ * `${NAME}` and `${NAME:default}` are replaced from the process environment before the YAML is
+ * parsed, anywhere in the file including comments. Schema defaults are filled in. Unknown keys are
+ * ignored and reported through `options.onWarning` (default `console.warn`).
+ *
+ * @throws If the file cannot be read, a referenced variable is unset and has no default, the YAML
+ *   does not parse, or the config is invalid (see {@link parseLocalNetConfig}).
  */
 export async function loadConfigFile(
   path: string,
@@ -73,6 +77,10 @@ export async function loadConfigFromDir(
   return loadConfigFile(configPath, options);
 }
 
+/**
+ * Parses and validates a YAML config held in a string, with the same environment variable
+ * expansion, warnings and errors as {@link loadConfigFile}.
+ */
 export function loadConfigFromString(
   yamlContent: string,
   options?: ParseConfigOptions,
@@ -82,6 +90,13 @@ export function loadConfigFromString(
   return parseLocalNetConfig(parsed, options);
 }
 
+/**
+ * Validated config with `validatorCount` validators named `validator-1`, `validator-2`, and so
+ * on, base port 5000, and Keycloak admin `admin`/`admin`.
+ *
+ * @param validatorCount - 1 to 10.
+ * @throws A Zod validation error if the count is out of range.
+ */
 export function createMinimalConfig(validatorCount: number = 2): ParsedLocalNetConfig {
   return withDefaults({ validators: validatorCount });
 }

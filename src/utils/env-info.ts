@@ -19,9 +19,12 @@ import { DEFAULT_BASE_PORT, getSvPorts, getValidatorPorts } from './ports.ts';
 import { getCredentials } from './credentials.ts';
 
 /**
- * Build complete environment info from config alone (no live API calls).
- * Live-only fields (domainId, dsoPartyId, participantId, parties) are
- * initialized as null/empty and layered on later by the caller.
+ * Environment info computed from a config alone, without contacting Docker or any API.
+ *
+ * Endpoints, auth settings, and credentials are filled in from the port allocation and naming
+ * rules. The live fields are left empty: `network.domainId`, `network.dsoPartyId`, and each
+ * validator's `participantId` are `null`, and `parties` is `[]`. {@link LocalNet.getEnvironment}
+ * fills in the live fields from a running instance.
  */
 export function buildConfigEnvironmentInfo(
   config: LocalNetConfig,
