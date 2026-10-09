@@ -230,8 +230,7 @@ Deno.test({
   sanitizeResources: false,
   async fn() {
     const localnet = await LocalNet.fromConfig(TEST_CONFIG, { instanceId: uniqueInstanceId() });
-    // deno-lint-ignore no-explicit-any
-    let browser: any;
+    let browser: import('npm:playwright@1.57.0').Browser | undefined;
     try {
       await localnet.start({ timeout: 300_000 });
       const walletLogins = (await localnet.getCredentials()).filter((c) =>
@@ -245,9 +244,12 @@ Deno.test({
       ]);
 
       const pw = await loadPlaywrightOrThrow();
-      browser = await pw.chromium.launch({ headless: true });
+      const launched: import('npm:playwright@1.57.0').Browser = await pw.chromium.launch({
+        headless: true,
+      });
+      browser = launched;
       for (const cred of walletLogins) {
-        const page = await browser.newPage();
+        const page = await launched.newPage();
         try {
           await loginAndAssertWalletWorks(
             page,
