@@ -226,8 +226,8 @@ function unknownKeyWarnings(input: unknown): ConfigWarning[] {
 /**
  * Input-only rules that are not part of the schema, so stored labels keep parsing: the
  * port limit for the validator count, lowercase and unique validator names that neither
- * equal the reserved `sv` nor derive a Keycloak realm name already in use, and user ids that
- * are unique case-insensitively within a validator (Keycloak lowercases usernames).
+ * equal the reserved `sv` nor derive a Keycloak realm name already in use, and lowercase user
+ * ids (Keycloak lowercases usernames).
  */
 function checkConfigInvariants(parsed: ParsedLocalNetConfig): z.ZodIssue[] {
   const issues: z.ZodIssue[] = [];
@@ -294,19 +294,16 @@ function checkConfigInvariants(parsed: ParsedLocalNetConfig): z.ZodIssue[] {
       realms.set(realm, v.name);
     });
     parsed.validators.forEach((v: ValidatorConfig, i: number) => {
-      const ids = new Map<string, string>();
       (v.users ?? []).forEach((u, j) => {
-        const key = u.id.toLowerCase();
-        const previous = ids.get(key);
-        if (previous !== undefined && previous !== u.id) {
+        const lower = u.id.toLowerCase();
+        if (u.id !== lower) {
           issues.push({
             code: z.ZodIssueCode.custom,
             path: ['validators', i, 'users', j, 'id'],
-            message: `User id '${u.id}' in validator '${v.name}' differs from '${previous}' only ` +
-              `by case; Keycloak lowercases usernames, so they would be one user`,
+            message: `User id '${u.id}' must be lowercase (Keycloak lowercases usernames); ` +
+              `use '${lower}'`,
           });
         }
-        ids.set(key, previous ?? u.id);
       });
     });
   }

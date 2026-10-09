@@ -482,7 +482,7 @@ Deno.test('reconstructConfigFromLabels - stored labels are lenient: 11 validator
     validators: [
       ...Array.from({ length: 10 }, (_, i) => ({ name: `v${i}` })),
       { name: 'Alice', parties: [{ hint: 'a', validator: 'v0' }] },
-      { name: 'alice', users: [{ id: 'u', validator: 'v0' }] },
+      { name: 'alice', users: [{ id: 'Bob', validator: 'v0' }] },
     ],
     auth: { keycloak: { admin: 'a', password: 'b' } },
     basePort: 60000,

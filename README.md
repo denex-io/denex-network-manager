@@ -234,11 +234,11 @@ are auto-allocated if they are not listed under the validator's top-level `parti
 
 Validator names must be lowercase (Keycloak lowercases usernames, so `App` would never
 authenticate), unique, must not be `sv`, and must not map to the same Keycloak realm as another
-validator (`ab` and `ab-` both become `Ab`). User ids within a validator must be unique
-case-insensitively. There is no cap on the validator count, but the highest port derived from
-`basePort` must stay at or below 65535, so a config such as 55 validators at `basePort: 60000` is
-rejected. Unknown keys (for example a misspelt `basport`) are ignored with a warning, on stderr in
-the CLI; the value they would have set falls back to its default.
+validator (`ab` and `ab-` both become `Ab`). User ids must be lowercase for the same reason. There
+is no cap on the validator count, but the highest port derived from `basePort` must stay at or below
+65535, so a config such as 55 validators at `basePort: 60000` is rejected. Unknown keys (for example
+a misspelt `basport`) are ignored with a warning, on stderr in the CLI; the value they would have
+set falls back to its default.
 
 Party hints supplied by users are normalized for Canton when needed. Validator operator party hints
 are generated separately from validator names.

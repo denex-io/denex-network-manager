@@ -56,7 +56,7 @@ export interface PartyConfig {
  * Configuration for a user to be created on a Participant.
  */
 export interface UserConfig {
-  /** Unique user ID within the Participant. */
+  /** Unique user ID within the Participant. Must be lowercase (Keycloak lowercases usernames); rejected on input otherwise. */
   id: string;
 
   /** Reference to party hint that this user's primary party will be. Optional — omit for users with only participant-wide rights. */
