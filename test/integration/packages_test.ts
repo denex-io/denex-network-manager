@@ -116,10 +116,21 @@ Deno.test({
   async fn() {
     const instanceId = generateTestInstanceId();
     const dir = await extractImageDarsBeforeStart(instanceId);
-    const dars = (await readdir(dir)).filter((f) => f.endsWith('.dar'));
-    assert(dars.length > 0, 'the splice image should ship DARs');
+    // Uploading all ~180 shipped DARs takes over half an hour and many exceed Canton's request
+    // timeout, so use the newest of two apps that a default LocalNet does not upload.
+    const shipped = (await readdir(dir)).filter((f) => f.endsWith('.dar'));
+    const newest = (prefix: RegExp) =>
+      shipped.filter((f) => prefix.test(f)).sort((a, b) =>
+        a.localeCompare(b, undefined, { numeric: true })
+      ).at(-1);
+    const dars = [
+      newest(/^splitwell-\d[\d.]*\.dar$/),
+      newest(/^splice-token-test-trading-app-.*\.dar$/),
+    ]
+      .filter((f): f is string => f !== undefined);
+    assert(dars.length > 0, 'the splice image should ship splitwell or token-test DARs');
 
-    // A relative `dar` resolves against configDir; every shipped DAR goes to validator-1 only.
+    // A relative `dar` resolves against configDir; the DARs go to validator-1 only.
     const config: LocalNetConfig = {
       ...CONFIG,
       packages: dars.map((f) => ({ name: f, dar: f, uploadTo: ['validator-1'] })),
