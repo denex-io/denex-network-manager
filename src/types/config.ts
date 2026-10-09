@@ -73,22 +73,31 @@ export interface UserConfig {
 }
 
 /**
- * Configuration for a regular Validator node.
- * Note: This is NOT for the Super Validator - the SV is created automatically.
+ * Configuration for a regular validator. The Super Validator is always created and is not
+ * configured here.
  */
 export interface ValidatorConfig {
   /**
-   * Name of this validator. Used for identification and port allocation.
+   * Name of this validator. Identifies it in SDK methods and names its Keycloak realm; ports are
+   * assigned by its position in the list, not by its name.
    *
    * Must be at most 12 characters: Splice node names have a 30-character limit
-   * and the validator backend appends "-validator_backend" (18 chars).
+   * and the validator backend appends "-validator_backend" (18 chars). Must start with a letter
+   * and contain only letters, digits, and hyphens. Must also be lowercase, unique, not `sv`, and
+   * not map to the same Keycloak realm as another validator; rejected on input otherwise.
    */
   name: string;
 
-  /** Parties to allocate on this validator's Participant. */
+  /**
+   * Parties to allocate on this validator's participant during `start()`, each by its `hint`
+   * (passed to the ledger as given) and optional `displayName`.
+   */
   parties?: PartyConfig[];
 
-  /** Users to create on this validator's Participant. */
+  /**
+   * Users to create on this validator's participant during `start()`, each with
+   * {@link LocalNet.createUser}. User IDs must be unique within the validator.
+   */
   users?: UserConfig[];
 }
 
@@ -144,32 +153,33 @@ export interface DiscoveryConfig {
 }
 
 /**
- * Main configuration for a Canton LocalNet.
+ * Configuration for one LocalNet, as written in YAML or built in code.
  *
- * The Super Validator (SV) is IMPLICIT - always exactly one is created
- * automatically. Users only configure the regular Validators.
+ * Exactly one Super Validator (SV) is always created; only the regular validators are
+ * configured. Validate a config with {@link LocalNet.fromConfig} or one of the loaders, which
+ * return a {@link ParsedLocalNetConfig}.
  *
- * @example Simple configuration with just a validator count
+ * @example Validator count
  * ```typescript
  * const config: LocalNetConfig = {
- *   validators: 2,  // Creates 2 regular Validators + 1 SV (implicit)
- *   auth: { mode: 'oauth2', keycloak: { ... } }
+ *   validators: 2, // validator-1 and validator-2, plus the SV
+ *   auth: { keycloak: { admin: 'admin', password: 'admin' } },
  * };
  * ```
  *
- * @example Detailed configuration with custom validators
+ * @example Named validators with parties
  * ```typescript
  * const config: LocalNetConfig = {
  *   validators: [
  *     { name: 'alice', parties: [{ hint: 'alice' }] },
  *     { name: 'bob', parties: [{ hint: 'bob' }] },
  *   ],
- *   auth: { mode: 'oauth2', keycloak: { ... } }
+ *   auth: { keycloak: { admin: 'admin', password: 'admin' } },
  * };
  * ```
  */
 export interface LocalNetConfig {
-  /** Schema version for forward compatibility. */
+  /** Config version string. Defaults to `'1.0'`; the SDK does not otherwise read it. */
   version?: string;
 
   /**
@@ -186,7 +196,7 @@ export interface LocalNetConfig {
    */
   validators: number | ValidatorConfig[];
 
-  /** Authentication configuration. */
+  /** Keycloak admin username and password (`auth.keycloak.admin` and `auth.keycloak.password`). */
   auth: AuthConfig;
 
   /** DAR packages uploaded to their `uploadTo` participants at the end of initialization. */
@@ -255,7 +265,7 @@ export function normalizeValidators(
 
 /**
  * Convert validator name to Keycloak realm name.
- * Example: validator-1 → Validator1, alice-validator → AliceValidator
+ * Example: validator-1 → Validator1, alice-val → AliceVal
  */
 export function getRealmName(validatorName: string): string {
   return validatorName

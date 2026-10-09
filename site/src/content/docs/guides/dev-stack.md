@@ -5,12 +5,12 @@ description: How to wrap a LocalNet instance in a one-command development stack 
 
 [Using the SDK](/denex-network-manager/guides/sdk/) covers the SDK surface. This covers what to do
 with it: the lifecycle a `dev:up` script needs, how to connect when you have more than one validator,
-and the handful of behaviours that cause real trouble if you assume otherwise.
+and the handful of behaviors that cause real trouble if you assume otherwise.
 
 A working version of everything here lives in
 [`examples/dev-stack`](https://github.com/denex-io/denex-network-manager/blob/main/examples/dev-stack/main.ts):
 
-```sh
+```bash
 deno run -A examples/dev-stack/main.ts          # start (or reuse) and report
 deno run -A examples/dev-stack/main.ts --down   # destroy
 ```
@@ -33,19 +33,24 @@ await net.destroy(); // remove containers, network, and volumes
 await net.stop(); // stop containers, keep ledger state
 ```
 
-A **failed** `start()` is the exception — it cleans up after itself. Worth knowing while debugging:
-a crashed bring-up leaves nothing behind, so an empty `docker ps` after a failure is expected, not a
-second problem.
+A failed `start()` cleans up after itself, but only for what it created. A failed first start leaves
+nothing behind, so an empty `docker ps` after one is expected, not a second problem. A failed resume
+of an existing instance, for example a timeout, is non-destructive: `start()` stops again the
+containers it had started and keeps the containers, the network, and the PostgreSQL volume, so the
+ledger data survives and you can read the container logs. The exception is an abort because another
+process appears to be starting the instance: then it removes only the containers it created and
+leaves the rest for that process.
 
 ### Always try to reuse
 
 A cold start takes minutes; attaching to a running instance takes under a second. Check before you
 build.
 
-The check to write is not the obvious one. `fromInstanceId` is an **existence** check, not a
-liveness check: it throws only when no container carries the instance label at all. A cleanly
-stopped instance still has its containers, so it attaches successfully — and the object it returns
-reports itself as running. Gate on `isRunning()`:
+The check to write is not the obvious one. `LocalNet.fromInstanceId()` is an existence check, not a liveness
+check: it throws when no container carries the instance label, or when the labels or Docker cannot
+be read. A cleanly stopped instance still has its containers, so it attaches successfully, and the
+object it returns reports itself as running (`currentState`). Gate on `isRunning()`, which is `true`
+only when every container the instance should have is running:
 
 ```typescript
 async function attachIfLive(id: string): Promise<LocalNet | null> {
@@ -72,17 +77,34 @@ async function up(id: string): Promise<LocalNet> {
 }
 ```
 
-Skipping the liveness gate leaves you with no way forward. Every state method on that object
-proceeds against dead ports without raising, and `start()` rejects it as already running. With the
-gate, the fall-through path is also the cheap one: `start()` against a stopped instance restarts the
-containers that already exist and keeps the Postgres volume, so resuming takes seconds and is
-non-destructive rather than a rebuild.
+Skipping the liveness gate leaves you with an object that cannot be started. Queries such as
+`getParties()`, `getUsers()` and `getDsoPartyId()` fail against the dead ports, best-effort methods
+such as `getEnvironment()` return partial results without raising, and `start()` rejects the object
+as already running.
 
-Do not branch on `state() === 'stopped'` to detect this. An instance whose containers have all
-exited derives to `'error'`, not `'stopped'`.
+With the gate, the fall-through path is also the cheap one. `start()` on a fresh `LocalNet` against a
+stopped instance starts its existing containers. Against a partly running one it repairs the
+instance: it starts the stopped containers, creates missing ones, and restarts running containers
+that depend on what it started (Nginx and the web UIs after Splice). Either way it runs
+initialization again, which skips parties that are already allocated, and keeps the PostgreSQL
+volume, so the ledger state survives instead of being rebuilt.
 
-Matching on message text is fragile, and deliberately so here — the SDK currently throws plain
-`Error`s, so there is nothing else to match on. Typed error subclasses are tracked in
+Repair needs a handle that is not attached yet. A handle from `fromInstanceId()`, or a `fromConfig()`
+handle on which you already ran a query such as `getParties()` while some containers were running,
+counts as running, and its `start()` throws `LocalNet is already running`. Create the handle and call
+`start()` before anything else, as `up()` does.
+
+The live path reuses the config stored in the instance's container labels, not the one you pass, so
+edits to your config do not reach a running instance. On the fall-through path a changed config
+makes `start()` throw a config-mismatch error; call `destroy()` first to apply it.
+
+`state()` tells the cases apart when you need to: `'running'`, `'partial'` (some of the expected
+containers run, and a missing container counts as not running), `'stopped'`, or `'absent'`.
+`status().state` is a different value: it is `'error'` whenever any container has exited, which
+includes a cleanly stopped instance, so it does not tell a crash from a clean stop.
+
+Matching on message text is fragile, but the SDK currently throws plain `Error`s, so there is nothing
+else to match on. Typed error subclasses are tracked in
 [issue #7](https://github.com/denex-io/denex-network-manager/issues/7); prefer `instanceof` once
 they land.
 
@@ -113,40 +135,42 @@ The most common source of trouble, and it appears as soon as you add a second va
 The Super Validator is created automatically, so a config declaring one validator gives you two
 participants:
 
-```
+```text
 Participants: sv, app
 ```
 
-### Party ids are network-wide
+### Each party is listed once, under its host
 
-`env.parties` lists each party once per validator that can see it, with the same `partyId` every
-time. Resolving a hint needs no notion of "which validator" — take any entry:
+`env.parties` lists each party once, and `validator` names the participant that hosts it. Key the
+lookup by that pair, or by `partyId`, because the same hint can be hosted on two validators with
+different party IDs:
 
 ```typescript
 const partyIds = new Map<string, string>();
 for (const p of env.parties ?? []) {
-  if (p.partyId) partyIds.set(p.hint, p.partyId);
+  if (p.partyId) partyIds.set(`${p.validator}:${p.hint}`, p.partyId);
 }
 ```
 
 `partyId` is typed `string | null`, so skip empty ones rather than storing a null. Note what absence
 means here: `env.parties` is built from a live query, so a party declared in YAML but never
-successfully allocated does not appear in the list at all — and the list is empty outright if that
-query fails. Absence, not a null id, is the signal to check for.
+successfully allocated does not appear in the list at all. The same goes for every party of a
+validator that did not respond, and the list is empty outright if no validator responds. Absence, not
+a null id, is the signal to check for.
 
 ### Visibility is not permission
 
-Because a party appears under several validators, it is tempting to read `env.parties` as "any of
-these validators can act as this party." They cannot. Rights are granted **per participant**, and
-each validator has its own service account:
+Canton shows a party to participants that do not host it, but `env.parties` lists it only under its
+host. Do not read the other participants as being able to act as it. Rights are granted **per
+participant**, and each validator has its own service account:
 
-```
+```text
 sv     can act as : sv, DSO
 app    can act as : localnet-app-1, alice, bob
 ops    can act as : localnet-ops-2, operator
 ```
 
-`alice` is listed under all three participants. Only `app` can submit as her.
+`alice` is hosted on `app`. Only `app` can submit as her.
 
 ### One connection per party, against its own participant
 
@@ -154,7 +178,7 @@ Canton accepts a submission only on the participant hosting the submitting party
 opens one ledger connection and submits as everyone through it works with a single validator and
 fails as soon as a second exists:
 
-```
+```text
 NO_SYNCHRONIZER_ON_WHICH_ALL_SUBMITTERS_CAN_SUBMIT
 ```
 
@@ -166,9 +190,9 @@ problem. Retrying will not help — resolve each party to its host validator and
 const endpointFor = (hint: string, validator: string) => {
   const v = env.validators[validator];
   return {
-    party: partyIds.get(hint)!,
-    ledgerApiUrl: v.endpoints.ledgerApi,
-    auth: v.auth, // realm, client id/secret, and audience are all per validator
+    party: partyIds.get(`${validator}:${hint}`)!,
+    jsonApiUrl: v.endpoints.jsonApi, // `ledgerApi` is the gRPC port; use `jsonApi` for HTTP
+    auth: v.auth, // realm and client id/secret are per validator; the audience is shared
   };
 };
 ```
@@ -217,13 +241,15 @@ first session — with no error, just a session that quietly became someone else
 Distinct hostnames fix it, and `*.localhost` names need no setup on macOS or Linux with
 systemd-resolved, since [RFC 6761 §6.3][rfc6761] reserves the TLD for loopback:
 
-```
+```text
 http://app.localhost:3003    -> its own cookie jar
 http://ops.localhost:3103    -> its own cookie jar
 ```
 
-No `/etc/hosts` entry is required on those platforms. LocalNet relies on this itself — validator web
-UIs are published at `wallet.localhost:<port>`.
+No `/etc/hosts` entry is required on those platforms. `dnm` relies on this itself: the SV UIs are
+published at `sv.localhost`, `scan.localhost` and `wallet.localhost` on one port and told apart by
+hostname. Each validator's wallet has its own port, but all of them use `wallet.localhost`, so they
+share a cookie jar. Use a separate browser profile for a second wallet session.
 
 Resolution is not universal, which is worth a preflight check if your stack might run in CI:
 
@@ -248,9 +274,9 @@ per-user state there, sharing one origin across users undoes the isolation regar
 
 ## Running more than one instance
 
-Instances are independent when both the `instanceId` and the `basePort` differ. Note that `build()`
-returns a _config_, not a running instance, and `instanceId` is an option to `LocalNet.fromConfig` —
-there is no builder method for it:
+Instances are independent when both the `instanceId` and the `basePort` differ. `build()` returns a
+_config_, not a running instance, and `instanceId` is an option to `LocalNet.fromConfig()`; there is
+no builder method for it:
 
 ```typescript
 const appCfg = LocalNetBuilder.create()
@@ -260,27 +286,32 @@ await app.start();
 
 // and, concurrently:
 const opsCfg = LocalNetBuilder.create()
-  .addValidator('other', {/* ... */}).withBasePort(8500).build();
+  .addValidator('other', {/* ... */}).withBasePort(8600).build();
 const ops = await LocalNet.fromConfig(opsCfg, { instanceId: 'ops-stack' });
 await ops.start();
 ```
 
-Varying `basePort` alone is not enough, and the way it fails is quiet. Omit `instanceId` and both
-configs default to `'default'`: if the two configs differ, the second `start()` throws a
-config-mismatch error, and if they are identical it **attaches to the first instance and returns
-successfully** — leaving one stack where you expected two, with no error to explain the missing one.
+Varying `basePort` alone is not enough. Omit `instanceId` and both configs default to `'default'`, so
+the second `start()` throws a config-mismatch error. Reusing an identical config without an `instanceId`
+fails quietly instead: the second `start()` attaches to the first instance and returns successfully, which leaves one
+stack where you expected two, with no error to explain the missing one.
+
+`start()` throws up front if another LocalNet instance on the same Docker daemon already publishes
+one of the host ports it needs. Ports held by other Docker containers or by processes outside Docker
+are not checked in advance; Docker then fails the start with "port is already allocated".
 
 Ports advance in `+100` steps per validator, so leave room — a three-validator instance occupies
-roughly `basePort` through `basePort + 400`.
+`basePort` through `basePort + 380`.
 
 Expect a concurrent start to take several minutes and a good number of readiness polls before
 `start()` returns. That is normal, not a hang.
 
 ---
 
-Behaviour above was observed against `@denex/network-manager@0.1.0-beta.1` on macOS, with one- and
-two-validator instances, and re-checked against the SDK source in this repository. Linux behaviour
-is per the platform table; confirm it for your own environment if you depend on it.
+Behavior above was checked against the SDK source in this repository and against live instances on
+macOS. Repair on `start()`, the non-destructive failed resume, and parties listed once per host are
+newer than `0.1.0-beta.1`; see the [changelog](/denex-network-manager/help/changelog/). Linux
+behavior is per the platform table; confirm it for your own environment if you depend on it.
 
 [rfc6265]: https://datatracker.ietf.org/doc/html/rfc6265#section-8.5
 [rfc6761]: https://datatracker.ietf.org/doc/html/rfc6761#section-6.3

@@ -31,3 +31,4 @@ site/src/content/docs/reference/api/
 # Editor
 .vscode/
 .idea/
+.claude/

@@ -24,7 +24,8 @@ const INSTANCE_ID = 'devstack-example';
 
 /**
  * Two validators, so the multi-participant behaviour is visible. `alice` and
- * `bob` are hosted by `app`; `ops` hosts its own operator party.
+ * `bob` are hosted by `app`; `ops` hosts a party with hint `operator`. Each validator also hosts
+ * its own generated operator party (for example `localnet-ops-2`).
  *
  * basePort is deliberately away from the 5000 default so this can run beside
  * another instance.
@@ -48,10 +49,11 @@ const config = LocalNetBuilder.create()
 /**
  * Attach to a LIVE instance, or return null.
  *
- * `fromInstanceId` is an existence check, not a liveness check: it throws only
- * when no container carries the instance label at all. A cleanly stopped
- * instance still has its containers, so it attaches — and then reports itself
- * as running. Hence the explicit `isRunning()` gate.
+ * `fromInstanceId` is an existence check, not a liveness check: it attaches
+ * whenever a container carries the instance label. A cleanly stopped instance
+ * still has its containers, so it attaches, and the handle treats itself as
+ * running without checking. Hence the explicit `isRunning()` gate, which is
+ * true only when every container of the instance is running.
  *
  * Only "nothing there yet" is an ordinary first-run outcome. A schema mismatch,
  * a missing config label, and an unreachable Docker socket all surface as
@@ -178,9 +180,11 @@ if (import.meta.main) {
 
   // ── Reuse or start ────────────────────────────────────────────────────────
   // Rebuilding a healthy instance costs minutes and discards ledger state, so
-  // an idempotent dev script should always check first. Note this branch is
-  // also reached for a merely STOPPED instance, where start() restarts the
-  // existing containers and keeps the Postgres volume — seconds, not minutes.
+  // an idempotent dev script should always check first. The start() branch is
+  // also reached for a STOPPED or partly running instance: start() starts the
+  // existing containers, creates missing ones and keeps the Postgres volume, so
+  // it takes about a minute rather than the several minutes of a cold start. If that start fails, it undoes only its own
+  // changes, so the existing containers and data stay in place.
   let net = await attachIfLive();
   if (net) {
     console.log(`Reusing live instance '${INSTANCE_ID}'.`);
@@ -199,15 +203,16 @@ if (import.meta.main) {
   // created automatically alongside the validators you declare.
   console.log(`\nParticipants: ${Object.keys(env.validators).join(', ')}`);
 
-  // ── Party ids are network-wide; hosting is not ────────────────────────────
-  // `env.parties` lists a party once per validator that can SEE it, with the
-  // same id each time. Visibility is not permission to submit as that party —
-  // which participant hosts it is what decides that.
-  // `partyId` is nullable: a party can be declared in config but not yet
-  // allocated on the ledger, so skip those rather than recording a null id.
+  // ── Each party is listed once, under the participant that hosts it ────────
+  // `env.parties` lists a party once, with `validator` set to the participant
+  // that hosts it. That participant is the one that can submit as the party.
+  // A party declared in config but never allocated is absent from the list, and
+  // so are the parties of a validator that did not respond (the list is empty
+  // if none responds).
+  // `partyId` is nullable, so skip empty ones rather than recording a null id.
   const partyIds = new Map<string, string>();
   for (const p of env.parties ?? []) {
-    if (p.partyId) partyIds.set(p.hint, p.partyId);
+    if (p.partyId) partyIds.set(`${p.validator}:${p.hint}`, p.partyId);
   }
   console.log(`Parties: ${[...partyIds.keys()].join(', ')}`);
 

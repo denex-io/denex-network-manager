@@ -21,10 +21,12 @@ auth:
 The Super Validator is always created automatically, so this gives you three participants: the SV
 plus the two validators you declared.
 
-`dnm config` will generate this file interactively, or with `-y` to accept every default:
+`dnm config` generates this file interactively, or with `-y` accepts every default. It validates the
+file before writing it, and with `-y` it overwrites an existing file after saving it as
+`localnet.yaml.bak`:
 
 ```bash
-dnm config -y -o localnet.yaml
+dnm config -y
 ```
 
 ## Start it
@@ -34,8 +36,8 @@ dnm start
 ```
 
 A cold first run takes several minutes — it pulls images, brings up PostgreSQL, Canton, Splice,
-Keycloak, and Nginx, then allocates parties and provisions users across the ledger, Keycloak, and the
-Splice wallet.
+Keycloak, and Nginx, then allocates parties, creates users on the ledger and in Keycloak, onboards
+users that have a `primaryParty` to the Splice wallet, and uploads any `packages` DARs.
 
 ## Inspect it
 
@@ -49,9 +51,9 @@ Add `--json` to any of these to get machine-readable output, or `--shell` on `dn
 `export`-able variables.
 
 ```bash
-dnm parties       # parties across validators
+dnm parties       # each party once, under the validator that hosts it
 dnm entitlements  # users with their rights
-dnm packages      # uploaded DAR packages
+dnm packages      # packages known to each participant, built-ins included
 ```
 
 ## Stop or destroy it
@@ -61,9 +63,10 @@ dnm stop            # stop containers, keep ledger state
 dnm destroy --force # remove containers, networks, and volumes
 ```
 
-`stop` leaves the containers and the PostgreSQL volume in place, so a later `dnm start` resumes in
-seconds rather than rebuilding. `destroy` removes containers, networks, and volumes; without
-`--force` it asks for confirmation.
+`stop` leaves the containers and the PostgreSQL volume in place, so a later `dnm start` resumes with
+the same ledger state instead of rebuilding. If that resume fails, it removes nothing that existed
+before, so you can run `dnm start` again. `destroy` removes containers, networks, and volumes;
+without `--force` it asks for confirmation.
 
 :::note
 Nothing is written to your host filesystem — configuration reaches the containers through environment

@@ -11,7 +11,7 @@
 ## What this subsystem is
 
 Discovery groups Docker containers by LocalNet labels, reconstructs configs from schema-2 labels,
-and exposes running instances over an optional foreground Hono HTTP server.
+and exposes discovered instances (any state) over an optional foreground Hono HTTP server.
 
 ## Main modules
 

@@ -6,11 +6,15 @@ import {
 } from '../types/config.ts';
 import { DEFAULT_BASE_PORT, getSvPorts, getValidatorPorts } from './ports.ts';
 
+/** One web UI login: where to sign in and with which Keycloak user. */
 export interface CredentialInfo {
+  /** Keycloak realm of the user, such as `SV` or `Validator1`. */
   realm: string;
+  /** Web UI URL. */
   url: string;
   username: string;
   password: string;
+  /** Human-readable label, such as `validator-1 wallet`. */
   purpose: string;
 }
 

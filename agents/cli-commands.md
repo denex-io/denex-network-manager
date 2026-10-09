@@ -26,7 +26,7 @@ requiring a config file.
 
 ## Working rules
 
-- Only `start` and `config` accept `--config`.
+- Only `start` accepts `--config` (`dnm config` writes to `-o/--output`).
 - State commands attach via Docker labels using `--instance`, or auto-resolve with
   `resolveInstanceId` (`src/cli/utils.ts`): tiers running, then mixed, then stopped, restricted to
   the command's accept set (`status`/`env`/`credentials`: all three; `stop`/`parties`/`packages`/
