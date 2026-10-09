@@ -146,8 +146,12 @@ deno task docs:build     # production build; fails on broken internal links
   verified they exist.
 - The `splice` container runs all Splice backends in one process. A bad validator config can take
   SV, Scan, and every validator API offline.
-- `packages:` in YAML is parsed and validated, but startup does not currently auto-upload those
-  DARs. Use `LocalNet.uploadDar()` for runtime upload.
+- `packages:` in YAML are uploaded at the end of `initializeResources()` (so by `start()` unless
+  `skipInitialization`, and by `dnm init`). A relative `dar` resolves against the config file's
+  directory (`LocalNetOptions.configDir`, stored in the `config-dir` label), then the cwd;
+  `uploadTo` defaults to `sv` plus every validator at upload time. The parsed config is never
+  rewritten. A missing DAR fails a fresh `start()` before Docker is touched and only warns on resume
+  or repair; a failed upload warns (`source: 'packages'`) and continues.
 - The `discovery` YAML field is deprecated and does not start a discovery server. Run
   `deno task cli discovery serve` explicitly.
 - `reference/splice` is a local/external source reference, not a stable repo artifact. Prefer

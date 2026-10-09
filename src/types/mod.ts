@@ -19,6 +19,7 @@ export {
 } from './config.ts';
 
 export type {
+  ConfigWarning,
   ContainerStatus,
   CredentialEntry,
   EnvironmentAuthConfig,
@@ -27,6 +28,7 @@ export type {
   LedgerApiAuth,
   LocalNetState,
   LocalNetStatus,
+  LocalNetWarning,
   NetworkEnvironment,
   PackageInfo,
   PartyEnvironmentInfo,

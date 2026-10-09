@@ -1,6 +1,6 @@
 import type { LocalNetConfig } from '../types/config.ts';
 import { normalizeValidators } from '../types/config.ts';
-import { parseLocalNetConfig } from '../schemas/mod.ts';
+import { parseStoredLocalNetConfig } from '../schemas/mod.ts';
 
 /**
  * Label key constants for Docker container labels.
@@ -30,6 +30,11 @@ export interface ContainerListItem {
 export interface DiscoveredInstance {
   id: string;
   containerCount: number;
+  /**
+   * `'running'` only if every counted container runs, `'stopped'` if none does, `'mixed'` on any
+   * disagreement (independent of the order Docker lists containers in). `'unsupported'` marks a
+   * schema-1 instance that cannot be attached.
+   */
   status: 'running' | 'stopped' | 'mixed' | 'unsupported';
   basePort: number;
   validatorNames: string[];
@@ -38,7 +43,8 @@ export interface DiscoveredInstance {
 /**
  * Reconstruct a LocalNetConfig from Docker container labels.
  *
- * Reads the denex.localnet.config label (schema 2) and re-validates via parseLocalNetConfig.
+ * Reads the denex.localnet.config label (schema 2) and re-validates via parseStoredLocalNetConfig
+ * (strip parse only: no input-only rules and no warnings, so instances created by older versions stay discoverable).
  * Returns null on schema mismatch, missing label, malformed JSON, or validation failure.
  *
  * @param labels - Docker container labels (Record<string, string>)
@@ -58,7 +64,7 @@ export function reconstructConfigFromLabels(labels: Record<string, string>): Loc
 
   try {
     const raw = JSON.parse(configJson);
-    return parseLocalNetConfig(raw);
+    return parseStoredLocalNetConfig(raw);
   } catch {
     return null;
   }
@@ -67,7 +73,7 @@ export function reconstructConfigFromLabels(labels: Record<string, string>): Loc
 /**
  * Discover LocalNet instances from a list of containers.
  *
- * Groups containers by the `localnet.instance` label and extracts metadata
+ * Groups containers by the `denex.localnet.instance` label and extracts metadata
  * (basePort, validators, status) from each group. Containers without the
  * instance label are filtered out.
  *
@@ -77,8 +83,8 @@ export function reconstructConfigFromLabels(labels: Record<string, string>): Loc
  * @example
  * ```typescript
  * const containers = [
- *   { name: 'postgres', state: 'running', labels: { 'localnet.instance': 'test-1', ... } },
- *   { name: 'canton', state: 'running', labels: { 'localnet.instance': 'test-1', ... } },
+ *   { name: 'postgres', state: 'running', labels: { 'denex.localnet.instance': 'test-1', ... } },
+ *   { name: 'canton', state: 'running', labels: { 'denex.localnet.instance': 'test-1', ... } },
  * ];
  * const instances = discoverInstances(containers);
  * // Returns: [{ id: 'test-1', containerCount: 2, status: 'running', basePort: 5000, validatorNames: [...] }]
@@ -122,7 +128,7 @@ export function discoverInstances(containers: ContainerListItem[]): DiscoveredIn
         instanceMap.set(instanceId, {
           id: instanceId,
           containerCount: 0,
-          status: 'stopped', // will be updated as containers are processed
+          status: 'stopped', // seeded from the first counted container below
           basePort: config.basePort ?? 5000,
           validatorNames,
         });
@@ -136,17 +142,13 @@ export function discoverInstances(containers: ContainerListItem[]): DiscoveredIn
       continue;
     }
 
-    if (container.state === 'running') {
-      if (instance.status === 'stopped') {
-        instance.status = 'running';
-      } else if (instance.status !== 'running') {
-        instance.status = 'mixed';
-      }
-    } else {
-      if (instance.status === 'running') {
-        instance.status = 'mixed';
-      }
-      // if already 'stopped' (or 'mixed'), stay as-is
+    // The first counted container seeds the status; any later disagreement is 'mixed'.
+    // The result must not depend on the order Docker lists the containers in.
+    const isRunning = container.state === 'running';
+    if (instance.containerCount === 1) {
+      instance.status = isRunning ? 'running' : 'stopped';
+    } else if (instance.status !== 'mixed' && isRunning !== (instance.status === 'running')) {
+      instance.status = 'mixed';
     }
   }
 

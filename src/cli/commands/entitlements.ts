@@ -1,6 +1,6 @@
 import { Command } from '@cliffy/command';
 import { Table } from '@cliffy/table';
-import { colors, getRunningLocalNet, printError } from '../utils.ts';
+import { ACCEPT_LIVE, colors, getRunningLocalNet, printError, warnToStderr } from '../utils.ts';
 import type { ApiUserRight } from '../../api/canton.ts';
 
 function formatRight(right: ApiUserRight): string {
@@ -30,13 +30,20 @@ function formatRight(right: ApiUserRight): string {
 export const entitlementsCommand = new Command()
   .name('entitlements')
   .description('List users with their rights on the LocalNet')
-  .option('--instance <id:string>', 'Instance ID (auto-resolves if only one running)')
+  .option(
+    '--instance <id:string>',
+    'Instance ID (auto-resolves to the one running or mixed instance)',
+  )
   .option('-v, --validator <name:string>', 'Filter by validator')
-  .option('--verbose', 'Show verbose error logging')
+  .option('--verbose', 'Deprecated: has no effect', { hidden: true })
   .option('--json', 'Output as JSON')
   .action(async (options) => {
     try {
-      const localnet = await getRunningLocalNet(options.instance);
+      const localnet = await getRunningLocalNet(
+        options.instance,
+        { onWarning: warnToStderr },
+        ACCEPT_LIVE,
+      );
       const users = await localnet.getUsersWithRights(options.validator);
 
       if (options.json) {

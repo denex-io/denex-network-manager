@@ -17,7 +17,6 @@ export {
   loadConfigFromDir,
   loadConfigFromString,
   PORT_SUFFIXES,
-  SV_INTERNAL_PORTS,
 } from './utils/mod.ts';
 
 export * from './generator/mod.ts';

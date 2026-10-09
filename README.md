@@ -125,25 +125,28 @@ dnm <command> --help
 
 Commands:
 
-| Command        | Description                                        |
-| -------------- | -------------------------------------------------- |
-| `start`        | Start LocalNet containers                          |
-| `stop`         | Stop all containers gracefully                     |
-| `status`       | Show container state and health                    |
-| `destroy`      | Remove containers, networks, and volumes           |
-| `init`         | Initialize users and parties on a running LocalNet |
-| `config`       | Generate `localnet.yaml` interactively             |
-| `parties`      | List parties across validators                     |
-| `packages`     | List uploaded DAR packages                         |
-| `env`          | Show API URLs, auth config, and DSO party ID       |
-| `credentials`  | Show web UI login credentials                      |
-| `instances`    | List running LocalNet instances                    |
-| `entitlements` | List users with their rights                       |
-| `discovery`    | Run the multi-instance discovery HTTP server       |
+| Command        | Description                                                        |
+| -------------- | ------------------------------------------------------------------ |
+| `start`        | Start LocalNet containers                                          |
+| `stop`         | Stop all containers gracefully                                     |
+| `status`       | Show container state and health                                    |
+| `destroy`      | Remove containers, networks, volumes, and generated data           |
+| `init`         | Create parties and users, upload `packages:` on a running LocalNet |
+| `config`       | Generate `localnet.yaml` interactively                             |
+| `parties`      | List parties across validators                                     |
+| `packages`     | List packages known to each participant (built-ins too)            |
+| `env`          | Show API URLs, auth config, and DSO party ID                       |
+| `credentials`  | Show web UI login credentials                                      |
+| `instances`    | List LocalNet instances (running, mixed or stopped)                |
+| `entitlements` | List users with their rights                                       |
+| `discovery`    | Run the multi-instance discovery HTTP server                       |
 
-Only `start` accepts `--config <path>`. State commands attach to running Docker containers through
-labels and auto-resolve the instance when exactly one is running; if several are up, pass
-`--instance <id>`.
+Only `start` and `config` accept `--config <path>`. State commands attach to Docker containers
+through labels. Without `--instance <id>` they pick the one running instance, else the one mixed
+(partly running) instance (not for `init`, which needs a running one), else (for `status`, `env`,
+`credentials`) the one stopped instance, and print a stderr notice when they fall back or ignore
+other instances; pass `--instance <id>` when a tier holds several. `dnm config -y` overwrites an
+existing file after saving it as `<file>.bak`.
 
 Note that `--timeout` units differ per command: `start --timeout` is in **milliseconds** (default
 `300000`), while `stop --timeout` and `destroy --timeout` are in **seconds** (default `30`). The
@@ -240,6 +243,14 @@ User rights are split into participant-wide rights and per-party rights:
 per-party rights and default to `CanActAs` when `rights` is omitted. Party hints referenced by users
 are auto-allocated if they are not listed under the validator's top-level `parties`.
 
+Validator names must be lowercase (Keycloak lowercases usernames, so `App` would never
+authenticate), unique, must not be `sv`, and must not map to the same Keycloak realm as another
+validator (`ab` and `ab-` both become `Ab`). User ids must be lowercase for the same reason. There
+is no cap on the validator count, but the highest port derived from `basePort` must stay at or below
+65535, so a config such as 55 validators at `basePort: 60000` is rejected. Unknown keys (for example
+a misspelt `basport`) are ignored with a warning, on stderr in the CLI; the value they would have
+set falls back to its default.
+
 Party hints supplied by users are normalized for Canton when needed. Validator operator party hints
 are generated separately from validator names.
 
@@ -258,6 +269,11 @@ Ports use `basePort` with `+100` increments per validator:
 | Web UI              | 5080 | 5180        | 5280        |
 | Keycloak            | 5082 | -           | -           |
 
+SV-only internal ports also follow `basePort`: mediator admin +7, sequencer public +8, sequencer
+admin +9, Scan admin +12, splice Prometheus +13, SV admin +14, sequencer gRPC health +62, mediator
+gRPC health +63, canton Prometheus +64. Scan admin and SV admin are published on the same number;
+both Prometheus ports are container-internal and never published.
+
 With `basePort: 6000`, the same layout starts at `6000`, `6100`, `6200`, and so on.
 
 ## SDK Usage
@@ -275,7 +291,9 @@ await net.start();
 
 const env = await net.getEnvironment();
 const credentials = await net.getCredentials();
+// Each party once, tagged with the validator whose participant hosts it.
 const parties = await net.getParties();
+const appParties = await net.getParties('app'); // only parties hosted on 'app'
 
 await net.stop();
 ```
@@ -313,13 +331,28 @@ await net.createUser('alice', 'users-val', {
   parties: [{ hint: 'bob', rights: ['CanReadAs'] }],
 });
 
-const packageId = await net.uploadDar('./my-app.dar');
+const packageId = await net.uploadDar('./my-app.dar'); // main package id, computed from the DAR
 await net.uploadDar('./my-app.dar', ['app', 'users-val']);
+
+const packages = await net.getPackages(); // [{ packageId, validators: ['sv', 'app', ...] }]
 ```
 
-> **Note:** DAR packages listed in the `packages:` config field are validated on load but are
-> **not** uploaded automatically on startup. Call `net.uploadDar(path)` after start, or use `dnm` to
-> upload after the network is running.
+Per-validator queries (`getParties()`, `getPackages()`, `getUsersWithRights()`) return the reachable
+participants' results and report each unreachable one through `LocalNetOptions.onWarning` (default
+`console.warn`); they throw if no participant responds. With a validator name they throw for an
+unknown or unreachable validator. `getSnapshot()` is best-effort: it returns empty `parties` and
+`packages` when no participant responds and omits an unreachable validator's users with a warning. A
+hint passed to `createUser` resolves only against parties hosted on that user's validator; a hint
+hosted only elsewhere is allocated afresh there, with the same hint but a different party id.
+
+> **Note:** DAR packages listed in the `packages:` config field are uploaded at the end of
+> initialization, so `dnm start` uploads them and `dnm init` uploads them again (re-uploading an
+> existing DAR is expected to be a no-op). A relative `dar` resolves against the config file's
+> directory, then the current directory; with the SDK pass `configDir` in the options when you give
+> `LocalNet` a config object. `uploadTo` lists `sv` and/or validator names and defaults to all of
+> them. A missing DAR stops a fresh start before anything is created; on resume, and for any failed
+> upload, you get a warning and the start continues. `--skip-init` / `skipInitialization` skip the
+> upload. Call `net.uploadDar(path)` to upload at any other time.
 
 `createUser` provisions the ledger user, Keycloak user, and wallet onboarding. It is idempotent per
 side, so retries converge after partial failures.
@@ -367,8 +400,10 @@ Useful routes:
 - `GET /instances`
 - `GET /instances/:id/status`
 - `GET /instances/:id/env`
-- `GET /instances/:id/parties`
-- `GET /instances/:id/packages`
+- `GET /instances/:id/parties` (200 with `failures` on partial results, 503 if no participant
+  responds)
+- `GET /instances/:id/packages` (200 with `failures` on partial results, 503
+  `{ error: 'Could not list packages', detail, instanceId }` if no participant responds)
 - `GET /instances/:id/snapshot`
 
 Example:

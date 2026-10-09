@@ -103,6 +103,19 @@ Deno.test({
       const bobParty = bobParties.find((p) => p.hint === 'bob');
       assertExists(bobParty, 'bob party should exist');
       assertEquals(bobParty.displayName, 'Bob');
+
+      // Each party is listed once, under the validator that hosts it, and the
+      // displayName comes from the hosting participant's annotation (regression guard).
+      const partyIds = allParties.map((p) => p.partyId);
+      assertEquals(new Set(partyIds).size, partyIds.length, 'partyIds should be unique');
+      assertEquals(aliceParty.validator, 'alice');
+      assertEquals(bobParty.validator, 'bob');
+      const bobHosted = await localnet.getParties('bob');
+      assertEquals(
+        bobHosted.some((p) => p.hint === 'alice'),
+        false,
+        "getParties('bob') should not include alice's party",
+      );
     } finally {
       await localnet.destroy({ removeVolumes: true });
       await cleanupTestResources(client, instanceId);
@@ -310,6 +323,82 @@ Deno.test({
       // Now custom parties should exist
       const aliceParty = aliceParties.find((p) => p.hint === 'alice');
       assertExists(aliceParty, 'alice party should be created after manual initializeResources');
+    } finally {
+      await localnet.destroy({ removeVolumes: true });
+      await cleanupTestResources(client, instanceId);
+    }
+  },
+});
+
+// ============================================================================
+// INIT IDEMPOTENCY
+// basePort 23000 is dedicated to this test (see agents/testing.md).
+// ============================================================================
+
+Deno.test({
+  name: 'Initialization: initializeResources is idempotent',
+  ignore: !(await isDockerAvailable()),
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    const client = createTestDockerClient();
+    const instanceId = generateTestInstanceId();
+    // Two validators share a hint; each user's primaryParty must be hosted on its own validator.
+    const config: LocalNetConfig = {
+      basePort: 23000,
+      validators: [
+        {
+          name: 'val1',
+          parties: [{ hint: 'shared', displayName: 'Shared 1' }],
+          users: [{ id: 'user-1', primaryParty: 'shared', rights: ['CanActAs', 'CanReadAs'] }],
+        },
+        {
+          name: 'val2',
+          parties: [{ hint: 'shared', displayName: 'Shared 2' }],
+          users: [{ id: 'user-2', primaryParty: 'shared', rights: ['CanActAs', 'CanReadAs'] }],
+        },
+      ],
+      auth: { keycloak: { admin: 'admin', password: 'admin' } },
+    };
+    const localnet = new LocalNet(config, { instanceId });
+
+    try {
+      await localnet.start({ timeout: 300000 });
+
+      const snapshot = async (net: LocalNet) => ({
+        parties: (await net.getParties()).length,
+        users: (await net.getUsers('val1')).length + (await net.getUsers('val2')).length,
+      });
+      const before = await snapshot(localnet);
+
+      const messages: string[] = [];
+      const fresh = await LocalNet.fromInstanceId(instanceId);
+      await fresh.initializeResources((m) => messages.push(m));
+
+      assertEquals(await snapshot(fresh), before);
+      assertEquals(messages.filter((m) => m.includes('Failed to allocate party')), []);
+      assertEquals(messages.filter((m) => m.includes('Failed to create user')), []);
+      assertEquals(messages.filter((m) => m.includes('Allocating party')), []);
+      for (const v of ['val1', 'val2']) {
+        assertEquals(
+          messages.includes(`Party 'shared' already allocated on ${v}; skipping`),
+          true,
+        );
+      }
+
+      const val1Ids = new Set((await fresh.getParties('val1')).map((p) => p.partyId));
+      const val2Ids = new Set((await fresh.getParties('val2')).map((p) => p.partyId));
+      for (
+        const [validator, userId, ids] of [['val1', 'user-1', val1Ids], [
+          'val2',
+          'user-2',
+          val2Ids,
+        ]] as const
+      ) {
+        const user = (await fresh.getUsers(validator)).find((u) => u.id === userId);
+        assertExists(user);
+        assertEquals(user.primaryParty !== undefined && ids.has(user.primaryParty), true);
+      }
     } finally {
       await localnet.destroy({ removeVolumes: true });
       await cleanupTestResources(client, instanceId);

@@ -1,6 +1,6 @@
 import { Command } from '@cliffy/command';
 import { Table } from '@cliffy/table';
-import { colors, getRunningLocalNet, printError } from '../utils.ts';
+import { ACCEPT_ANY, colors, getRunningLocalNet, printError } from '../utils.ts';
 import { getKeycloakPort } from '../../utils/ports.ts';
 
 export { type CredentialInfo, getCredentials } from '../../utils/credentials.ts';
@@ -8,11 +8,14 @@ export { type CredentialInfo, getCredentials } from '../../utils/credentials.ts'
 export const credentialsCommand = new Command()
   .name('credentials')
   .description('Show login credentials for web UIs')
-  .option('--instance <id:string>', 'Instance ID (auto-resolves if only one running)')
+  .option(
+    '--instance <id:string>',
+    'Instance ID (auto-resolves to the one running, mixed or stopped instance)',
+  )
   .option('--json', 'Output as JSON')
   .action(async (options) => {
     try {
-      const localnet = await getRunningLocalNet(options.instance);
+      const localnet = await getRunningLocalNet(options.instance, undefined, ACCEPT_ANY);
       const credentials = await localnet.getCredentials();
 
       if (options.json) {

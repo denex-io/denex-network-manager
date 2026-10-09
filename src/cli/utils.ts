@@ -1,5 +1,6 @@
 import { Table } from '@cliffy/table';
-import { LocalNet } from '../localnet.ts';
+import { LocalNet, type LocalNetOptions } from '../localnet.ts';
+import type { LocalNetWarning } from '../types/state.ts';
 import type { ContainerInfo, ContainerState, LocalNetStatus } from '../docker/types.ts';
 
 const isColorSupported = Deno.stdout.isTerminal();
@@ -19,33 +20,103 @@ export const colors = {
   bold: (s: string) => colorize(1, s),
 };
 
+/** Instance statuses a command can act on. */
+export type ResolvableStatus = 'running' | 'mixed' | 'stopped';
+
+/** Tier order used when auto-resolving: running first, then mixed, then stopped. */
+const TIER_ORDER: readonly ResolvableStatus[] = ['running', 'mixed', 'stopped'];
+
+/** Accept set for the read-only commands (status, env, credentials). */
+export const ACCEPT_ANY: readonly ResolvableStatus[] = ['running', 'mixed', 'stopped'];
+/** Accept set for commands that need at least one live container (stop, parties, ...). */
+export const ACCEPT_LIVE: readonly ResolvableStatus[] = ['running', 'mixed'];
+/** Accept set for commands that need a fully running instance (init). */
+export const ACCEPT_RUNNING: readonly ResolvableStatus[] = ['running'];
+
 /**
- * Resolve a running LocalNet instance from labels (auto-discovers config).
+ * Pick the instance a command acts on when `--instance` is omitted.
  *
- * If `instanceId` is provided, attaches to that specific instance.
- * If omitted, requires exactly one running instance (errors otherwise).
+ * Walks the tiers running, then mixed, then stopped (restricted to `accept`). The first tier
+ * with any candidate decides: exactly one candidate is chosen, several are an error. `ignored`
+ * lists every other discovered instance, so callers can tell the user what was passed over.
  *
- * Used by state-2 commands that operate on a running LocalNet
+ * @param reportStopped - when nothing is acceptable but stopped instances exist, say they are
+ *   already stopped instead of "not found" (used by `stop`)
+ */
+export function resolveInstanceId(
+  instances: ReadonlyArray<{ id: string; status: string }>,
+  accept: readonly ResolvableStatus[],
+  reportStopped = false,
+): { id: string; status: ResolvableStatus; ignored: { id: string; status: string }[] } {
+  const tiers = TIER_ORDER.filter((t) => accept.includes(t));
+  for (const tier of tiers) {
+    const candidates = instances.filter((i) => i.status === tier);
+    if (candidates.length === 0) continue;
+    if (candidates.length > 1) {
+      const names = candidates.map((i) => i.id).join(', ');
+      throw new Error(
+        `Multiple ${tier} instances found (${names}). Specify with --instance <id>.`,
+      );
+    }
+    const chosen = candidates[0];
+    return {
+      id: chosen.id,
+      status: tier,
+      ignored: instances.filter((i) => i.id !== chosen.id).map((i) => ({
+        id: i.id,
+        status: i.status,
+      })),
+    };
+  }
+  if (reportStopped) {
+    const stopped = instances.filter((i) => i.status === 'stopped');
+    if (stopped.length > 0) {
+      throw new Error(
+        stopped.length === 1
+          ? `LocalNet is already stopped (${stopped[0].id}).`
+          : `LocalNets are already stopped (${stopped.map((i) => i.id).join(', ')}).`,
+      );
+    }
+  }
+  if (accept.includes('stopped')) {
+    throw new Error('No LocalNet instances found. Start one with `dnm start`.');
+  }
+  const label = accept.length === 1 ? accept[0] : accept.join(' or ');
+  throw new Error(`No ${label} LocalNet instances found. Start one with \`dnm start\`.`);
+}
+
+/**
+ * Resolve a LocalNet instance from labels (auto-discovers config).
+ *
+ * If `instanceId` is provided, attaches to that specific instance. If omitted, resolves one
+ * with {@link resolveInstanceId} using `accept`, and prints a stderr notice when a fallback
+ * tier was used or other instances were ignored.
+ *
+ * Used by commands that operate on an existing LocalNet
  * (env, credentials, parties, packages, entitlements, stop, status, init).
  */
-export async function getRunningLocalNet(instanceId?: string): Promise<LocalNet> {
+export async function getRunningLocalNet(
+  instanceId?: string,
+  options?: LocalNetOptions,
+  accept: readonly ResolvableStatus[] = ACCEPT_RUNNING,
+  reportStopped = false,
+): Promise<LocalNet> {
   if (instanceId) {
-    return await LocalNet.fromInstanceId(instanceId);
+    return await LocalNet.fromInstanceId(instanceId, options);
   }
   const instances = await LocalNet.discover();
-  const running = instances.filter((i) => i.status === 'running');
-  if (running.length === 0) {
-    throw new Error(
-      'No running LocalNet instances found. Start one with `dnm start`.',
+  const { id, status, ignored } = resolveInstanceId(instances, accept, reportStopped);
+  if (status !== 'running') {
+    console.error(colors.yellow('Note:'), `using ${status} instance "${id}".`);
+  }
+  if (ignored.length > 0) {
+    const list = ignored.map((i) => `${i.id} (${i.status})`).join(', ');
+    console.error(
+      colors.yellow('Note:'),
+      `ignoring other instances: ${list}. Use --instance <id> to pick one.`,
     );
   }
-  if (running.length > 1) {
-    const names = running.map((i) => i.id).join(', ');
-    throw new Error(
-      `Multiple running instances found (${names}). Specify with --instance <id>.`,
-    );
-  }
-  return await LocalNet.fromInstanceId(running[0].id);
+  return await LocalNet.fromInstanceId(id, options);
 }
 
 /**
@@ -200,6 +271,37 @@ export function printSuccess(message: string): void {
 
 export function printError(message: string): void {
   console.error(colors.red('✗'), message);
+}
+
+/**
+ * `onWarning` handler for query commands: prints to stderr so `--json` output on stdout
+ * stays clean.
+ */
+export function warnToStderr(warning: LocalNetWarning): void {
+  console.error(colors.yellow('Warning:'), warning.message);
+}
+
+/**
+ * Header and rows for the `dnm packages` matrix. A participant in `unreachable` gets an
+ * `(unreachable)` header and `?` in every row instead of a (misleading) blank.
+ */
+export function buildPackageMatrix(
+  participants: string[],
+  unreachable: ReadonlySet<string>,
+  packages: ReadonlyArray<{ packageId: string; validators: string[] }>,
+): { header: string[]; rows: string[][] } {
+  return {
+    header: [
+      'Package ID',
+      ...participants.map((p) => unreachable.has(p) ? `${p} (unreachable)` : p),
+    ],
+    rows: packages.map((pkg) => [
+      pkg.packageId,
+      ...participants.map((p) =>
+        unreachable.has(p) ? '?' : pkg.validators.includes(p) ? colors.green('✓') : ''
+      ),
+    ]),
+  };
 }
 
 export function printWarning(message: string): void {

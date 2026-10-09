@@ -8,7 +8,12 @@ import {
 import { LocalNet } from '../../src/localnet.ts';
 import type { LocalNetConfig } from '../../src/types/config.ts';
 import { waitForHealthy } from '../../src/docker/health.ts';
-import { getKeycloakPort, getSvPorts, getValidatorPorts } from '../../src/utils/ports.ts';
+import {
+  getKeycloakPort,
+  getSvInternalPorts,
+  getSvPorts,
+  getValidatorPorts,
+} from '../../src/utils/ports.ts';
 
 // Config for fast lifecycle tests
 const LIFECYCLE_TEST_CONFIG: LocalNetConfig = {
@@ -378,12 +383,128 @@ Deno.test({
 
       // Verify Scan API
       const scanHealth = await waitForHealthy(
-        { type: 'http', target: 'http://localhost:5012/api/scan/status' },
+        {
+          type: 'http',
+          target: `http://localhost:${getSvInternalPorts().scanAdmin}/api/scan/status`,
+        },
         { timeout: 5000, retries: 10, retryDelay: 1000 },
       );
       assertEquals(scanHealth.healthy, true, 'Scan API should be healthy');
     } finally {
       await localnet.destroy({ removeVolumes: true });
+      await cleanupTestResources(client, instanceId);
+    }
+  },
+});
+
+// ============================================================================
+// START ROLLBACK TESTS
+// A failed start undoes only what that call did. basePort 21000 is dedicated
+// to these tests (see agents/testing.md for the port convention).
+// ============================================================================
+
+Deno.test({
+  name: 'Lifecycle: failed resume keeps containers, network and volume',
+  ignore: !(await isDockerAvailable()),
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    const client = createTestDockerClient();
+    const instanceId = generateTestInstanceId();
+    const config: LocalNetConfig = { ...LIFECYCLE_TEST_CONFIG, basePort: 21000 };
+    const first = new LocalNet(config, { instanceId });
+
+    try {
+      await first.start({ skipHealthChecks: true, skipInitialization: true, timeout: 60000 });
+      await first.stop();
+
+      const before = await client.listContainers({ 'denex.localnet.instance': instanceId });
+      const idsBefore = before.map((c) => c.id).sort();
+      assertEquals(idsBefore.length > 0, true);
+
+      const resumed = new LocalNet(config, { instanceId });
+      await assertRejects(() =>
+        resumed.start({ skipHealthChecks: true, skipInitialization: true, timeout: 1 })
+      );
+
+      const after = await client.listContainers({ 'denex.localnet.instance': instanceId });
+      assertEquals(after.map((c) => c.id).sort(), idsBefore);
+      assertEquals(after.some((c) => c.state === 'running'), false);
+      assertExists(await client.getNetworkInfo(`denex.localnet-${instanceId}`));
+      assertExists(await client.getVolumeInfo(`${instanceId}-postgres-data`));
+    } finally {
+      await first.destroy().catch(() => {});
+      await cleanupTestResources(client, instanceId);
+    }
+  },
+});
+
+Deno.test({
+  name: 'Lifecycle: failed fresh start leaves nothing behind',
+  ignore: !(await isDockerAvailable()),
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    const client = createTestDockerClient();
+    const instanceId = generateTestInstanceId();
+    // An unpullable splice image fails the start after postgres and canton exist.
+    const localnet = new LocalNet(
+      { ...LIFECYCLE_TEST_CONFIG, basePort: 22000 },
+      { instanceId, images: { splice: 'localhost/denex-does-not-exist:0' } },
+    );
+
+    try {
+      await assertRejects(() =>
+        localnet.start({ skipHealthChecks: true, skipInitialization: true, timeout: 60000 })
+      );
+
+      const containers = await client.listContainers({ 'denex.localnet.instance': instanceId });
+      assertEquals(containers.length, 0);
+      // findNetwork/findVolume rethrow daemon errors; getNetworkInfo/getVolumeInfo
+      // return null on any error and would hide a daemon hiccup.
+      assertEquals(await client.findNetwork(`denex.localnet-${instanceId}`), null);
+      assertEquals(await client.findVolume(`${instanceId}-postgres-data`), null);
+    } finally {
+      await localnet.destroy({ removeVolumes: true }).catch(() => {});
+      await cleanupTestResources(client, instanceId);
+    }
+  },
+});
+
+// ============================================================================
+// REPAIR TEST
+// basePort 21000 is shared with the rollback test above; tests run one at a time.
+// ============================================================================
+
+Deno.test({
+  name: 'Lifecycle: start() repairs a partially running instance',
+  ignore: !(await isDockerAvailable()),
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    const client = createTestDockerClient();
+    const instanceId = generateTestInstanceId();
+    const config: LocalNetConfig = { ...LIFECYCLE_TEST_CONFIG, basePort: 21000 };
+    const first = new LocalNet(config, { instanceId });
+    const webUiName = `${instanceId}-sv-web-ui`;
+
+    try {
+      await first.start({ skipHealthChecks: true, skipInitialization: true, timeout: 120000 });
+      const before = await client.getContainerInfo(webUiName);
+      assertExists(before);
+      await client.stopContainer(before.id, 5);
+      assertEquals(await first.state(), 'partial');
+
+      const second = new LocalNet(config, { instanceId });
+      await second.start({ skipHealthChecks: true, skipInitialization: true, timeout: 120000 });
+
+      const after = await client.getContainerInfo(webUiName);
+      assertExists(after);
+      assertEquals(after.id, before.id);
+      assertEquals(after.state, 'running');
+      assertEquals(await second.state(), 'running');
+    } finally {
+      await first.destroy().catch(() => {});
       await cleanupTestResources(client, instanceId);
     }
   },

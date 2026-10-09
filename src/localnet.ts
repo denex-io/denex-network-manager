@@ -25,7 +25,7 @@ import {
   resolveRealmName,
   type UserRight,
 } from './types/config.ts';
-import { parseLocalNetConfig } from './schemas/mod.ts';
+import { parseLocalNetConfig, parseStoredLocalNetConfig } from './schemas/mod.ts';
 import {
   BOOTSTRAP_ADMIN_USERNAME,
   generateAllRealmsJson,
@@ -36,7 +36,12 @@ import { getSvInternalPorts, getSvPorts, getValidatorPorts } from './utils/ports
 import { loadConfigFile } from './utils/yaml.ts';
 import { buildConfigEnvironmentInfo } from './utils/env-info.ts';
 import { type CredentialInfo, getCredentials as getCredentialsList } from './utils/credentials.ts';
-import type { FullEnvironmentInfo, ValidatorEndpoints } from './types/state.ts';
+import type {
+  ConfigWarning,
+  FullEnvironmentInfo,
+  LocalNetWarning,
+  ValidatorEndpoints,
+} from './types/state.ts';
 import {
   type ApiUserRight,
   CantonClient,
@@ -47,11 +52,12 @@ import {
   createCanReadAsAnyParty,
   createIdentityProviderAdmin,
   createParticipantAdmin,
-  type PackageDetails,
   type PartyDetails,
   type UserDetails,
 } from './api/canton.ts';
 import { ValidatorAdminClient, ValidatorApiError } from './api/validator.ts';
+import { readDarMainPackageId } from './api/dar.ts';
+import { type HostedParties, mergeHostedParties } from './api/parties.ts';
 import { KeycloakAdminClient } from './api/keycloak-admin.ts';
 import type {
   ApiLocalNetSnapshot,
@@ -63,6 +69,9 @@ import type {
 } from './api/state-types.ts';
 import { type DiscoveredInstance, discoverInstances } from './api/discovery-utils.ts';
 import { generateNginxConfigString } from './docker/nginx.ts';
+import { access, readFile } from 'node:fs/promises';
+import process from 'node:process';
+import { dirname, isAbsolute, resolve } from 'node:path';
 
 export interface LocalNetOptions {
   instanceId?: string;
@@ -70,6 +79,33 @@ export interface LocalNetOptions {
   images?: ContainerBuilderOptions['images'];
   dbUser?: string;
   dbPassword?: string;
+  /**
+   * Receives non-fatal problems, for example a validator that did not respond to a
+   * query whose other results are still returned. Defaults to `console.warn`.
+   * Runtime query warnings are delivered here on every occurrence and are not stored.
+   * Config warnings (`source: 'config'`, with `path`, for example unknown keys) are
+   * delivered once at construction or in `fromConfig` and are also kept in
+   * `LocalNet.warnings`.
+   */
+  onWarning?: (warning: LocalNetWarning) => void;
+  /**
+   * Directory that relative `packages[].dar` paths resolve against when the packages are
+   * uploaded (falling back to the current directory when the file is not found there).
+   * Not part of the config, so it is never compared by {@link LocalNet.detectConfigMismatch}.
+   * {@link LocalNet.fromConfig} sets it to the YAML file's directory when given a path;
+   * `start()` stores it in the `<labelPrefix>.config-dir` label and
+   * {@link LocalNet.fromInstanceId} reads it back.
+   */
+  configDir?: string;
+}
+
+/** A configured package with its DAR path made absolute and its upload targets filled in. */
+export interface ResolvedPackage {
+  name: string;
+  /** Absolute DAR path. */
+  dar: string;
+  /** `'sv'` and/or validator names. */
+  targets: string[];
 }
 
 export interface ConfigMismatch {
@@ -77,6 +113,64 @@ export interface ConfigMismatch {
   expected: { validators: string[] };
   actual: { validators: string[] };
   message: string;
+}
+
+/**
+ * Configs that `fromConfig` and `fromInstanceId` already parsed, with the warnings the
+ * parse produced. The constructor does not parse these again (stored configs must not be
+ * re-checked against the input rules).
+ */
+const trustedConfigs = new WeakMap<object, readonly ConfigWarning[]>();
+
+async function fileExists(path: string): Promise<boolean> {
+  try {
+    await access(path);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Resolves the configured packages for upload without changing the config: a relative
+ * `dar` becomes absolute against `configDir` (the file is then looked for in the current
+ * directory if it is not there; with no `configDir`, only the current directory is used),
+ * and `uploadTo` defaults to `'sv'` plus every validator. When the DAR is found in neither
+ * place the `configDir` candidate is returned, so errors name the expected location.
+ */
+export async function resolvePackages(
+  config: LocalNetConfig,
+  configDir?: string,
+): Promise<ResolvedPackage[]> {
+  const all = ['sv', ...normalizeValidators(config.validators).map((v) => v.name)];
+  const resolved: ResolvedPackage[] = [];
+  for (const pkg of config.packages ?? []) {
+    let dar = pkg.dar;
+    if (!isAbsolute(dar)) {
+      const primary = resolve(configDir ?? process.cwd(), dar);
+      const fallback = resolve(dar);
+      dar = !(await fileExists(primary)) && (await fileExists(fallback)) ? fallback : primary;
+    }
+    resolved.push({ name: pkg.name, dar, targets: pkg.uploadTo ?? all });
+  }
+  return resolved;
+}
+
+/** Returns one message per package whose DAR file does not exist. */
+export async function findMissingPackageFiles(packages: ResolvedPackage[]): Promise<string[]> {
+  const missing: string[] = [];
+  for (const pkg of packages) {
+    if (!(await fileExists(pkg.dar))) {
+      missing.push(`Package '${pkg.name}': DAR file not found: ${pkg.dar}`);
+    }
+  }
+  return missing;
+}
+
+/** Throws if any package's DAR file is missing. */
+export async function assertPackageFilesExist(packages: ResolvedPackage[]): Promise<void> {
+  const missing = await findMissingPackageFiles(packages);
+  if (missing.length > 0) throw new Error(missing.join('; '));
 }
 
 const DEFAULT_INSTANCE_ID = 'default';
@@ -99,11 +193,50 @@ interface CacheEntry<T> {
   expiresAt: number;
 }
 
+/**
+ * What a single `start()` call has changed in Docker, so a failure can undo
+ * exactly that and nothing else. `created` maps container name to id; `started`
+ * maps the name of a pre-existing container to its id and the startup layer it
+ * was started in. `layer` is the index of the layer currently being started.
+ */
+interface StartRollback {
+  networkCreated: boolean;
+  volumeCreated: boolean;
+  layer: number;
+  created: Map<string, string>;
+  started: Map<string, { id: string; layer: number }>;
+  /**
+   * Names of every container this call started, created or restarted. A
+   * running container that depends on one of these is restarted too (it may
+   * hold stale addresses), but is not added to `started`: rollback leaves it
+   * running.
+   */
+  touched: Set<string>;
+  /**
+   * Running dependents this call stopped to restart, by name. They were running
+   * before the call, so a rollback starts them again (best-effort).
+   */
+  restarted: Map<string, string>;
+  /**
+   * Set when a create hit a 409: another process is starting the instance, so
+   * rollback must not stop containers this call merely started.
+   */
+  conflict: boolean;
+}
+
+/**
+ * Containers in `created` state younger than this may belong to a start in another process.
+ * The age is the local clock minus the daemon's `Created` timestamp, so it assumes the two
+ * clocks agree to within a few seconds.
+ */
+const YOUNG_CREATED_SECONDS = 60;
+
 export class LocalNet {
   private client: DockerClient;
   private networkManager: NetworkManager;
   private config: LocalNetConfig;
-  private options: Required<LocalNetOptions>;
+  private configWarnings: readonly ConfigWarning[];
+  private options: Required<Omit<LocalNetOptions, 'configDir'>> & { configDir?: string };
   private internalState: LocalNetState = 'stopped';
   private startedAt?: Date;
   private containerIds: Map<string, string> = new Map();
@@ -114,8 +247,33 @@ export class LocalNet {
   private cacheTtlMs = 30_000;
   private baseHost = 'localhost';
   private attachedToRunning = false;
+  /**
+   * Creates a handle for `config`. The config is validated like any input: schema
+   * defaults are applied, unknown keys are reported through `onWarning`, and the input
+   * rules (unique validator names, the 65535 port limit) are enforced. A config that
+   * {@link LocalNet.fromConfig} or {@link LocalNet.fromInstanceId} already parsed is not
+   * checked again. {@link LocalNet.getConfig} returns the normalized copy, not `config`.
+   *
+   * @throws {ZodError} If the config is invalid.
+   */
   constructor(config: LocalNetConfig, options?: LocalNetOptions) {
-    this.config = config;
+    const onWarning = options?.onWarning ?? ((w: LocalNetWarning) => console.warn(w.message));
+    const trusted = trustedConfigs.get(config);
+    // One-shot: a later mutation of the same object must be validated again.
+    trustedConfigs.delete(config);
+    if (trusted) {
+      this.config = config;
+      this.configWarnings = trusted;
+    } else {
+      const warnings: ConfigWarning[] = [];
+      this.config = parseLocalNetConfig(config, {
+        onWarning: (w) => {
+          warnings.push(w);
+          onWarning(w);
+        },
+      });
+      this.configWarnings = warnings;
+    }
     const instanceId = options?.instanceId ?? DEFAULT_INSTANCE_ID;
     const labelPrefix = options?.labelPrefix ?? DEFAULT_LABEL_PREFIX;
     this.options = {
@@ -124,6 +282,8 @@ export class LocalNet {
       images: options?.images ?? {},
       dbUser: options?.dbUser ?? 'cnadmin',
       dbPassword: options?.dbPassword ?? 'supersafe',
+      onWarning,
+      configDir: options?.configDir === undefined ? undefined : resolve(options.configDir),
     };
 
     this.client = new DockerClient({ labelPrefix });
@@ -136,13 +296,21 @@ export class LocalNet {
     yamlPathOrConfig: string | LocalNetConfig,
     options?: LocalNetOptions,
   ): Promise<LocalNet> {
-    let config: LocalNetConfig;
-    if (typeof yamlPathOrConfig === 'string') {
-      config = await loadConfigFile(yamlPathOrConfig);
-    } else {
-      config = parseLocalNetConfig(yamlPathOrConfig);
-    }
-    return new LocalNet(config, options);
+    const warnings: ConfigWarning[] = [];
+    const report = options?.onWarning ?? ((w: LocalNetWarning) => console.warn(w.message));
+    const parseOptions = {
+      onWarning: (w: ConfigWarning) => {
+        warnings.push(w);
+        report(w);
+      },
+    };
+    const config = typeof yamlPathOrConfig === 'string'
+      ? await loadConfigFile(yamlPathOrConfig, parseOptions)
+      : parseLocalNetConfig(yamlPathOrConfig, parseOptions);
+    trustedConfigs.set(config, warnings);
+    const configDir = options?.configDir ??
+      (typeof yamlPathOrConfig === 'string' ? dirname(resolve(yamlPathOrConfig)) : undefined);
+    return new LocalNet(config, { ...options, configDir });
   }
 
   static async fromInstanceId(
@@ -179,7 +347,7 @@ export class LocalNet {
     let config: LocalNetConfig;
     try {
       const raw = JSON.parse(configJson);
-      config = parseLocalNetConfig(raw);
+      config = parseStoredLocalNetConfig(raw);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       throw new Error(
@@ -187,7 +355,12 @@ export class LocalNet {
       );
     }
 
-    const localnet = new LocalNet(config, { ...options, instanceId: id });
+    trustedConfigs.set(config, []);
+    // Containers recreated by a repair may carry a newer label than the rest; use the first one.
+    const configDir = options?.configDir ??
+      containers.find((c) => c.labels[`${labelPrefix}.config-dir`])
+        ?.labels[`${labelPrefix}.config-dir`];
+    const localnet = new LocalNet(config, { ...options, instanceId: id, configDir });
     localnet.markAttachedToRunning();
     for (const container of containers) {
       localnet.containerIds.set(container.name, container.id);
@@ -210,11 +383,20 @@ export class LocalNet {
     return this.internalState;
   }
 
+  /**
+   * Warnings about the config this handle was created from (for example unknown keys
+   * that were ignored). Fixed at construction; runtime query warnings go to `onWarning`
+   * and are not stored here.
+   */
+  get warnings(): readonly LocalNetWarning[] {
+    return this.configWarnings;
+  }
+
   getConfig(): LocalNetConfig {
     return this.config;
   }
 
-  getOptions(): Required<LocalNetOptions> {
+  getOptions(): Required<Omit<LocalNetOptions, 'configDir'>> & { configDir?: string } {
     return { ...this.options };
   }
 
@@ -230,6 +412,48 @@ export class LocalNet {
     return this.validatorClients.get(validatorName);
   }
 
+  /**
+   * Start the instance, creating or starting whatever containers, network and
+   * postgres volume are missing.
+   *
+   * Failure is non-destructive: if `start()` fails, it removes only the
+   * containers, network and volume that this call created, starts back any
+   * running dependents it had stopped in order to restart them, and stops
+   * again the pre-existing containers it had started (except after a 409, see
+   * below, when it leaves them running). A failed first start therefore leaves
+   * nothing behind, while a failed resume (for example a timeout) leaves the
+   * stopped containers, the network and the postgres data volume intact. The
+   * instance state returns to `'stopped'`.
+   *
+   * Returns without changes, marking this object running, only when every
+   * container the instance should have is running. A partially running
+   * instance (for example after a Docker daemon restart brought back only
+   * nginx) is repaired: stopped containers are started, missing ones are
+   * created, running containers that depend on a container started or created
+   * by this call (nginx and the web UIs after splice) are restarted, and
+   * initialization runs again unless `skipInitialization` is set.
+   *
+   * Three guards run before anything is changed or created:
+   * - a paused container is refused (run `docker unpause <name>`);
+   * - a container in `created` state for under 60 seconds means another
+   *   process is probably starting the instance, and `start()` aborts;
+   * - on a fresh start with initialization enabled, a configured `packages`
+   *   DAR that cannot be found throws (on resume or repair it is only a
+   *   warning).
+   * A `created` container of 60 seconds or more is treated as stopped and
+   * started.
+   *
+   * A name conflict (HTTP 409) on create can happen mid-start, after this call
+   * has already changed things. It also means another process is probably
+   * starting the instance: `start()` aborts, removes only the containers this
+   * call created, and neither stops the containers this call started nor
+   * removes the network or volume it created.
+   *
+   * A handle that already counts as running (one from `fromInstanceId()`, or one
+   * on which a state query such as `getParties()` has attached) throws
+   * `LocalNet is already running` instead of repairing: repair needs a handle
+   * that is not attached.
+   */
   async start(options?: StartOptions): Promise<void> {
     if (this.internalState === 'running') {
       throw new Error('LocalNet is already running');
@@ -251,16 +475,57 @@ export class LocalNet {
     const existing = await this.client.listContainers({
       [`${this.options.labelPrefix}.instance`]: this.options.instanceId,
     });
-    const alreadyRunning = existing.filter((c) => c.state === 'running');
-    if (alreadyRunning.length > 0) {
+    const expectedNames = this.buildContainerSpecs(EMPTY_GENERATED_CONFIGS).map((s) => s.name);
+    const byName = new Map(existing.map((c) => [c.name, c]));
+    const present = expectedNames.flatMap((n) => byName.get(n) ?? []);
+
+    const paused = present.find((c) => c.state === 'paused');
+    if (paused) {
+      throw new Error(
+        `Container '${paused.name}' is paused. Run 'docker unpause ${paused.name}' and try again.`,
+      );
+    }
+    const nowSeconds = Date.now() / 1000;
+    for (const c of present) {
+      if (c.state !== 'created' || c.created === undefined) continue;
+      const age = Math.max(0, Math.round(nowSeconds - c.created));
+      if (age < YOUNG_CREATED_SECONDS) {
+        throw new Error(
+          `Instance '${this.options.instanceId}' appears to be starting in another process ` +
+            `('${c.name}' created ${age}s ago); if none is, retry in a minute.`,
+        );
+      }
+    }
+
+    const running = present.filter((c) => c.state === 'running');
+    if (running.length === expectedNames.length) {
       this.internalState = 'running';
       this.attachedToRunning = true;
       return;
     }
+    if (running.length > 0) {
+      options?.onProgress?.('Instance is partially running; starting stopped containers...');
+      for (const c of present) this.containerIds.set(c.name, c.id);
+    }
+
+    // A missing DAR stops a fresh start before Docker is touched. On resume or repair the
+    // instance is worth more than the upload, so initializeResources warns instead.
+    if (present.length === 0 && !options?.skipInitialization) {
+      await assertPackageFilesExist(await resolvePackages(this.config, this.options.configDir));
+    }
 
     const timeout = options?.timeout ?? 300000;
     const startTime = Date.now();
-    let containersCreated = false;
+    const rb: StartRollback = {
+      networkCreated: false,
+      volumeCreated: false,
+      layer: 0,
+      created: new Map(),
+      started: new Map(),
+      touched: new Set(),
+      restarted: new Map(),
+      conflict: false,
+    };
 
     try {
       this.internalState = 'starting';
@@ -274,29 +539,42 @@ export class LocalNet {
 
       const generatedConfigs = this.buildGeneratedConfigs();
 
-      await this.networkManager.create(this.options.instanceId);
-      containersCreated = true;
+      rb.networkCreated = (await this.networkManager.ensure(this.options.instanceId)).created;
 
       const postgresVolumeName = `${this.options.instanceId}-postgres-data`;
-      await this.client.createVolume(postgresVolumeName, {
-        [`${this.options.labelPrefix}.instance`]: this.options.instanceId,
-      });
+      if (!(await this.client.findVolume(postgresVolumeName))) {
+        await this.client.createVolume(postgresVolumeName, {
+          [`${this.options.labelPrefix}.instance`]: this.options.instanceId,
+        });
+        rb.volumeCreated = true;
+      }
 
       const containerSpecs = this.buildContainerSpecs(generatedConfigs);
       const layers = getStartupOrder(containerSpecs);
 
-      for (const layer of layers) {
+      for (const [layerIndex, layer] of layers.entries()) {
+        rb.layer = layerIndex;
         if (Date.now() - startTime > timeout) {
           throw new Error('Startup timeout exceeded');
         }
 
         const parallel = options?.parallel ?? true;
 
+        // Two phases per layer. Every sibling finishes its Docker mutations
+        // (settled, not raced) before any health wait begins, so a failure
+        // can be rolled back without a sibling still creating or starting
+        // containers behind the rollback's back.
         if (parallel) {
-          await Promise.all(layer.map((spec) => this.startContainer(spec, options)));
+          const results = await Promise.allSettled(
+            layer.map((spec) => this.ensureStarted(spec, rb, options)),
+          );
+          const failed = results.find((r): r is PromiseRejectedResult => r.status === 'rejected');
+          if (failed) throw failed.reason;
+          await Promise.all(layer.map((spec) => this.waitHealthy(spec, options)));
         } else {
           for (const spec of layer) {
-            await this.startContainer(spec, options);
+            await this.ensureStarted(spec, rb, options);
+            await this.waitHealthy(spec, options);
           }
         }
       }
@@ -318,19 +596,21 @@ export class LocalNet {
         `LocalNet ready (total ${((Date.now() - startTime) / 1000).toFixed(1)}s)`,
       );
     } catch (error) {
-      // Roll back any partially-created resources (network, volume, containers)
-      // so a failed start does not leak. Best-effort: a cleanup failure must not
-      // mask the original startup error.
-      if (containersCreated) {
-        options?.onProgress?.('Startup failed; cleaning up partial resources...');
+      // Undo only what this call did (see rollbackStart). Best-effort: a
+      // cleanup failure must not mask the original startup error.
+      if (
+        rb.networkCreated || rb.volumeCreated || rb.created.size > 0 || rb.started.size > 0 ||
+        rb.restarted.size > 0
+      ) {
+        options?.onProgress?.('Startup failed; removing resources created by this attempt...');
         try {
-          await this.cleanupInstanceResources();
-          this.containerIds.clear();
+          await this.rollbackStart(rb);
         } catch {
           // Swallow — the original error below is what matters.
         }
       }
       this.internalState = 'stopped';
+      this.startedAt = undefined;
       throw error;
     }
   }
@@ -370,10 +650,69 @@ export class LocalNet {
   }
 
   /**
+   * Undo a failed `start()` without touching anything the call did not itself
+   * change. Every step is best-effort and independent:
+   * 1. start again the running dependents this call stopped to restart;
+   * 2. force-remove containers this call created;
+   * 3. unless a create hit a 409, stop pre-existing containers this call
+   *    started, one layer at a time in reverse layer order (a layer's stops
+   *    finish before the previous layer's begin);
+   * 4. remove the network only if this call created it (and no 409 happened);
+   * 5. remove the postgres volume only if this call created it (and no 409
+   *    happened);
+   * 6. forget the created containers' ids.
+   * A failed resume therefore leaves existing containers, network and data
+   * volume in place (stopped), while a failed fresh start leaves nothing.
+   */
+  private async rollbackStart(rb: StartRollback): Promise<void> {
+    // Dependents that were running before this call and were stopped to restart.
+    // Start them first, while their upstreams still run: nginx has static
+    // proxy_pass hostnames and no resolver, and Docker DNS drops stopped
+    // containers, so an nginx started after its upstreams stop crash-loops with
+    // "host not found in upstream".
+    await Promise.allSettled(
+      [...rb.restarted.values()].map((id) => this.client.startContainer(id)),
+    );
+
+    await Promise.allSettled(
+      [...rb.created.values()].map((id) => this.client.removeContainer(id, true)),
+    );
+
+    // Stop later layers first so dependents go down before their dependencies;
+    // containers within one layer are independent and stop concurrently.
+    const byLayer = new Map<number, string[]>();
+    for (const { id, layer } of rb.started.values()) {
+      byLayer.set(layer, [...(byLayer.get(layer) ?? []), id]);
+    }
+    // After a 409 another process may be mid-start: leave what this call started alone.
+    if (!rb.conflict) {
+      for (const layer of [...byLayer.keys()].sort((a, b) => b - a)) {
+        await Promise.allSettled(
+          (byLayer.get(layer) ?? []).map((id) => this.client.stopContainer(id, 30)),
+        );
+      }
+    }
+
+    // After a 409 the other process may already build on the network and volume
+    // this call created: leave them for it (or for a retry) as well.
+    if (rb.networkCreated && !rb.conflict) {
+      await this.networkManager.remove(this.options.instanceId).catch(() => {});
+    }
+    if (rb.volumeCreated && !rb.conflict) {
+      await this.client.removeVolume(`${this.options.instanceId}-postgres-data`).catch(() => {});
+    }
+
+    for (const name of rb.created.keys()) {
+      this.containerIds.delete(name);
+    }
+  }
+
+  /**
    * Remove every Docker resource belonging to this instance: containers, the
    * network, and named volumes (all matched by the `<labelPrefix>.instance`
    * label). Best-effort — individual removals that fail (e.g. already gone) do
-   * not abort the rest. Shared by `destroy()` and `start()`'s failure rollback.
+   * not abort the rest. Used only by `destroy()`; `start()`'s failure path uses
+   * the narrower {@link rollbackStart}.
    */
   private async cleanupInstanceResources(): Promise<void> {
     const containers = await this.client.listContainers({
@@ -395,6 +734,12 @@ export class LocalNet {
     );
   }
 
+  /**
+   * Stop then start. If the start step fails the instance is left stopped (a
+   * failed start never removes pre-existing containers or data), except after a
+   * name conflict (409) on create, when another process is probably starting the
+   * instance and the containers this call started are left running.
+   */
   async restart(options?: StartOptions & StopOptions): Promise<void> {
     await this.stop();
     await this.start(options);
@@ -456,7 +801,7 @@ export class LocalNet {
     let runningConfig: LocalNetConfig;
     try {
       const parsed = JSON.parse(configJson);
-      runningConfig = parseLocalNetConfig(parsed);
+      runningConfig = parseStoredLocalNetConfig(parsed);
     } catch {
       return {
         hasMismatch: true,
@@ -466,7 +811,7 @@ export class LocalNet {
       };
     }
 
-    const currentConfigJson = JSON.stringify(parseLocalNetConfig(this.config));
+    const currentConfigJson = JSON.stringify(parseStoredLocalNetConfig(this.config));
     const runningConfigJson = JSON.stringify(runningConfig);
 
     if (currentConfigJson !== runningConfigJson) {
@@ -486,21 +831,29 @@ export class LocalNet {
     };
   }
 
+  /**
+   * `'running'` if every container the instance should have is running,
+   * `'partial'` if only some are (a missing container counts as not running),
+   * `'stopped'` if none are, and `'absent'` if the instance has no containers.
+   */
   async state(): Promise<'running' | 'stopped' | 'partial' | 'absent'> {
     try {
       const containers = await this.client.listContainers({
         [`${this.options.labelPrefix}.instance`]: this.options.instanceId,
       });
+      const expected = this.buildContainerSpecs(EMPTY_GENERATED_CONFIGS).map((s) => s.name);
+      const byName = new Map(containers.map((c) => [c.name, c]));
       if (containers.length === 0) return 'absent';
-      const running = containers.filter((c) => c.state === 'running').length;
+      const running = expected.filter((n) => byName.get(n)?.state === 'running').length;
       if (running === 0) return 'stopped';
-      if (running === containers.length) return 'running';
+      if (running === expected.length) return 'running';
       return 'partial';
     } catch {
       return 'absent';
     }
   }
 
+  /** `true` if every container of the instance is running (see {@link LocalNet.state}). */
   async isRunning(): Promise<boolean> {
     return (await this.state()) === 'running';
   }
@@ -590,39 +943,106 @@ export class LocalNet {
     throw new Error(`Could not retrieve party ID for ${validatorName} after ${maxRetries} retries`);
   }
 
+  /**
+   * Each party hosted on the LocalNet, listed once under the validator whose participant
+   * hosts it, or only the parties hosted on `validatorName`.
+   *
+   * Canton's `/v2/parties` returns the whole topology on every participant; this method
+   * keeps only hosted (`isLocal`) entries. `displayName` is the host's annotation, else
+   * the hint. With no name, a participant that does not respond produces a warning naming
+   * it (via `onWarning`, default `console.warn`) and its parties are omitted from the
+   * result; if none responds it throws. A named validator that is unknown or unreachable
+   * throws. Per-validator results are cached for 30 seconds; `allocateParty` and
+   * `createUser` clear the affected validator's entry. A party hosted on several
+   * participants (DNM never does this) is listed under the first, in SV-then-config order.
+   *
+   * @param validatorName - Restrict to parties hosted on this validator (`'sv'` or a
+   *   configured validator name).
+   */
   async getParties(validatorName?: string): Promise<ApiPartyInfo[]> {
     await this.requireRunning('getParties');
 
-    const cacheKey = `parties:${validatorName ?? 'all'}`;
-    const cached = this.getCached<ApiPartyInfo[]>(cacheKey);
-    if (cached) return cached;
-
-    const validatorNames = validatorName
-      ? [validatorName]
-      : ['sv', ...normalizeValidators(this.config.validators).map((v) => v.name)];
-
-    const allParties: ApiPartyInfo[] = [];
-
-    for (const name of validatorNames) {
-      const client = this.cantonClients.get(name);
-      if (!client) continue;
-
-      try {
-        const participantId = await client.getParticipantId();
-        const parties = await client.listParties();
-
-        for (const party of parties) {
-          allParties.push(this.toPartyInfo(party, name, participantId));
-        }
-      } catch {
-        // Validator might not be healthy - continue to next
-      }
+    if (validatorName) {
+      const hosted = await this.getHostedPartiesCached(validatorName);
+      return hosted.parties.map((p) => this.toPartyInfo(p, validatorName, hosted.participantId));
     }
 
-    this.setCache(cacheKey, allParties);
-    return allParties;
+    const { parties, failures } = await this.listPartiesWithFailures();
+    for (const failure of failures) {
+      this.warn({
+        source: 'query',
+        validator: failure.validator,
+        message:
+          `Could not list parties on ${failure.validator}: ${failure.error}; its parties are omitted`,
+      });
+    }
+    return parties;
   }
 
+  /**
+   * Like {@link LocalNet.getParties} with no name, but returns the per-validator failures
+   * instead of passing them to `onWarning`. Used by the discovery server.
+   *
+   * @throws If no participant responds.
+   */
+  async listPartiesWithFailures(): Promise<
+    { parties: ApiPartyInfo[]; failures: Array<{ validator: string; error: string }> }
+  > {
+    await this.requireRunning('listPartiesWithFailures');
+
+    const names = this.hostNames();
+    const settled = await Promise.allSettled(names.map((n) => this.getHostedPartiesCached(n)));
+    const merged = mergeHostedParties(names, settled);
+    if (merged.failures.length === names.length) {
+      const detail = merged.failures.map((f) => `${f.validator}: ${f.error}`).join('; ');
+      throw new Error(`Could not list parties: no participant responded (${detail})`);
+    }
+    return {
+      parties: merged.parties.map((m) => this.toPartyInfo(m.party, m.validator, m.participantId)),
+      failures: merged.failures,
+    };
+  }
+
+  /** `'sv'` followed by the configured validators, in config order. */
+  private hostNames(): string[] {
+    return ['sv', ...normalizeValidators(this.config.validators).map((v) => v.name)];
+  }
+
+  private warn(warning: LocalNetWarning): void {
+    this.options.onWarning(warning);
+  }
+
+  /** Queries the parties hosted on `name` (uncached). Errors propagate. */
+  private async fetchHostedParties(name: string): Promise<HostedParties> {
+    const client = this.cantonClients.get(name);
+    if (!client) throw new Error(`Unknown validator: ${name}`);
+
+    const [participantId, parties] = await Promise.all([
+      client.getParticipantId(),
+      client.listParties(),
+    ]);
+    return { participantId, parties: parties.filter((p) => p.isLocal === true) };
+  }
+
+  /** Cached {@link LocalNet.fetchHostedParties}; only successes are cached. */
+  private async getHostedPartiesCached(name: string): Promise<HostedParties> {
+    const cacheKey = `parties:${name}`;
+    const cached = this.getCached<HostedParties>(cacheKey);
+    if (cached) return cached;
+
+    const hosted = await this.fetchHostedParties(name);
+    this.setCache(cacheKey, hosted);
+    return hosted;
+  }
+
+  /**
+   * Allocates a party on `validatorName`'s participant.
+   *
+   * @param hint - Party ID hint (the part of the party ID before `::`).
+   * @param validatorName - `'sv'` or a configured validator name.
+   * @param displayName - Stored as the `displayName` annotation on the hosting participant
+   *   and returned by `getParties`; when omitted, `getParties` reports the hint.
+   */
   async allocateParty(
     hint: string,
     validatorName: string,
@@ -637,11 +1057,13 @@ export class LocalNet {
     const participantId = await client.getParticipantId();
 
     this.invalidateCache(`parties:${validatorName}`);
-    this.invalidateCache('parties:all');
 
     return this.toPartyInfo(party, validatorName, participantId);
   }
 
+  /**
+   * Users on one validator's participant. An unknown or unreachable validator throws.
+   */
   async getUsers(validatorName: string): Promise<ApiUserInfo[]> {
     await this.requireRunning('getUsers');
 
@@ -659,48 +1081,93 @@ export class LocalNet {
     return userInfos;
   }
 
+  /**
+   * Users with their rights, for one validator or for every participant.
+   *
+   * With `validatorName`, an unknown or unreachable validator throws. With no name, a
+   * participant that does not respond produces a warning naming it (via `onWarning`) and
+   * its users are omitted; if none responds it throws. A user whose rights cannot be
+   * listed is returned with `rights: []` and a warning. Per-validator results are cached
+   * for 30 seconds; failures are never cached.
+   */
   async getUsersWithRights(validatorName?: string): Promise<ApiUserInfoWithRights[]> {
     await this.requireRunning('getUsersWithRights');
 
-    const cacheKey = `usersWithRights:${validatorName ?? 'all'}`;
+    if (validatorName) return await this.getUsersWithRightsCached(validatorName);
+
+    const names = this.hostNames();
+    const settled = await Promise.allSettled(names.map((n) => this.getUsersWithRightsCached(n)));
+    const users: ApiUserInfoWithRights[] = [];
+    const failures: Array<{ validator: string; error: string }> = [];
+    settled.forEach((result, index) => {
+      if (result.status === 'fulfilled') {
+        users.push(...result.value);
+        return;
+      }
+      const error = result.reason instanceof Error ? result.reason.message : String(result.reason);
+      failures.push({ validator: names[index], error });
+    });
+    // Total failure throws before any warning, like getParties() and getPackages().
+    if (failures.length === names.length) {
+      const detail = failures.map((f) => `${f.validator}: ${f.error}`).join('; ');
+      throw new Error(`Could not list users: no participant responded (${detail})`);
+    }
+    for (const { validator, error } of failures) {
+      this.warn({
+        source: 'query',
+        validator,
+        message: `Could not list users on ${validator}: ${error}; its users are omitted`,
+      });
+    }
+    return users;
+  }
+
+  private async getUsersWithRightsCached(name: string): Promise<ApiUserInfoWithRights[]> {
+    const cacheKey = `usersWithRights:${name}`;
     const cached = this.getCached<ApiUserInfoWithRights[]>(cacheKey);
     if (cached) return cached;
 
-    const validatorNames = validatorName
-      ? [validatorName]
-      : ['sv', ...normalizeValidators(this.config.validators).map((v) => v.name)];
+    const client = this.cantonClients.get(name);
+    if (!client) throw new Error(`Unknown validator: ${name}`);
 
-    const allUsers: ApiUserInfoWithRights[] = [];
-
-    for (const name of validatorNames) {
-      const client = this.cantonClients.get(name);
-      if (!client) continue;
-
+    const users = await client.listUsers();
+    const result: ApiUserInfoWithRights[] = [];
+    let complete = true;
+    for (const user of users) {
+      let rights: ApiUserRight[] = [];
       try {
-        const users = await client.listUsers();
-
-        for (const user of users) {
-          let rights: ApiUserRight[] = [];
-          try {
-            rights = await client.listApiUserRights(user.id);
-          } catch {
-            // If rights query fails, include user with empty rights
-          }
-
-          allUsers.push({
-            ...this.toUserInfo(user, name),
-            rights,
-          });
-        }
-      } catch {
-        // Skip unhealthy validators
+        rights = await client.listApiUserRights(user.id);
+      } catch (err) {
+        complete = false;
+        this.warn({
+          source: 'query',
+          validator: name,
+          message: `Could not list rights for ${user.id} on ${name}: ${
+            err instanceof Error ? err.message : String(err)
+          }; listed with no rights`,
+        });
       }
+      result.push({ ...this.toUserInfo(user, name), rights });
     }
 
-    this.setCache(cacheKey, allUsers);
-    return allUsers;
+    // A partial result is never cached, so the next call re-queries the failed rights.
+    if (complete) this.setCache(cacheKey, result);
+    return result;
   }
 
+  /**
+   * Creates (or converges) a user on `validatorName` with the requested party and rights.
+   *
+   * Party hints resolve against parties hosted on `validatorName` only; a hint hosted only
+   * on another validator is allocated afresh here, with the same hint but this
+   * participant's namespace, so it is a different party id. A failure to query the
+   * validator's parties fails the call instead of re-allocating blindly.
+   *
+   * `userId` must be lowercase, the same rule config input follows: Keycloak lowercases
+   * usernames, so a mixed-case id would never match its token's subject.
+   *
+   * @throws {Error} If `userId` is not lowercase.
+   */
   async createUser(
     userId: string,
     validatorName: string,
@@ -710,6 +1177,13 @@ export class LocalNet {
       parties?: Array<{ hint: string; rights?: PerPartyRight[] }>;
     },
   ): Promise<ApiUserInfo> {
+    const lowerUserId = userId.toLowerCase();
+    if (userId !== lowerUserId) {
+      throw new Error(
+        `User id '${userId}' must be lowercase (Keycloak lowercases usernames); ` +
+          `use '${lowerUserId}'`,
+      );
+    }
     await this.requireRunning('createUser');
 
     const client = this.cantonClients.get(validatorName);
@@ -724,23 +1198,32 @@ export class LocalNet {
       for (const p of options.parties) referencedHints.add(p.hint);
     }
 
-    const partyMap = new Map<string, string>();
+    const partyMap = new Map<string, { partyId: string; ownNamespace: boolean }>();
     if (referencedHints.size > 0) {
-      const existingParties = await this.getParties(validatorName);
-      for (const party of existingParties) {
-        if (referencedHints.has(party.hint)) {
-          partyMap.set(party.hint, party.partyId);
+      // Resolve against this validator's own hosted parties, uncached; a query failure
+      // fails createUser instead of triggering blind re-allocation.
+      const hosted = await this.fetchHostedParties(validatorName);
+      const participantNamespace = hosted.participantId.split('::').pop();
+      for (const party of hosted.parties) {
+        const [hint, ...rest] = party.party.split('::');
+        if (!referencedHints.has(hint)) continue;
+        const known = partyMap.get(hint);
+        const ownNamespace = rest.join('::') === participantNamespace;
+        if (known === undefined || (ownNamespace && !known.ownNamespace)) {
+          partyMap.set(hint, { partyId: party.party, ownNamespace });
         }
       }
       for (const hint of referencedHints) {
         if (!partyMap.has(hint)) {
           const allocated = await this.allocateParty(hint, validatorName, hint);
-          partyMap.set(hint, allocated.partyId);
+          partyMap.set(hint, { partyId: allocated.partyId, ownNamespace: true });
         }
       }
     }
 
-    const primaryPartyId = options?.primaryParty ? partyMap.get(options.primaryParty) : undefined;
+    const primaryPartyId = options?.primaryParty
+      ? partyMap.get(options.primaryParty)?.partyId
+      : undefined;
 
     try {
       await client.getUser(userId);
@@ -784,7 +1267,7 @@ export class LocalNet {
 
     if (options?.parties) {
       for (const partyConfig of options.parties) {
-        const partyId = partyMap.get(partyConfig.hint);
+        const partyId = partyMap.get(partyConfig.hint)?.partyId;
         if (!partyId) continue;
 
         const partyRights = partyConfig.rights ?? ['CanActAs'];
@@ -835,9 +1318,7 @@ export class LocalNet {
     this.invalidateCache(`users:${validatorName}`);
     this.invalidateCache('users:all');
     this.invalidateCache(`parties:${validatorName}`);
-    this.invalidateCache('parties:all');
     this.invalidateCache(`usersWithRights:${validatorName}`);
-    this.invalidateCache('usersWithRights:all');
 
     const latest = await client.getUser(userId);
     return this.toUserInfo(latest, validatorName);
@@ -854,64 +1335,131 @@ export class LocalNet {
     return this.keycloakAdminClient;
   }
 
+  /**
+   * Packages known to the participants, one row per package with the validators that
+   * know it. Built-in Splice and Daml packages are included. Rows are sorted by
+   * `packageId`; `validators` is in SV-then-config order.
+   *
+   * With `validatorName`, `validators` is `[validatorName]`, and an unknown or unreachable
+   * validator throws. With no name, a participant that does not respond produces a
+   * warning naming it (via `onWarning`) and is left out of every row; if none responds it
+   * throws. Per-validator results are cached for 30 seconds; failures are never cached.
+   */
   async getPackages(validatorName?: string): Promise<ApiPackageInfo[]> {
     await this.requireRunning('getPackages');
 
-    const cacheKey = `packages:${validatorName ?? 'all'}`;
-    const cached = this.getCached<ApiPackageInfo[]>(cacheKey);
-    if (cached) return cached;
-
-    const validatorNames = validatorName
-      ? [validatorName]
-      : ['sv', ...normalizeValidators(this.config.validators).map((v) => v.name)];
-
-    const allPackages: ApiPackageInfo[] = [];
-    const seenPackageIds = new Set<string>();
-
-    for (const name of validatorNames) {
-      const client = this.cantonClients.get(name);
-      if (!client) continue;
-
-      try {
-        const packages = await client.listPackages();
-
-        for (const pkg of packages) {
-          if (!seenPackageIds.has(pkg.packageId)) {
-            seenPackageIds.add(pkg.packageId);
-            allPackages.push(this.toPackageInfo(pkg, name));
-          }
-        }
-      } catch {
-        // Skip unhealthy validators
-      }
+    const { packages, failures } = await this.collectPackages(validatorName);
+    for (const failure of failures) {
+      this.warn({
+        source: 'query',
+        validator: failure.validator,
+        message:
+          `Could not list packages on ${failure.validator}: ${failure.error}; its packages are omitted`,
+      });
     }
-
-    this.setCache(cacheKey, allPackages);
-    return allPackages;
+    return packages;
   }
 
+  /**
+   * Like {@link LocalNet.getPackages} with no name, but returns the per-validator failures
+   * instead of passing them to `onWarning`. Used by the discovery server.
+   *
+   * @throws If no participant responds.
+   */
+  async listPackagesWithFailures(): Promise<
+    { packages: ApiPackageInfo[]; failures: Array<{ validator: string; error: string }> }
+  > {
+    await this.requireRunning('listPackagesWithFailures');
+    return await this.collectPackages();
+  }
+
+  private async collectPackages(
+    validatorName?: string,
+  ): Promise<
+    { packages: ApiPackageInfo[]; failures: Array<{ validator: string; error: string }> }
+  > {
+    const names = validatorName ? [validatorName] : this.hostNames();
+    const settled = await Promise.allSettled(names.map((n) => this.getPackageIdsCached(n)));
+
+    const validatorsByPackage = new Map<string, string[]>();
+    const failures: Array<{ validator: string; error: string }> = [];
+    settled.forEach((result, index) => {
+      const name = names[index];
+      if (result.status === 'rejected') {
+        if (validatorName) throw result.reason;
+        failures.push({
+          validator: name,
+          error: result.reason instanceof Error ? result.reason.message : String(result.reason),
+        });
+        return;
+      }
+      for (const packageId of result.value) {
+        const hosts = validatorsByPackage.get(packageId);
+        if (hosts) hosts.push(name);
+        else validatorsByPackage.set(packageId, [name]);
+      }
+    });
+    if (failures.length === names.length) {
+      const detail = failures.map((f) => `${f.validator}: ${f.error}`).join('; ');
+      throw new Error(`Could not list packages: no participant responded (${detail})`);
+    }
+
+    const packages = [...validatorsByPackage.entries()]
+      .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+      .map(([packageId, validators]) => ({ packageId, validators }));
+    return { packages, failures };
+  }
+
+  private async getPackageIdsCached(name: string): Promise<string[]> {
+    const cacheKey = `packages:${name}`;
+    const cached = this.getCached<string[]>(cacheKey);
+    if (cached) return cached;
+
+    const client = this.cantonClients.get(name);
+    if (!client) throw new Error(`Unknown validator: ${name}`);
+
+    const packageIds = await client.listPackages();
+    this.setCache(cacheKey, packageIds);
+    return packageIds;
+  }
+
+  /**
+   * Uploads a DAR file to the given validators (default: `sv` and every validator) and
+   * returns its main package ID, computed from the DAR itself.
+   *
+   * Arguments are checked before anything is uploaded: an empty `validatorNames` list,
+   * an unknown validator name (`Unknown validator: <name>`) or an unreadable DAR
+   * (`Invalid DAR: ...`) throws without sending a request. If an upload fails on some
+   * validators, the rest are still attempted and one error naming the failed validators
+   * is thrown.
+   *
+   * @param filePath - Path to the `.dar` file.
+   * @param validatorNames - Target participants (`'sv'` or validator names).
+   */
   async uploadDar(filePath: string, validatorNames?: string[]): Promise<string> {
+    const targets = validatorNames ?? this.hostNames();
+    if (targets.length === 0) {
+      throw new Error('uploadDar: no target validators given');
+    }
+    for (const name of targets) {
+      if (!this.cantonClients.has(name)) throw new Error(`Unknown validator: ${name}`);
+    }
+
+    const darContent = new Uint8Array(await readFile(filePath));
+    const mainPackageId = readDarMainPackageId(darContent);
+
     await this.requireRunning('uploadDar');
 
-    const targets = validatorNames ??
-      ['sv', ...normalizeValidators(this.config.validators).map((v) => v.name)];
-
-    let mainPackageId = '';
     const errors = new Map<string, Error>();
-
     for (const name of targets) {
-      const client = this.cantonClients.get(name);
-      if (!client) continue;
-
+      const client = this.cantonClients.get(name)!;
       try {
-        mainPackageId = await client.uploadDarFromFile(filePath);
+        await client.uploadDar(darContent);
         this.invalidateCache(`packages:${name}`);
       } catch (error) {
         errors.set(name, error instanceof Error ? error : new Error(String(error)));
       }
     }
-
-    this.invalidateCache('packages:all');
 
     if (errors.size > 0) {
       const details = [...errors.entries()].map(([n, e]) => `${n}: ${e.message}`).join('; ');
@@ -936,23 +1484,34 @@ export class LocalNet {
     return dsoPartyId;
   }
 
+  /**
+   * Best-effort snapshot of validators, parties, users and packages. `parties` and
+   * `packages` are empty if no participant responds; a validator whose users cannot be
+   * listed (or that is unhealthy) is omitted from `users` with a warning via `onWarning`.
+   */
   async getSnapshot(): Promise<ApiLocalNetSnapshot> {
     await this.requireRunning('getSnapshot');
 
     const validators = await this.getAllValidatorStates();
-    const parties = await this.getParties();
-    const packages = await this.getPackages();
+    const parties = await this.getParties().catch(() => []);
+    const packages = await this.getPackages().catch(() => []);
 
     const users: ApiUserInfo[] = [];
     for (const validator of validators) {
+      let reason = 'unhealthy';
       if (validator.isHealthy) {
         try {
-          const validatorUsers = await this.getUsers(validator.name);
-          users.push(...validatorUsers);
-        } catch {
-          // Skip unavailable validators
+          users.push(...await this.getUsers(validator.name));
+          continue;
+        } catch (err) {
+          reason = err instanceof Error ? err.message : String(err);
         }
       }
+      this.warn({
+        source: 'query',
+        validator: validator.name,
+        message: `Could not list users on ${validator.name}: ${reason}; its users are omitted`,
+      });
     }
 
     return {
@@ -1159,7 +1718,6 @@ export class LocalNet {
       displayName: party.localMetadata?.annotations?.displayName ?? hint,
       validator,
       participantId,
-      isLocal: party.isLocal,
     };
   }
 
@@ -1169,15 +1727,6 @@ export class LocalNet {
       primaryParty: user.primaryParty,
       validator,
       isDeactivated: user.isDeactivated,
-    };
-  }
-
-  private toPackageInfo(pkg: PackageDetails, validator: string): ApiPackageInfo {
-    return {
-      packageId: pkg.packageId,
-      packageSize: pkg.packageSize,
-      knownSince: pkg.knownSince,
-      validator,
     };
   }
 
@@ -1220,16 +1769,42 @@ export class LocalNet {
     }
   }
 
-  private async startContainer(spec: ContainerSpec, options?: StartOptions): Promise<void> {
+  /**
+   * Create and/or start one container, recording each mutation in `rb`
+   * immediately after it succeeds so a rollback sees exactly what changed.
+   */
+  private async ensureStarted(
+    spec: ContainerSpec,
+    rb: StartRollback,
+    options?: StartOptions,
+  ): Promise<void> {
     const progress = options?.onProgress ?? (() => {});
-    const exists = await this.client.getContainerInfo(spec.name);
+    const exists = await this.client.findContainer(spec.name);
     let containerId: string;
 
     if (exists) {
       containerId = exists.id;
       if (exists.state !== 'running') {
         progress(`Starting ${spec.name}...`);
+        // Record before the call: if the daemon starts the container but the
+        // request still fails, rollback must stop it (stopping a container that
+        // never started is a harmless 304).
+        rb.started.set(spec.name, { id: containerId, layer: rb.layer });
+        rb.touched.add(spec.name);
+        // A container in restart backoff (a crash-looping nginx after a daemon
+        // restart) counts as running to Docker, so a plain start is a no-op and
+        // the backoff would go on. Stop it first to end the loop.
+        if (exists.state === 'restarting') await this.client.stopContainer(containerId, 30);
         await this.client.startContainer(containerId);
+      } else if ((spec.dependsOn ?? []).some((dep) => rb.touched.has(dep))) {
+        // A dependency was just (re)started: restart this container so it does
+        // not keep addresses from before. Not recorded in rb.started.
+        progress(`Restarting ${spec.name}...`);
+        rb.touched.add(spec.name);
+        rb.restarted.set(spec.name, containerId);
+        await this.client.stopContainer(containerId, 30);
+        await this.client.startContainer(containerId);
+        rb.restarted.delete(spec.name);
       }
     } else {
       const networkName = this.networkManager.getExpectedNetworkName(this.options.instanceId);
@@ -1240,18 +1815,38 @@ export class LocalNet {
 
       await this.pullImageIfNeeded(spec.image, progress);
       progress(`Creating ${spec.name}...`);
-      containerId = await this.client.createContainer(specWithNetwork);
+      try {
+        containerId = await this.client.createContainer(specWithNetwork);
+      } catch (error) {
+        if (
+          error instanceof Error && (error as Error & { statusCode?: number }).statusCode === 409
+        ) {
+          rb.conflict = true;
+          throw new Error(
+            `Instance '${this.options.instanceId}' appears to be starting in another process ` +
+              `('${spec.name}' already exists); if none is, retry in a minute.`,
+          );
+        }
+        throw error;
+      }
+      rb.created.set(spec.name, containerId);
+      rb.touched.add(spec.name);
       await this.client.startContainer(containerId);
     }
 
     this.containerIds.set(spec.name, containerId);
+  }
 
-    if (spec.healthCheck && !options?.skipHealthChecks) {
-      progress(`Waiting for ${spec.name} to be healthy...`);
-      const healthStart = Date.now();
-      await this.waitForDockerHealthy(containerId, spec.name, spec.healthCheck);
-      progress(`${spec.name} healthy (took ${((Date.now() - healthStart) / 1000).toFixed(1)}s)`);
-    }
+  private async waitHealthy(spec: ContainerSpec, options?: StartOptions): Promise<void> {
+    if (!spec.healthCheck || options?.skipHealthChecks) return;
+    const containerId = this.containerIds.get(spec.name);
+    if (!containerId) return;
+
+    const progress = options?.onProgress ?? (() => {});
+    progress(`Waiting for ${spec.name} to be healthy...`);
+    const healthStart = Date.now();
+    await this.waitForDockerHealthy(containerId, spec.name, spec.healthCheck);
+    progress(`${spec.name} healthy (took ${((Date.now() - healthStart) / 1000).toFixed(1)}s)`);
   }
 
   private async waitForDockerHealthy(
@@ -1375,11 +1970,20 @@ export class LocalNet {
 
   /**
    * Run post-startup initialization: allocate configured parties, create users,
-   * and onboard wallets. Called automatically by start() unless skipInitialization
-   * is set. Also exposed for the `dnm init` CLI command on already-running instances.
+   * onboard wallets, and upload the configured `packages`. Called automatically
+   * by start() unless skipInitialization is set. Also exposed for the
+   * `dnm init` CLI command on already-running instances.
+   *
+   * Safe to re-run: a configured party whose hint is already hosted on its
+   * validator's participant is skipped, and users converge on their configured
+   * state (see {@link LocalNet.createUser}). Packages upload to their
+   * `uploadTo` validators (default `sv` and every validator); relative `dar`
+   * paths resolve against `configDir`, then the current directory. A missing
+   * DAR or failed upload is a `'packages'` warning, not an error. Re-uploading
+   * an existing DAR is expected to be a no-op (to be confirmed by live
+   * validation).
    *
    * @internal Do not call directly in application code — use start() instead.
-   * Calling this on an already-initialized instance will create duplicate users.
    */
   async initializeResources(onProgress?: (msg: string) => void): Promise<void> {
     onProgress?.('Initializing resources...');
@@ -1389,13 +1993,33 @@ export class LocalNet {
 
     const validators = normalizeValidators(this.config.validators);
 
-    const partyMap = new Map<string, string>();
-
     for (const validator of validators) {
       const validatorName = validator.name;
       const parties = validator.parties ?? [];
+      if (parties.length === 0) continue;
+
+      // A failed query must not turn into blind re-allocation: let it propagate.
+      let hosted: HostedParties;
+      try {
+        hosted = await this.fetchHostedParties(validatorName);
+      } catch (error) {
+        throw new Error(
+          `Cannot check existing parties on '${validatorName}': ${
+            error instanceof Error ? error.message : error
+          }`,
+        );
+      }
+      const existingHints = new Set(
+        hosted.parties.map((p) => p.party.split('::')[0] ?? p.party),
+      );
 
       for (const partyConfig of parties) {
+        if (existingHints.has(partyConfig.hint)) {
+          onProgress?.(
+            `Party '${partyConfig.hint}' already allocated on ${validatorName}; skipping`,
+          );
+          continue;
+        }
         try {
           onProgress?.(`Allocating party '${partyConfig.hint}' on ${validatorName}...`);
           const partyInfo = await this.allocateParty(
@@ -1403,7 +2027,6 @@ export class LocalNet {
             validatorName,
             partyConfig.displayName ?? partyConfig.hint,
           );
-          partyMap.set(partyConfig.hint, partyInfo.partyId);
           onProgress?.(
             `Allocated party '${partyConfig.hint}': ${partyInfo.partyId.substring(0, 30)}...`,
           );
@@ -1451,7 +2074,32 @@ export class LocalNet {
       }
     }
 
+    await this.uploadConfiguredPackages(onProgress);
+
     onProgress?.('Resource initialization complete');
+  }
+
+  /**
+   * Uploads `config.packages` to their targets. A missing DAR or a failed upload is
+   * reported through `onWarning` (`source: 'packages'`) and the next package is tried;
+   * re-uploading a DAR Canton already has is a no-op.
+   */
+  private async uploadConfiguredPackages(onProgress?: (msg: string) => void): Promise<void> {
+    const packages = await resolvePackages(this.config, this.options.configDir);
+    for (const pkg of packages) {
+      try {
+        await assertPackageFilesExist([pkg]);
+        onProgress?.(`Uploading package '${pkg.name}' to ${pkg.targets.join(', ')}...`);
+        const packageId = await this.uploadDar(pkg.dar, pkg.targets);
+        onProgress?.(`Uploaded package '${pkg.name}': ${packageId}`);
+      } catch (error) {
+        const reason = error instanceof Error ? error.message : String(error);
+        this.warn({
+          source: 'packages',
+          message: `Package '${pkg.name}' upload failed: ${reason}`,
+        });
+      }
+    }
   }
 
   private deriveStateFromContainers(containers: ContainerInfo[]): LocalNetState {
@@ -1546,6 +2194,9 @@ export class LocalNet {
         [`${this.options.labelPrefix}.instance`]: this.options.instanceId,
         [`${this.options.labelPrefix}.config`]: configJson,
         [`${this.options.labelPrefix}.schema`]: '2',
+        ...(this.options.configDir
+          ? { [`${this.options.labelPrefix}.config-dir`]: this.options.configDir }
+          : {}),
       };
     }
 

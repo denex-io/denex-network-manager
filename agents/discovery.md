@@ -23,7 +23,11 @@ and exposes running instances over an optional foreground Hono HTTP server.
 ## Working rules
 
 - Label constants use `denex.localnet`: `instance`, `config`, and `schema`.
-- Schema `2` stores full config JSON in the Docker label.
+- Schema `2` stores full config JSON in the Docker label. A separate `config-dir` label holds the
+  directory relative `packages[].dar` paths resolve against; it is not part of the config and
+  discovery ignores it.
+- `DiscoveredInstance.status` is order-independent: `running` only if every counted container runs,
+  `stopped` if none does, `mixed` on any disagreement.
 - Instances with unsupported label schema are surfaced as `unsupported` where possible.
 - Discovery routes attach through `LocalNet.fromInstanceId()` instead of reading config files.
 - The deprecated YAML `discovery` field does not start this server.
@@ -34,8 +38,12 @@ and exposes running instances over an optional foreground Hono HTTP server.
 - `GET /instances`
 - `GET /instances/:id/status`
 - `GET /instances/:id/env`
-- `GET /instances/:id/parties`
-- `GET /instances/:id/packages`
+- `GET /instances/:id/parties`: each party once, with `validator` = its hosting participant. On
+  partial results returns 200 with `failures: [{ validator, error }]`; 503
+  `{ error: 'Could not list parties', detail, instanceId }` when no participant responds.
+- `GET /instances/:id/packages`: same contract as `/parties`. On partial results returns 200 with
+  `failures: [{ validator, error }]`; 503 `{ error: 'Could not list packages', detail, instanceId }`
+  when no participant responds.
 - `GET /instances/:id/snapshot`
 
 ## Critical gotchas

@@ -69,6 +69,7 @@ export interface FullEnvironmentInfo {
   validators: Record<string, ValidatorEnvironmentInfo>;
   auth: EnvironmentAuthConfig;
   credentials: CredentialEntry[];
+  /** Each party once, under its hosting validator, read from the running instance; empty when built from config alone or when no participant responds. */
   parties: PartyEnvironmentInfo[];
 }
 
@@ -134,4 +135,27 @@ export interface PartyEnvironmentInfo {
   displayName: string;
   partyId: string | null;
   validator: string;
+}
+
+/**
+ * A non-fatal problem reported through `LocalNetOptions.onWarning`.
+ *
+ * - `config`: a configuration problem.
+ * - `query`: a per-validator query (parties, packages, users, rights) failed and its
+ *   results are omitted from a partial result.
+ * - `packages`: a package upload problem.
+ */
+export interface LocalNetWarning {
+  source: 'config' | 'query' | 'packages';
+  message: string;
+  /** The validator the warning is about, when it concerns a single one. */
+  validator?: string;
+  /** The config path the warning is about, when it concerns a config field. */
+  path?: string;
+}
+
+/** A {@link LocalNetWarning} about the configuration: `source` is `'config'` and `path` is set. */
+export interface ConfigWarning extends LocalNetWarning {
+  source: 'config';
+  path: string;
 }

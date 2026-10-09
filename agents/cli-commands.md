@@ -27,10 +27,18 @@ requiring a config file.
 ## Working rules
 
 - Only `start` and `config` accept `--config`.
-- State commands attach via Docker labels using `--instance` or auto-resolve when exactly one
-  running instance exists.
-- `destroy` may attach to stopped or mixed instances; other state commands generally require running
-  instances.
+- State commands attach via Docker labels using `--instance`, or auto-resolve with
+  `resolveInstanceId` (`src/cli/utils.ts`): tiers running, then mixed, then stopped, restricted to
+  the command's accept set (`status`/`env`/`credentials`: all three; `stop`/`parties`/`packages`/
+  `entitlements`: running, mixed; `init`: running). More than one candidate in the deciding tier is
+  an error. A fallback tier or ignored instances produce a stderr notice. `stop` on a stopped-only
+  instance fails with "already stopped" (exit 1).
+- `destroy` may attach to any non-`unsupported` instance.
+- `dnm config -y` overwrites an existing file after copying it to `<file>.bak`; without `-y` it
+  prompts. `--verbose` on `parties`/`packages`/`entitlements` is hidden and has no effect.
+- `dnm config` validates the generated file before writing and exits 1 without writing (no file, no
+  `.bak`) on failure. `dnm start` prints config warnings (unknown keys) to stderr.
+- Use `dnm ...` in user-facing strings, never `localnet ...` or `deno task cli ...`.
 - `discovery` runs a foreground HTTP server; it is not started from YAML.
 - The CLI may use `Deno.*`, Cliffy, and terminal color helpers because it is not cross-runtime.
 
