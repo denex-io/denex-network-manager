@@ -1,17 +1,20 @@
 import { Command } from '@cliffy/command';
 import { Table } from '@cliffy/table';
-import { colors, getRunningLocalNet, printError } from '../utils.ts';
+import { ACCEPT_ANY, colors, getRunningLocalNet, printError } from '../utils.ts';
 import type { FullEnvironmentInfo } from '../../types/state.ts';
 
 export const envCommand = new Command()
   .name('env')
   .description('Show environment info for the LocalNet')
-  .option('--instance <id:string>', 'Instance ID (auto-resolves if only one running)')
+  .option(
+    '--instance <id:string>',
+    'Instance ID (auto-resolves to the one running, mixed or stopped instance)',
+  )
   .option('--json', 'Output as JSON')
   .option('--shell', 'Output as shell export statements')
   .action(async (options) => {
     try {
-      const localnet = await getRunningLocalNet(options.instance);
+      const localnet = await getRunningLocalNet(options.instance, undefined, ACCEPT_ANY);
       const envInfo = await localnet.getEnvironment();
 
       try {

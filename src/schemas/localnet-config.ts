@@ -104,7 +104,7 @@ export const LocalNetConfigSchema = z.object({
   validators: ValidatorsSchema,
   auth: AuthConfigSchema,
   packages: z.array(PackageConfigSchema).optional(),
-  // @deprecated — kept for backward compatibility. Use 'localnet discovery serve' instead.
+  // @deprecated — kept for backward compatibility. Use `dnm discovery serve` (CLI) or `MultiInstanceDiscoveryServer` (SDK) instead.
   discovery: DiscoveryConfigSchema.optional(),
   basePort: z.number().int().min(1024).max(60000).default(5000),
 });

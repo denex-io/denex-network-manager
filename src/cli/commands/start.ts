@@ -30,7 +30,9 @@ export const startCommand = new Command()
         console.log(mismatch.message);
         console.log('');
         console.log("Existing containers don't match your config.");
-        console.log("Run 'stop' or 'destroy' first, then 'start' again.");
+        console.log(
+          `Run 'dnm destroy --instance ${options.instance}' first (stop alone keeps the old containers), or use another --instance, then start again.`,
+        );
         Deno.exit(1);
       }
 
@@ -51,7 +53,7 @@ export const startCommand = new Command()
 
       if (config.discovery) {
         console.warn(
-          'Warning: "discovery" config field is deprecated. Use "localnet discovery serve" for multi-instance discovery.',
+          'Warning: "discovery" config field is deprecated. Run `dnm discovery serve` for multi-instance discovery.',
         );
       }
     } catch (error) {

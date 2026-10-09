@@ -1,17 +1,24 @@
 import { Command } from '@cliffy/command';
 import { Table } from '@cliffy/table';
-import { colors, getRunningLocalNet, printError, warnToStderr } from '../utils.ts';
+import { ACCEPT_LIVE, colors, getRunningLocalNet, printError, warnToStderr } from '../utils.ts';
 
 export const partiesCommand = new Command()
   .name('parties')
   .description('List parties and the validator that hosts each')
-  .option('--instance <id:string>', 'Instance ID (auto-resolves if only one running)')
+  .option(
+    '--instance <id:string>',
+    'Instance ID (auto-resolves to the one running or mixed instance)',
+  )
   .option('-v, --validator <name:string>', 'Only parties hosted on this validator')
-  .option('--verbose', 'Show verbose error logging')
+  .option('--verbose', 'Deprecated: has no effect', { hidden: true })
   .option('--json', 'Output as JSON')
   .action(async (options) => {
     try {
-      const localnet = await getRunningLocalNet(options.instance, { onWarning: warnToStderr });
+      const localnet = await getRunningLocalNet(
+        options.instance,
+        { onWarning: warnToStderr },
+        ACCEPT_LIVE,
+      );
       const parties = await localnet.getParties(options.validator);
 
       if (options.json) {

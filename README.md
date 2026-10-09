@@ -131,12 +131,16 @@ Commands:
 | `packages`     | List packages known to each participant (built-ins too)  |
 | `env`          | Show API URLs, auth config, and DSO party ID             |
 | `credentials`  | Show web UI login credentials                            |
-| `instances`    | List running LocalNet instances                          |
+| `instances`    | List LocalNet instances (running, mixed or stopped)      |
 | `entitlements` | List users with their rights                             |
 | `discovery`    | Run the multi-instance discovery HTTP server             |
 
-Only `start` and `config` accept `--config <path>`. State commands attach to running Docker
-containers through labels. If multiple instances are running, pass `--instance <id>`.
+Only `start` and `config` accept `--config <path>`. State commands attach to Docker containers
+through labels. Without `--instance <id>` they pick the one running instance, else the one mixed
+(partly running) instance (not for `init`, which needs a running one), else (for `status`, `env`,
+`credentials`) the one stopped instance, and print a stderr notice when they fall back or ignore
+other instances; pass `--instance <id>` when a tier holds several. `dnm config -y` overwrites an
+existing file after saving it as `<file>.bak`.
 
 Useful options:
 

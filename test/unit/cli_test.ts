@@ -1,10 +1,20 @@
-import { assert, assertEquals, assertExists, assertStringIncludes } from '@std/assert';
 import {
+  assert,
+  assertEquals,
+  assertExists,
+  assertStringIncludes,
+  assertThrows,
+} from '@std/assert';
+import {
+  ACCEPT_ANY,
+  ACCEPT_LIVE,
+  ACCEPT_RUNNING,
   buildPackageMatrix,
   colors,
   formatHealth,
   formatState,
   formatUptime,
+  resolveInstanceId,
 } from '../../src/cli/utils.ts';
 
 Deno.test('colors.green - returns green text', () => {
@@ -101,4 +111,119 @@ Deno.test('buildPackageMatrix - marks unreachable participants with ? and a head
   assert(rows[0][1].includes('✓'));
   assertEquals(rows[0][2], '?');
   assertEquals(rows[1], ['p2', '', '?']);
+});
+
+const inst = (id: string, status: string) => ({ id, status });
+
+Deno.test('resolveInstanceId - single running instance', () => {
+  const r = resolveInstanceId([inst('a', 'running')], ['running']);
+  assertEquals(r, { id: 'a', status: 'running', ignored: [] });
+});
+
+Deno.test('resolveInstanceId - running-only keeps the original error texts', () => {
+  assertThrows(
+    () => resolveInstanceId([inst('a', 'stopped')], ['running']),
+    Error,
+    'No running LocalNet instances found. Start one with `dnm start`.',
+  );
+  assertThrows(
+    () => resolveInstanceId([inst('a', 'running'), inst('b', 'running')], ['running']),
+    Error,
+    'Multiple running instances found (a, b). Specify with --instance <id>.',
+  );
+});
+
+Deno.test('resolveInstanceId - running tier wins and others are reported as ignored', () => {
+  const r = resolveInstanceId(
+    [inst('a', 'stopped'), inst('b', 'running'), inst('c', 'mixed')],
+    ['running', 'mixed', 'stopped'],
+  );
+  assertEquals(r.id, 'b');
+  assertEquals(r.ignored, [inst('a', 'stopped'), inst('c', 'mixed')]);
+});
+
+Deno.test('resolveInstanceId - falls back to mixed, then stopped', () => {
+  assertEquals(
+    resolveInstanceId([inst('a', 'stopped'), inst('b', 'mixed')], ['running', 'mixed', 'stopped'])
+      .id,
+    'b',
+  );
+  const r = resolveInstanceId([inst('a', 'stopped')], ['running', 'mixed', 'stopped']);
+  assertEquals(r.id, 'a');
+  assertEquals(r.status, 'stopped');
+});
+
+Deno.test('resolveInstanceId - a stopped instance is not accepted by live commands', () => {
+  assertThrows(
+    () => resolveInstanceId([inst('a', 'stopped')], ['running', 'mixed']),
+    Error,
+    'No running or mixed LocalNet instances found',
+  );
+});
+
+Deno.test('resolveInstanceId - a sole mixed instance is accepted by live commands only', () => {
+  const r = resolveInstanceId([inst('a', 'mixed')], ACCEPT_LIVE);
+  assertEquals(r, { id: 'a', status: 'mixed', ignored: [] });
+  assertThrows(
+    () => resolveInstanceId([inst('a', 'mixed')], ACCEPT_RUNNING),
+    Error,
+    'No running LocalNet instances found',
+  );
+});
+
+Deno.test('resolveInstanceId - ignored lists the others when a fallback tier is chosen', () => {
+  const r = resolveInstanceId([inst('a', 'mixed'), inst('b', 'unsupported')], ACCEPT_ANY);
+  assertEquals(r.id, 'a');
+  assertEquals(r.ignored, [inst('b', 'unsupported')]);
+});
+
+Deno.test('resolveInstanceId - several stopped instances use plural "already stopped"', () => {
+  assertThrows(
+    () => resolveInstanceId([inst('a', 'stopped'), inst('b', 'stopped')], ACCEPT_LIVE, true),
+    Error,
+    'LocalNets are already stopped (a, b)',
+  );
+});
+
+Deno.test('resolveInstanceId - several instances in the deciding tier is an error', () => {
+  assertThrows(
+    () => resolveInstanceId([inst('a', 'mixed'), inst('b', 'mixed')], ['running', 'mixed']),
+    Error,
+    'Multiple mixed instances found (a, b)',
+  );
+});
+
+Deno.test('resolveInstanceId - unsupported instances are never chosen', () => {
+  assertThrows(
+    () => resolveInstanceId([inst('a', 'unsupported')], ['running', 'mixed', 'stopped']),
+    Error,
+    'No LocalNet instances found',
+  );
+});
+
+Deno.test('resolveInstanceId - stop reports "already stopped"', () => {
+  assertThrows(
+    () => resolveInstanceId([inst('a', 'stopped')], ['running', 'mixed'], true),
+    Error,
+    'LocalNet is already stopped (a)',
+  );
+});
+
+Deno.test('resolveInstanceId - empty list with stopped accepted says no instances found', () => {
+  assertThrows(
+    () => resolveInstanceId([], ['running', 'mixed', 'stopped']),
+    Error,
+    'No LocalNet instances found. Start one with `dnm start`.',
+  );
+});
+
+Deno.test('hidden --verbose is still accepted by parties, packages and entitlements', async () => {
+  const { partiesCommand } = await import('../../src/cli/commands/parties.ts');
+  const { packagesCommand } = await import('../../src/cli/commands/packages.ts');
+  const { entitlementsCommand } = await import('../../src/cli/commands/entitlements.ts');
+  for (const cmd of [partiesCommand, packagesCommand, entitlementsCommand]) {
+    const option = cmd.getOption('verbose', true);
+    assertExists(option);
+    assertEquals(option.hidden, true);
+  }
 });

@@ -14,7 +14,7 @@ export const initCommand = new Command()
       const status = await localnet.status();
       if (status.state !== 'running') {
         throw new Error(
-          `LocalNet is not running (state: ${status.state}). Start it first with 'localnet start'.`,
+          `LocalNet is not running (state: ${status.state}). Run \`dnm start --instance ${localnet.instanceId}\` (from the config's directory or with --config) to start or repair it first.`,
         );
       }
 
