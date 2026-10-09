@@ -10,9 +10,6 @@ All notable changes to this project will be documented in this file. The format 
 - `ContainerInfo.created` (unix seconds), filled by `DockerClient.listContainers()`.
 - `DockerClient.findNetwork()` / `findVolume()` (null only on 404, other errors rethrown) and
   `NetworkManager.ensure()` (returns `{ id, created }`).
-
-### Added
-
 - `LocalNet.listPartiesWithFailures()` and `LocalNet.listPackagesWithFailures()` return the
   reachable results together with per-validator failures instead of calling `onWarning`.
 - Discovery `GET /instances/:id/packages` returns 503 when no participant responds and a `failures`
@@ -67,6 +64,16 @@ All notable changes to this project will be documented in this file. The format 
   list alongside the reachable parties on partial results.
 - Added `LocalNetOptions.onWarning` and the `LocalNetWarning` type; the CLI prints warnings to
   stderr so `--json` output stays clean.
+- Sequencer (public, admin, gRPC health), mediator (admin, gRPC health), Scan admin and SV admin
+  ports now follow `basePort` inside the containers too (basePort+8/+9/+62, +7/+63, +12/+14; Scan
+  and SV admin are published on the same number). Nothing changes at basePort 5000. Previously these
+  were fixed at 5007-5014/5062-5063, so some `basePort` values (for example 4847 or 4947) made a
+  participant port collide with the sequencer or mediator and the instance could not start.
+- The splice and canton Prometheus metrics reporters now listen on basePort+13 (splice) and
+  basePort+64 (canton) inside their containers instead of the image default 10013, at every
+  `basePort` including 5000. The port is never published to the host and is not persisted, so
+  nothing outside the container sees the change; it removes a collision at `basePort` values such as
+  9010 (splice) or 9951 (canton).
 
 ### Fixed
 
@@ -94,6 +101,23 @@ All notable changes to this project will be documented in this file. The format 
   skipped unknown validators; it now sends a raw octet-stream body and throws on an unknown
   validator or an empty target list; Canton's error for a rejected DAR is surfaced.
 - `getPackages()` and `listPackages()` always returned an empty list.
+
+### Removed
+
+- **Breaking:** `SV_INTERNAL_PORTS` is removed from the package root without a deprecation period.
+  Its values were only correct at basePort 5000. The internal port helpers are not part of the
+  public API. The SV-only port numbers are listed in the README "Port Allocation" section.
+
+### Upgrade notes
+
+- Instances created by 0.1.0-beta.1 with a non-default `basePort` keep their original container
+  configuration across stop/start. If such an instance's canton, splice or nginx container is
+  recreated by this version (for example by repairing a partially running instance, or after
+  removing a container), the new container uses the new ports while state written at creation still
+  names the old ones: the mediator's sequencer connection, each participant's synchronizer
+  connection, and the sequencer and Scan URLs the SV published to the DSO. The instance may then
+  fail to start or process transactions; destroy it and start again. basePort-5000 instances are
+  unaffected.
 
 ## [0.1.0-beta.1] — 2026-07-28
 

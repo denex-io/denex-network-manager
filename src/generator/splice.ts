@@ -6,7 +6,7 @@ import {
   getValidatorClientId,
   normalizeValidators,
 } from '../types/config.ts';
-import { getSvPorts, getValidatorPorts, SV_INTERNAL_PORTS } from '../utils/ports.ts';
+import { getSvInternalPorts, getSvPorts, getValidatorPorts } from '../utils/ports.ts';
 
 /**
  * Generate the auth block for Splice config.
@@ -115,6 +115,7 @@ export function generateSvSpliceConfig(
   basePort?: number,
 ): string {
   const svPorts = getSvPorts(basePort);
+  const internal = getSvInternalPorts(basePort);
   const svClientId = getValidatorClientId('sv');
   const svLedgerApiUser = getServiceAccountUserId(svClientId);
   const svWalletUser = 'sv';
@@ -158,7 +159,7 @@ canton {
     scan-client = null
     scan-client = {
       type = "trust-single"
-      url = "http://localhost:${SV_INTERNAL_PORTS.scanAdmin}"
+      url = "http://localhost:${internal.scanAdmin}"
     }
     sv-user = "${svLedgerApiUser}"
     sv-validator = true
@@ -182,18 +183,18 @@ canton {
 
     admin-api = {
       address = "0.0.0.0"
-      port = ${SV_INTERNAL_PORTS.scanAdmin}
+      port = ${internal.scanAdmin}
     }
     participant-client = \${_sv_participant_client}
     synchronizer-nodes {
       current {
         sequencer = {
           address = canton
-          port = ${SV_INTERNAL_PORTS.sequencerAdmin}
+          port = ${internal.sequencerAdmin}
         }
         mediator = {
           address = canton
-          port = ${SV_INTERNAL_PORTS.mediatorAdmin}
+          port = ${internal.mediatorAdmin}
         }
       }
     }
@@ -208,24 +209,24 @@ canton {
 ${expectedOnboardings}
     ]
     scan {
-      public-url = "http://localhost:${SV_INTERNAL_PORTS.scanAdmin}"
-      internal-url = "http://localhost:${SV_INTERNAL_PORTS.scanAdmin}"
+      public-url = "http://localhost:${internal.scanAdmin}"
+      internal-url = "http://localhost:${internal.scanAdmin}"
     }
     local-synchronizer-nodes.current {
       sequencer {
         admin-api {
           address = canton
-          port = ${SV_INTERNAL_PORTS.sequencerAdmin}
+          port = ${internal.sequencerAdmin}
         }
         internal-api {
           address = canton
-          port = ${SV_INTERNAL_PORTS.sequencerPublic}
+          port = ${internal.sequencerPublic}
         }
-        external-public-api-url = "http://canton:${SV_INTERNAL_PORTS.sequencerPublic}"
+        external-public-api-url = "http://canton:${internal.sequencerPublic}"
       }
       mediator.admin-api {
         address = canton
-        port = ${SV_INTERNAL_PORTS.mediatorAdmin}
+        port = ${internal.mediatorAdmin}
       }
 
       comet-bft-config {
@@ -242,7 +243,7 @@ ${expectedOnboardings}
 
     admin-api = {
       address = "0.0.0.0"
-      port = ${SV_INTERNAL_PORTS.svAdmin}
+      port = ${internal.svAdmin}
     }
     participant-client = \${_sv_participant_client}
 
@@ -368,12 +369,14 @@ export function generateFullSpliceConfig(
     (_, i) => `validator-${i + 1}-onboarding-secret`,
   );
 
+  const internal = getSvInternalPorts(basePort);
+
   let config = generateSpliceBaseConfig();
   config += '\n';
   config += generateSvSpliceConfig(onboardingSecrets, resolvedAuthConfig, basePort);
 
-  const svAddress = `http://localhost:${SV_INTERNAL_PORTS.svAdmin}`;
-  const scanAddress = `http://localhost:${SV_INTERNAL_PORTS.scanAdmin}`;
+  const svAddress = `http://localhost:${internal.svAdmin}`;
+  const scanAddress = `http://localhost:${internal.scanAdmin}`;
 
   for (let i = 0; i < normalizedValidators.length; i++) {
     const validator = normalizedValidators[i];
@@ -395,6 +398,18 @@ export function generateFullSpliceConfig(
       basePort,
     );
   }
+
+  // The splice-app image binds a Prometheus reporter on a fixed in-container port (10013).
+  // HOCON replaces arrays, so this overrides that reporter instead of adding a second one.
+  config += `
+canton.monitoring.metrics.reporters = [
+  {
+    type = prometheus
+    address = "0.0.0.0"
+    port = ${internal.splicePrometheus}
+  }
+]
+`;
 
   return config;
 }

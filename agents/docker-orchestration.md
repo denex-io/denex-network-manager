@@ -39,13 +39,17 @@ health, and labels resources for discovery and cleanup.
 - Suffixes: `httpHealth +0`, `ledgerApi +1`, `adminApi +2`, `validatorAdminApi +3`,
   `grpcHealth +61`, `jsonApi +75`, `webUi +80`, `keycloak +82`.
 - Regular validator ports are `basePort + ((index + 1) * 100) + suffix`.
-- **SV host-published ports** are basePort-relative via `getSvInternalPorts(basePort)` in
-  `src/utils/ports.ts`: `scanAdmin: basePort+12`, `svAdmin: basePort+14`. These must be distinct
-  across concurrent instances, which is what makes true concurrent multi-instance work.
-- **SV container-to-container ports** are fixed absolute values (never published to the host —
-  containers communicate within their isolated Docker network only): `mediatorAdmin: 5007`,
-  `sequencerPublic: 5008`, `sequencerAdmin: 5009`, `sequencerGrpcHealth: 5062`,
-  `mediatorGrpcHealth: 5063`.
+- **All SV-only ports are basePort-relative** via `getSvInternalPorts(basePort)` in
+  `src/utils/ports.ts` (offsets in `SV_INTERNAL_PORT_OFFSETS`): `mediatorAdmin +7`,
+  `sequencerPublic +8`, `sequencerAdmin +9`, `scanAdmin +12`, `splicePrometheus +13`, `svAdmin +14`,
+  `sequencerGrpcHealth +62`, `mediatorGrpcHealth +63`, `cantonPrometheus +64`. Sequencer and
+  mediator ports and `cantonPrometheus` are bound inside `canton`; Scan/SV admin and
+  `splicePrometheus` inside `splice`. Only Scan and SV admin are published to the host, and the
+  container port equals the host port.
+- All offsets are below 100 and distinct from `PORT_SUFFIXES`, so no SV-level port can equal a
+  validator port. `test/unit/ports_test.ts` brute-forces this.
+- `SV_INTERNAL_PORTS` no longer exists. The helpers are internal: they are not exported from
+  `src/mod.ts`.
 
 ## Volumes
 
@@ -71,15 +75,12 @@ health, and labels resources for discovery and cleanup.
   addresses once).
 - Nginx uses `restart: 'always'`; most other containers use `unless-stopped`.
 - `ansWebUi` exists in `ContainerImages` but no ANS web UI container is currently built.
-- `getSvInternalPorts()` is the right function for host-side port values (e.g. in
-  `waitForScanActive`, `env.ts`, container port bindings). Do not read `scanAdmin`/`svAdmin` from
-  `SV_INTERNAL_PORTS` directly in code that runs on the host. Container-internal config (HOCON,
-  app.conf, Nginx `proxy_pass`) may still use `SV_INTERNAL_PORTS` directly since those ports are
-  fixed inside the container regardless of basePort.
-- Nginx `proxy_pass http://splice:5012` and `http://splice:5014` are correct — these are
-  container-to-container references within the instance's isolated Docker network. The splice
-  container always listens on those fixed internal ports; concurrent instances are isolated by
-  separate Docker networks, so there is no collision.
+- Every bind (HOCON/app.conf), Docker port mapping, healthcheck, nginx `proxy_pass` and in-process
+  URL for an SV-only port must use the same `getSvInternalPorts(basePort)` value. A mismatch between
+  them was the 0.1.0-beta.1 bug (mapping pointed at a port nothing listened on).
+- The splice container's Prometheus reporter is generated at `basePort + 13` and canton's at
+  `basePort + 64` (`canton.monitoring.metrics.reporters`), overriding the image's fixed default
+  (10013). Live check L1(d) showed both images bind 10013. Neither is published.
 
 ## Editing guidance
 
