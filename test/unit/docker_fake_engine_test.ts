@@ -1,6 +1,7 @@
 import { assert, assertEquals, assertRejects } from '@std/assert';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import type { AddressInfo, Socket } from 'node:net';
+import { PassThrough } from 'node:stream';
 import { DockerClient } from '../../src/docker/client.ts';
 
 // A fake Docker Engine API on a loopback TCP port. It speaks just enough of
@@ -9,7 +10,7 @@ import { DockerClient } from '../../src/docker/client.ts';
 
 const enc = new TextEncoder();
 
-function frame(type: 1 | 2, text: string): Buffer {
+function frame(type: 1 | 2 | 3, text: string): Buffer {
   const payload = Buffer.from(enc.encode(text));
   const header = Buffer.alloc(8);
   header[0] = type;
@@ -277,7 +278,7 @@ Deno.test({
 });
 
 Deno.test({
-  name: 'fake engine - exec settles when the socket is destroyed without ending the stream',
+  name: 'fake engine - exec settles when the server closes the socket after the output',
   ...opts,
   async fn() {
     const { client, close } = await startEngine({
@@ -336,6 +337,136 @@ Deno.test({
       assert(String(err).includes('truncated'));
     } finally {
       await close();
+    }
+  },
+});
+
+Deno.test({
+  name: 'fake engine - exec settles on a stream that closes without emitting end',
+  ...opts,
+  async fn() {
+    const client = new DockerClient();
+    const stream = new PassThrough();
+    const stub = {
+      getContainer: () => ({
+        exec: () =>
+          Promise.resolve({
+            start: () => Promise.resolve(stream),
+            inspect: () => Promise.resolve({ Running: false, ExitCode: 0 }),
+          }),
+      }),
+    };
+    (client as unknown as { docker: unknown }).docker = stub;
+    const pending = client.execInContainer('c1', ['true']);
+    await new Promise((r) => setTimeout(r, 10));
+    stream.write(frame(1, 'done\n'));
+    // destroy() emits 'close' but never 'end'.
+    stream.destroy();
+    const result = await pending;
+    assertEquals(result.output, 'done\n');
+    assertEquals(result.exitCode, 0);
+  },
+});
+
+Deno.test({
+  name: 'fake engine - logs follow:true errors on a truncated frame at end',
+  ...opts,
+  async fn() {
+    const { client, close } = await startEngine({
+      logs: (_req, res) => {
+        res.writeHead(200, { 'Content-Type': 'application/vnd.docker.multiplexed-stream' });
+        res.write(frame(1, 'whole\n'));
+        res.end(frame(1, 'cut off').subarray(0, 12));
+      },
+    });
+    try {
+      const err = await assertRejects(async () =>
+        await readAll(await client.getContainerLogs('c1', { follow: true }))
+      );
+      assert(String(err).includes('truncated'), String(err));
+    } finally {
+      await close();
+    }
+  },
+});
+
+Deno.test({
+  name: 'fake engine - logs follow:true errors when the connection closes before end',
+  ...opts,
+  async fn() {
+    const { client, close } = await startEngine({
+      logs: (_req, res) => {
+        res.writeHead(200, { 'Content-Type': 'application/vnd.docker.multiplexed-stream' });
+        res.write(frame(1, 'whole\n'));
+        setTimeout(() => res.socket?.resetAndDestroy(), 20);
+      },
+    });
+    try {
+      const err = await assertRejects(async () =>
+        await readAll(await client.getContainerLogs('c1', { follow: true }))
+      );
+      assert(err instanceof Error);
+    } finally {
+      await close();
+    }
+  },
+});
+
+Deno.test({
+  name: 'fake engine - logs follow:true pauses the socket while the consumer is not reading',
+  ...opts,
+  async fn() {
+    let serverRes: ServerResponse | undefined;
+    let backpressured = false;
+    const { client, close } = await startEngine({
+      logs: (_req, res) => {
+        serverRes = res;
+        res.writeHead(200, { 'Content-Type': 'application/vnd.docker.multiplexed-stream' });
+        res.flushHeaders();
+      },
+    });
+    try {
+      const stream = await client.getContainerLogs('c1', { follow: true });
+      await eventually(() => serverRes !== undefined);
+      const chunk = frame(1, 'x'.repeat(16 * 1024));
+      // Nobody reads the stream: once the client pauses, the server's writes back up.
+      for (let i = 0; i < 4000 && !backpressured; i++) {
+        if (!serverRes!.write(chunk)) {
+          backpressured = true;
+        } else if (i % 50 === 49) {
+          await new Promise((r) => setTimeout(r, 5));
+        }
+      }
+      assert(backpressured, 'server never saw backpressure from the client');
+      await stream.cancel();
+    } finally {
+      await close();
+    }
+  },
+});
+
+Deno.test({
+  name: 'fake engine - logs report a daemon error frame (type 3) instead of passing it as output',
+  ...opts,
+  async fn() {
+    for (const follow of [false, true]) {
+      const { client, close } = await startEngine({
+        logs: (_req, res) => {
+          res.writeHead(200, { 'Content-Type': 'application/vnd.docker.multiplexed-stream' });
+          res.end(Buffer.concat([frame(1, 'ok\n'), frame(3, 'Error grabbing logs: boom\n')]));
+        },
+      });
+      try {
+        const err = await assertRejects(async () =>
+          await readAll(await client.getContainerLogs('c1', { follow }))
+        );
+        assert(
+          String(err).includes('error from daemon in stream: Error grabbing logs: boom'),
+          `follow=${follow}: ${err}`,
+        );
+      } finally {
+        await close();
+      }
     }
   },
 });

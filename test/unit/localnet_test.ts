@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { LocalNet } from '../../src/localnet.ts';
 import { createMinimalConfig } from '../../src/utils/yaml.ts';
+import { parseLocalNetConfig } from '../../src/schemas/mod.ts';
 import type { PerPartyRight, UserRight } from '../../src/types/config.ts';
 
 Deno.test('LocalNet.fromConfig accepts a config object', async () => {
@@ -136,7 +137,7 @@ Deno.test('LocalNet - createUser accepts UserConfig-shaped options', async () =>
 interface FakeLogsExecClient {
   listContainers(
     labels?: Record<string, string>,
-  ): Promise<{ id: string; name: string; state: string }[]>;
+  ): Promise<{ id: string; name: string; state: string; labels?: Record<string, string> }[]>;
   getContainerLogs(id: string, options?: unknown): Promise<ReadableStream<Uint8Array>>;
   execInContainer(
     id: string,
@@ -154,9 +155,18 @@ function makeNetWithFakeDocker(instanceId: string) {
   const fake: FakeLogsExecClient = {
     listContainers: (labels) => {
       calls.list.push(labels);
+      // start() compares the running config label against its own, so carry it.
+      const configLabels = {
+        'denex.localnet.config': JSON.stringify(parseLocalNetConfig(net.getConfig())),
+      };
       const all = [
-        { id: 'id-splice', name: `${instanceId}-splice`, state: 'running' },
-        { id: 'id-postgres', name: `${instanceId}-postgres`, state: 'running' },
+        { id: 'id-splice', name: `${instanceId}-splice`, state: 'running', labels: configLabels },
+        {
+          id: 'id-postgres',
+          name: `${instanceId}-postgres`,
+          state: 'running',
+          labels: configLabels,
+        },
       ];
       // Honour the instance filter; an unfiltered call also sees another instance.
       if (labels?.['denex.localnet.instance'] === instanceId) return Promise.resolve(all);
@@ -207,4 +217,17 @@ Deno.test('LocalNet.logs/exec reject unknown names and list the instance contain
       assert(msg.includes('t-unk-postgres, t-unk-splice'), msg);
     }
   }
+});
+
+Deno.test('LocalNet.logs/exec resolve by runtime name after start() returns early on a running instance', async () => {
+  const { net, calls } = makeNetWithFakeDocker('t-early');
+  // All containers already run: start() attaches and returns without creating anything.
+  await net.start();
+  assertEquals(net.getContainerId('t-early-splice'), undefined);
+
+  await net.logs('t-early-splice');
+  const result = await net.exec('t-early-postgres', ['true']);
+  assertEquals(calls.logs, ['id-splice']);
+  assertEquals(calls.exec, ['id-postgres']);
+  assertEquals(result.exitCode, 0);
 });

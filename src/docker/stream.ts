@@ -4,7 +4,8 @@
  * Containers started without a TTY multiplex stdout and stderr over one byte
  * stream. Each frame is an 8-byte header followed by the payload:
  * `[streamType, 0, 0, 0, size (uint32 big-endian)]`. Stream type 0 is stdin,
- * 1 is stdout and 2 is stderr.
+ * 1 is stdout, 2 is stderr and 3 is a daemon-side error message (for example
+ * "Error grabbing logs: ..."), reported as `'system'`.
  *
  * Internal helpers: not part of the public API. Uses only `Uint8Array` and
  * `DataView`, so it is safe in every supported runtime.
@@ -14,8 +15,11 @@ const HEADER_BYTES = 8;
 
 /** One decoded frame of a multiplexed Docker stream. */
 export interface DockerStreamFrame {
-  /** Which stream the payload belongs to. Stream type 0 (stdin) maps to stdout. */
-  stream: 'stdout' | 'stderr';
+  /**
+   * Which stream the payload belongs to. Stream type 0 (stdin) maps to stdout;
+   * type 3 is `'system'`, a message from the daemon rather than the process.
+   */
+  stream: 'stdout' | 'stderr' | 'system';
   data: Uint8Array;
 }
 
@@ -59,7 +63,7 @@ export class DockerStreamDemuxer {
       if (this.length < HEADER_BYTES + size) break;
       this.discard(HEADER_BYTES);
       frames.push({
-        stream: header[0] === 2 ? 'stderr' : 'stdout',
+        stream: header[0] === 2 ? 'stderr' : header[0] === 3 ? 'system' : 'stdout',
         data: this.take(size),
       });
     }
