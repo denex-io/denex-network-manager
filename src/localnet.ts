@@ -99,6 +99,20 @@ interface CacheEntry<T> {
   expiresAt: number;
 }
 
+/**
+ * What a single `start()` call has changed in Docker, so a failure can undo
+ * exactly that and nothing else. `created` maps container name to id; `started`
+ * maps the name of a pre-existing container to its id and the startup layer it
+ * was started in. `layer` is the index of the layer currently being started.
+ */
+interface StartRollback {
+  networkCreated: boolean;
+  volumeCreated: boolean;
+  layer: number;
+  created: Map<string, string>;
+  started: Map<string, { id: string; layer: number }>;
+}
+
 export class LocalNet {
   private client: DockerClient;
   private networkManager: NetworkManager;
@@ -230,6 +244,17 @@ export class LocalNet {
     return this.validatorClients.get(validatorName);
   }
 
+  /**
+   * Start the instance, creating or starting whatever containers, network and
+   * postgres volume are missing.
+   *
+   * Failure is non-destructive: if `start()` fails, it removes only the
+   * containers, network and volume that this call created, and stops again any
+   * pre-existing containers it had started. A failed first start therefore
+   * leaves nothing behind, while a failed resume (for example a timeout)
+   * leaves the stopped containers, the network and the postgres data volume
+   * intact. The instance state returns to `'stopped'`.
+   */
   async start(options?: StartOptions): Promise<void> {
     if (this.internalState === 'running') {
       throw new Error('LocalNet is already running');
@@ -260,7 +285,13 @@ export class LocalNet {
 
     const timeout = options?.timeout ?? 300000;
     const startTime = Date.now();
-    let containersCreated = false;
+    const rb: StartRollback = {
+      networkCreated: false,
+      volumeCreated: false,
+      layer: 0,
+      created: new Map(),
+      started: new Map(),
+    };
 
     try {
       this.internalState = 'starting';
@@ -274,29 +305,42 @@ export class LocalNet {
 
       const generatedConfigs = this.buildGeneratedConfigs();
 
-      await this.networkManager.create(this.options.instanceId);
-      containersCreated = true;
+      rb.networkCreated = (await this.networkManager.ensure(this.options.instanceId)).created;
 
       const postgresVolumeName = `${this.options.instanceId}-postgres-data`;
-      await this.client.createVolume(postgresVolumeName, {
-        [`${this.options.labelPrefix}.instance`]: this.options.instanceId,
-      });
+      if (!(await this.client.findVolume(postgresVolumeName))) {
+        await this.client.createVolume(postgresVolumeName, {
+          [`${this.options.labelPrefix}.instance`]: this.options.instanceId,
+        });
+        rb.volumeCreated = true;
+      }
 
       const containerSpecs = this.buildContainerSpecs(generatedConfigs);
       const layers = getStartupOrder(containerSpecs);
 
-      for (const layer of layers) {
+      for (const [layerIndex, layer] of layers.entries()) {
+        rb.layer = layerIndex;
         if (Date.now() - startTime > timeout) {
           throw new Error('Startup timeout exceeded');
         }
 
         const parallel = options?.parallel ?? true;
 
+        // Two phases per layer. Every sibling finishes its Docker mutations
+        // (settled, not raced) before any health wait begins, so a failure
+        // can be rolled back without a sibling still creating or starting
+        // containers behind the rollback's back.
         if (parallel) {
-          await Promise.all(layer.map((spec) => this.startContainer(spec, options)));
+          const results = await Promise.allSettled(
+            layer.map((spec) => this.ensureStarted(spec, rb, options)),
+          );
+          const failed = results.find((r): r is PromiseRejectedResult => r.status === 'rejected');
+          if (failed) throw failed.reason;
+          await Promise.all(layer.map((spec) => this.waitHealthy(spec, options)));
         } else {
           for (const spec of layer) {
-            await this.startContainer(spec, options);
+            await this.ensureStarted(spec, rb, options);
+            await this.waitHealthy(spec, options);
           }
         }
       }
@@ -318,19 +362,20 @@ export class LocalNet {
         `LocalNet ready (total ${((Date.now() - startTime) / 1000).toFixed(1)}s)`,
       );
     } catch (error) {
-      // Roll back any partially-created resources (network, volume, containers)
-      // so a failed start does not leak. Best-effort: a cleanup failure must not
-      // mask the original startup error.
-      if (containersCreated) {
-        options?.onProgress?.('Startup failed; cleaning up partial resources...');
+      // Undo only what this call did (see rollbackStart). Best-effort: a
+      // cleanup failure must not mask the original startup error.
+      if (
+        rb.networkCreated || rb.volumeCreated || rb.created.size > 0 || rb.started.size > 0
+      ) {
+        options?.onProgress?.('Startup failed; removing resources created by this attempt...');
         try {
-          await this.cleanupInstanceResources();
-          this.containerIds.clear();
+          await this.rollbackStart(rb);
         } catch {
           // Swallow — the original error below is what matters.
         }
       }
       this.internalState = 'stopped';
+      this.startedAt = undefined;
       throw error;
     }
   }
@@ -370,10 +415,52 @@ export class LocalNet {
   }
 
   /**
+   * Undo a failed `start()` without touching anything the call did not itself
+   * change. Every step is best-effort and independent:
+   * 1. force-remove containers this call created;
+   * 2. stop pre-existing containers this call started, one layer at a time in
+   *    reverse layer order (a layer's stops finish before the previous layer's begin);
+   * 3. remove the network only if this call created it;
+   * 4. remove the postgres volume only if this call created it;
+   * 5. forget the created containers' ids.
+   * A failed resume therefore leaves existing containers, network and data
+   * volume in place (stopped), while a failed fresh start leaves nothing.
+   */
+  private async rollbackStart(rb: StartRollback): Promise<void> {
+    await Promise.allSettled(
+      [...rb.created.values()].map((id) => this.client.removeContainer(id, true)),
+    );
+
+    // Stop later layers first so dependents go down before their dependencies;
+    // containers within one layer are independent and stop concurrently.
+    const byLayer = new Map<number, string[]>();
+    for (const { id, layer } of rb.started.values()) {
+      byLayer.set(layer, [...(byLayer.get(layer) ?? []), id]);
+    }
+    for (const layer of [...byLayer.keys()].sort((a, b) => b - a)) {
+      await Promise.allSettled(
+        (byLayer.get(layer) ?? []).map((id) => this.client.stopContainer(id, 30)),
+      );
+    }
+
+    if (rb.networkCreated) {
+      await this.networkManager.remove(this.options.instanceId).catch(() => {});
+    }
+    if (rb.volumeCreated) {
+      await this.client.removeVolume(`${this.options.instanceId}-postgres-data`).catch(() => {});
+    }
+
+    for (const name of rb.created.keys()) {
+      this.containerIds.delete(name);
+    }
+  }
+
+  /**
    * Remove every Docker resource belonging to this instance: containers, the
    * network, and named volumes (all matched by the `<labelPrefix>.instance`
    * label). Best-effort — individual removals that fail (e.g. already gone) do
-   * not abort the rest. Shared by `destroy()` and `start()`'s failure rollback.
+   * not abort the rest. Used only by `destroy()`; `start()`'s failure path uses
+   * the narrower {@link rollbackStart}.
    */
   private async cleanupInstanceResources(): Promise<void> {
     const containers = await this.client.listContainers({
@@ -395,6 +482,10 @@ export class LocalNet {
     );
   }
 
+  /**
+   * Stop then start. If the start step fails the instance is left stopped (a
+   * failed start never removes pre-existing containers or data).
+   */
   async restart(options?: StartOptions & StopOptions): Promise<void> {
     await this.stop();
     await this.start(options);
@@ -1220,7 +1311,15 @@ export class LocalNet {
     }
   }
 
-  private async startContainer(spec: ContainerSpec, options?: StartOptions): Promise<void> {
+  /**
+   * Create and/or start one container, recording each mutation in `rb`
+   * immediately after it succeeds so a rollback sees exactly what changed.
+   */
+  private async ensureStarted(
+    spec: ContainerSpec,
+    rb: StartRollback,
+    options?: StartOptions,
+  ): Promise<void> {
     const progress = options?.onProgress ?? (() => {});
     const exists = await this.client.getContainerInfo(spec.name);
     let containerId: string;
@@ -1229,6 +1328,10 @@ export class LocalNet {
       containerId = exists.id;
       if (exists.state !== 'running') {
         progress(`Starting ${spec.name}...`);
+        // Record before the call: if the daemon starts the container but the
+        // request still fails, rollback must stop it (stopping a container that
+        // never started is a harmless 304).
+        rb.started.set(spec.name, { id: containerId, layer: rb.layer });
         await this.client.startContainer(containerId);
       }
     } else {
@@ -1241,17 +1344,23 @@ export class LocalNet {
       await this.pullImageIfNeeded(spec.image, progress);
       progress(`Creating ${spec.name}...`);
       containerId = await this.client.createContainer(specWithNetwork);
+      rb.created.set(spec.name, containerId);
       await this.client.startContainer(containerId);
     }
 
     this.containerIds.set(spec.name, containerId);
+  }
 
-    if (spec.healthCheck && !options?.skipHealthChecks) {
-      progress(`Waiting for ${spec.name} to be healthy...`);
-      const healthStart = Date.now();
-      await this.waitForDockerHealthy(containerId, spec.name, spec.healthCheck);
-      progress(`${spec.name} healthy (took ${((Date.now() - healthStart) / 1000).toFixed(1)}s)`);
-    }
+  private async waitHealthy(spec: ContainerSpec, options?: StartOptions): Promise<void> {
+    if (!spec.healthCheck || options?.skipHealthChecks) return;
+    const containerId = this.containerIds.get(spec.name);
+    if (!containerId) return;
+
+    const progress = options?.onProgress ?? (() => {});
+    progress(`Waiting for ${spec.name} to be healthy...`);
+    const healthStart = Date.now();
+    await this.waitForDockerHealthy(containerId, spec.name, spec.healthCheck);
+    progress(`${spec.name} healthy (took ${((Date.now() - healthStart) / 1000).toFixed(1)}s)`);
   }
 
   private async waitForDockerHealthy(

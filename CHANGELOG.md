@@ -3,6 +3,22 @@
 All notable changes to this project will be documented in this file. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Added
+
+- `DockerClient.findNetwork()` / `findVolume()` (null only on 404, other errors rethrown) and
+  `NetworkManager.ensure()` (returns `{ id, created }`).
+
+### Fixed
+
+- A failed `start()` (and therefore `restart()` and `dnm start`) no longer destroys an existing
+  instance. It removes only the containers, network and postgres volume that the failing call
+  created, and stops again any pre-existing containers it had started. A failed first start still
+  leaves nothing behind; a failed resume (for example a timeout) keeps the stopped containers, the
+  network and the data volume. The progress message is now "Startup failed; removing resources
+  created by this attempt...". `restart()` whose start step fails leaves the instance stopped.
+
 ## [0.1.0-beta.1] — 2026-07-28
 
 Initial public beta release of `@denex/network-manager`.

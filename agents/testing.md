@@ -39,6 +39,7 @@ deno task playwright:install
 - `test/unit/docker_test.ts`
 - `test/unit/generator_test.ts`
 - `test/unit/keycloak_admin_test.ts`
+- `test/unit/localnet_start_test.ts` (start-rollback with a fake Docker client)
 - `test/unit/localnet_test.ts`
 - `test/unit/sdk_test.ts`
 
@@ -96,3 +97,15 @@ deno task playwright:install
 - `test/integration/helpers.ts`
 - `src/utils/fetch.ts`
 - `deno.json`
+
+## Fake Docker client and basePort conventions
+
+- To unit-test `LocalNet.start()` without Docker, build a `FakeDockerClient` that records every
+  mutating call (see `test/unit/localnet_start_test.ts`) and inject it with
+  `Reflect.set(net, 'client', fake as unknown as DockerClient)` plus
+  `Reflect.set(net, 'networkManager', new NetworkManager(fake as unknown as DockerClient, { prefix }))`.
+  Stub `globalThis.fetch` too, otherwise `deleteBootstrapAdmin` could reach a real Keycloak.
+- basePort convention: fake-Docker unit tests use 41000; new integration tests use a dedicated
+  basePort of 21000, 22000 or 23000 with `generateTestInstanceId()`. Avoid 5000, 5500-5700,
+  7000-7999 (live-validation harness range; `auth_confidence_test` already uses 7000), 8000, 8100
+  and 17000-19000.

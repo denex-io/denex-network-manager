@@ -51,8 +51,9 @@ health, and labels resources for discovery and cleanup.
 
 - Postgres data lives in the named Docker volume `<instanceId>-postgres-data`, created in
   `LocalNet.start()` before `buildContainerSpecs()` is called and labelled with
-  `denex.localnet.instance`. `destroy()` removes it via the existing instance-label volume query —
-  no special handling needed.
+  `denex.localnet.instance`. `destroy()` removes it via the existing instance-label volume query. A
+  failed `start()` removes it only if that call created it (`findVolume` returned 404 first), so a
+  failed resume keeps the data.
 - Config files (canton/splice app.conf, Keycloak realms, nginx.conf, postgres entrypoint script)
   remain as host bind mounts written to `configDir` by `generateConfigs()`.
 - `ContainerBuilderOptions.instanceId` is used to derive the volume name in

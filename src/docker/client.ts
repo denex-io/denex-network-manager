@@ -329,6 +329,27 @@ export class DockerClient {
     }
   }
 
+  /**
+   * Inspect a network, returning null only when Docker reports 404. Unlike
+   * {@link getNetworkInfo}, any other error (daemon down, permission denied)
+   * is rethrown so callers never mistake "could not tell" for "absent".
+   */
+  async findNetwork(idOrName: string): Promise<NetworkInfo | null> {
+    try {
+      const data = await this.docker.getNetwork(idOrName).inspect();
+      return {
+        id: data.Id ?? '',
+        name: data.Name ?? '',
+        driver: data.Driver ?? '',
+        scope: data.Scope ?? '',
+        containers: Object.keys(data.Containers ?? {}),
+      };
+    } catch (err) {
+      if ((err as { statusCode?: number }).statusCode === 404) return null;
+      throw err;
+    }
+  }
+
   async connectToNetwork(
     networkIdOrName: string,
     containerIdOrName: string,
@@ -369,6 +390,24 @@ export class DockerClient {
       };
     } catch {
       return null;
+    }
+  }
+
+  /**
+   * Inspect a volume, returning null only when Docker reports 404. Any other
+   * error is rethrown (see {@link findNetwork}).
+   */
+  async findVolume(name: string): Promise<VolumeInfo | null> {
+    try {
+      const data = await this.docker.getVolume(name).inspect();
+      return {
+        name: data.Name,
+        driver: data.Driver,
+        mountpoint: data.Mountpoint,
+      };
+    } catch (err) {
+      if ((err as { statusCode?: number }).statusCode === 404) return null;
+      throw err;
     }
   }
 

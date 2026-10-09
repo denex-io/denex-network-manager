@@ -52,9 +52,21 @@ initialization, and runtime operations.
 - `StartOptions.timeout` and `StopOptions.timeout` are both in **milliseconds** at the public API.
   `stop()` converts internally to seconds for the Docker API. Default: `start()` 300,000 ms,
   `stop()` 30,000 ms.
-- `start()` sets `internalState = 'error'` only when containers were actually created before the
-  failure. Pre-container failures (Docker unavailable, port conflict, config gen error) reset state
-  to `'stopped'` so the instance can be started again without reconstruction.
+- `start()` failure is non-destructive. A per-call `StartRollback` tracker records the network,
+  volume and containers this call created and the pre-existing containers it started. On failure
+  `rollbackStart()` force-removes only the created containers, stops the pre-existing ones it
+  started (one layer at a time in reverse layer order, 30 s grace), and removes the network and
+  `<id>-postgres-data` only if this call created them. A failed resume therefore keeps containers,
+  network and data; a failed fresh start leaves nothing. State always returns to `'stopped'` (never
+  `'error'`; only a failed `stop()` sets `'error'`). `restart()` whose start step fails leaves the
+  instance stopped.
+- Each startup layer runs `ensureStarted` for all specs via `Promise.allSettled`, throws the first
+  rejection, and only then runs `waitHealthy` for the layer, so rollback never races a sibling that
+  is still mutating Docker. Network and volume absence is decided by 404-aware
+  `DockerClient.findNetwork`/`findVolume` (any other error aborts); `getNetworkInfo`/`getVolumeInfo`
+  keep returning null on any error and are public.
+- `cleanupInstanceResources()` is destroy-only and removes everything labelled for the instance; do
+  not call it from failure paths.
 - `detectConfigMismatch()` returns `{ hasMismatch: true, ... }` on mismatch rather than throwing.
   `start()` reads the return value and throws from there. Callers that call `detectConfigMismatch()`
   directly for diagnostics should check `hasMismatch`, not catch exceptions.
