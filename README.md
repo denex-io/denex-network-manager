@@ -141,12 +141,12 @@ Commands:
 | `entitlements` | List users with their rights                                       |
 | `discovery`    | Run the multi-instance discovery HTTP server                       |
 
-Only `start` and `config` accept `--config <path>`. State commands attach to Docker containers
-through labels. Without `--instance <id>` they pick the one running instance, else the one mixed
-(partly running) instance (not for `init`, which needs a running one), else (for `status`, `env`,
-`credentials`) the one stopped instance, and print a stderr notice when they fall back or ignore
-other instances; pass `--instance <id>` when a tier holds several. `dnm config -y` overwrites an
-existing file after saving it as `<file>.bak`.
+Only `start` accepts `--config <path>`. State commands attach to Docker containers through labels.
+Without `--instance <id>` they pick the one running instance, else the one mixed (partly running)
+instance (not for `init`, which needs a running one), else (for `status`, `env`, `credentials`) the
+one stopped instance, and print a stderr notice when they fall back or ignore other instances; pass
+`--instance <id>` when a tier holds several. `dnm config -y` overwrites an existing file after
+saving it as `<file>.bak`.
 
 Note that `--timeout` units differ per command: `start --timeout` is in **milliseconds** (default
 `300000`), while `stop --timeout` and `destroy --timeout` are in **seconds** (default `30`). The
@@ -428,9 +428,8 @@ running container names.
 offline because SV, Scan, and validator apps run in one process.
 
 **401 Unauthorized from wallet APIs:** verify Keycloak realm names. Validator realm names are
-title-cased from validator names, for example `validator-1` becomes `Validator1` and
-`alice-validator` becomes `AliceValidator`. Check `docker logs default-keycloak` for realm import
-errors.
+title-cased from validator names, for example `validator-1` becomes `Validator1` and `alice-val`
+becomes `AliceVal`. Check `docker logs default-keycloak` for realm import errors.
 
 **Web UI loads but spins forever:** the static UI is reachable but the backend API is unhealthy or
 unreachable. Check `dnm status` and the relevant container logs.

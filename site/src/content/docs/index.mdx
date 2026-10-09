@@ -42,8 +42,9 @@ auth:
 dnm start
 ```
 
-Every party is allocated, every user is provisioned across the ledger, Keycloak, and the Splice
-wallet, and every port is assigned relative to `basePort`. Nothing downstream — no application, no
+Every configured party is allocated, every configured user is created on the ledger and in Keycloak
+(and onboarded to the Splice wallet when it has a `primaryParty`), and every port is assigned
+relative to `basePort`. Nothing downstream — no application, no
 test, no CI job — needs a hardcoded port, party ID, or credential to talk to the network.
 
 <CardGrid>

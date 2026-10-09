@@ -199,15 +199,15 @@ if (import.meta.main) {
   // created automatically alongside the validators you declare.
   console.log(`\nParticipants: ${Object.keys(env.validators).join(', ')}`);
 
-  // ── Party ids are network-wide; hosting is not ────────────────────────────
-  // `env.parties` lists a party once per validator that can SEE it, with the
-  // same id each time. Visibility is not permission to submit as that party —
-  // which participant hosts it is what decides that.
-  // `partyId` is nullable: a party can be declared in config but not yet
-  // allocated on the ledger, so skip those rather than recording a null id.
+  // ── Each party is listed once, under the participant that hosts it ────────
+  // `env.parties` lists a party once, with `validator` set to the participant
+  // that hosts it. That participant is the one that can submit as the party.
+  // A party declared in config but never allocated is absent from the list, and
+  // so are the parties of a validator that did not respond.
+  // `partyId` is nullable, so skip empty ones rather than recording a null id.
   const partyIds = new Map<string, string>();
   for (const p of env.parties ?? []) {
-    if (p.partyId) partyIds.set(p.hint, p.partyId);
+    if (p.partyId) partyIds.set(`${p.validator}:${p.hint}`, p.partyId);
   }
   console.log(`Parties: ${[...partyIds.keys()].join(', ')}`);
 

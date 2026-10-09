@@ -16,7 +16,7 @@ validator API offline together. A single misconfigured validator looks like a to
 ## 401 Unauthorized from wallet APIs
 
 Verify the Keycloak realm names. Validator realm names are title-cased from validator names:
-`validator-1` becomes `Validator1`, and `alice-validator` becomes `AliceValidator`. Check
+`validator-1` becomes `Validator1`, and `alice-val` becomes `AliceVal`. Check
 `docker logs default-keycloak` for realm import errors.
 
 ## Web UI loads but spins forever
@@ -41,8 +41,32 @@ Resolve each party to its host validator and open a connection there. See
 
 ## An empty `docker ps` after a failed start
 
-Expected, not a second problem. A failed `start()` cleans up after itself, so a crashed bring-up
-leaves nothing behind.
+Expected after a failed first start, and not a second problem. A failed `start()` removes only what it
+created, so a crashed first bring-up leaves nothing behind.
+
+A failed resume of an existing instance, for example a timeout, keeps the stopped containers, the
+network, and the PostgreSQL volume. Read the logs with `docker logs default-splice` (or
+`LocalNet.logs()` from the SDK), then run `dnm start --instance <id>` again from the config
+directory, or pass `--config <path>`. It repairs what is missing.
+
+## `start` aborts with "appears to be starting in another process"
+
+`dnm start` found a container in `created` state that is less than 60 seconds old and assumes
+another process is starting the same instance. Wait a minute and retry. If no other process is
+running, the next attempt proceeds. The check is best-effort and cannot see a start that is already
+waiting for health checks.
+
+## Only Nginx is running after a Docker restart
+
+When the Docker daemon restarts after `dnm stop`, only containers with a restart policy of `always`
+come back, which here is Nginx. `dnm status` shows the instance as mixed. `dnm start` repairs it by
+starting the stopped containers and restarting Nginx and the web UIs after Splice.
+
+## A warning says "Unrecognized key"
+
+A key in your config that the schema does not know is ignored, for example
+`Unrecognized key 'basport' at root (ignored)`. The network starts with the default for that field,
+so check the spelling. YAML merge keys (`<<`) are not supported either.
 
 ## Signing in as a second user replaces the first session
 

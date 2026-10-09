@@ -265,7 +265,7 @@ export function normalizeValidators(
 
 /**
  * Convert validator name to Keycloak realm name.
- * Example: validator-1 → Validator1, alice-validator → AliceValidator
+ * Example: validator-1 → Validator1, alice-val → AliceVal
  */
 export function getRealmName(validatorName: string): string {
   return validatorName
