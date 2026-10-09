@@ -110,6 +110,10 @@ All notable changes to this project will be documented in this file. The format 
   copy, not the object passed in. Existing instances remain discoverable, stoppable and destroyable;
   resuming from YAML requires the YAML to pass the new rules.
 - `dnm config` validates the generated file (duplicate or colliding validator names) before writing.
+- `LocalNet.exec()` and `DockerClient.execInContainer()` now also return separate `stdout` and
+  `stderr` strings alongside `output`. The exit code is read after a short retry until Docker
+  records it, and output truncated mid-frame is reported as an error. The new `ExecResult` type
+  (`exitCode`, `output`, `stdout`, `stderr`) is exported from the package root.
 
 ### Fixed
 
@@ -137,6 +141,14 @@ All notable changes to this project will be documented in this file. The format 
   skipped unknown validators; it now sends a raw octet-stream body and throws on an unknown
   validator or an empty target list; Canton's error for a rejected DAR is surfaced.
 - `getPackages()` and `listPackages()` always returned an empty list.
+- `LocalNet.logs()` no longer throws for `follow: false` (the default), and both `logs()` and
+  `exec()` no longer return Docker's 8-byte stream frame headers mixed into the text. Output is now
+  demultiplexed; stdout and stderr are merged in arrival order. Cancelling a followed log stream now
+  closes the connection.
+- `LocalNet.logs()` and `exec()` now work on any handle of a running instance, including ones
+  attached implicitly. They take the full runtime container name (for example `default-splice`),
+  look it up by the instance label on each call, and list the instance's container names when it is
+  not found.
 
 ### Removed
 
