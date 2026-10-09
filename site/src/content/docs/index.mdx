@@ -43,9 +43,9 @@ dnm start
 ```
 
 Every configured party is allocated, every configured user is created on the ledger and in Keycloak
-(and onboarded to the Splice wallet when it has a `primaryParty`), and every port is assigned
-relative to `basePort`. Nothing downstream — no application, no
-test, no CI job — needs a hardcoded port, party ID, or credential to talk to the network.
+(and onboarded to the Splice wallet when it has a `primaryParty`), every `packages` DAR is
+uploaded (a failed upload is reported as a warning), and every port is assigned relative to `basePort`. Nothing downstream, whether an application, a
+test, or a CI job, needs a hardcoded port, party ID, or credential to talk to the network.
 
 <CardGrid>
   <Card title="Start here" icon="rocket">
@@ -58,7 +58,7 @@ test, no CI job — needs a hardcoded port, party ID, or credential to talk to t
   </Card>
   <Card title="Build a dev stack" icon="setting">
     [Wrap an instance](/denex-network-manager/guides/dev-stack/) in a one-command dev stack, with the
-    behaviours that cause real trouble if you assume otherwise.
+    behaviors that cause real trouble if you assume otherwise.
   </Card>
   <Card title="Understand it" icon="open-book">
     [Architecture](/denex-network-manager/how-it-works/architecture/) — container layout, token flow,

@@ -14,8 +14,8 @@ a server — run the command below explicitly.
 dnm discovery serve --port 3100 --host 127.0.0.1
 ```
 
-`--port` defaults to `3100` and `--host` to `127.0.0.1`. Note that `dnm discovery` has no action of
-its own; the `serve` subcommand is required.
+`--port` defaults to `3100` and `--host` to `127.0.0.1`. `dnm discovery` has no action of its own;
+the `serve` subcommand is required.
 
 ## Routes
 
@@ -31,10 +31,12 @@ its own; the `serve` subcommand is required.
 `unsupported`. An unknown instance ID returns 404, and an instance whose labels use an unsupported
 schema returns 410 with a remediation hint.
 
-`/env` is built from the stored config alone, so it has no party IDs. `/parties` lists each party
-once, with `validator` set to the participant that hosts it. `/packages` lists each package once with
-the validators that know it. Both answer 200 when some participants respond, with a `failures` list
-(`validator` and `error`) naming the ones that did not, and answer 503 when none responds.
+`/env` is built from the stored config alone, so it has no party IDs. `/parties` returns
+`{ parties, count }` and lists each party once, with `validator` set to the participant that hosts
+it. `/packages` returns `{ packages, count }`, with one `{ packageId, validators }` row per package,
+built-in packages included. When only some participants respond, both answer 200 with the reachable results
+and a `failures` list of `{ validator, error }` entries naming the ones that did not. When none
+responds, both answer 503 with `error` and `detail`.
 
 ## Example
 

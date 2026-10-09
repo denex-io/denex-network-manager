@@ -15,10 +15,13 @@ Default ports use base port `5000`:
 
 For a validator, the wallet login is the validator name with each hyphen replaced by an underscore,
 followed by `-wallet-admin`. The password equals the username. The user named after the validator
-(`validator-1`) exists in Keycloak but is not onboarded to the wallet, so it cannot use it.
+(`validator-1`) exists in Keycloak but is not onboarded. Signing in as it and onboarding from the wallet UI creates a
+new party rather than using the validator's. Use the `-wallet-admin` login.
 
-YAML-defined users also use `id` as the default password. A user can use the wallet only if it has a
-`primaryParty`; `dnm credentials` marks the others as not onboarded.
+A YAML-defined user's password is its `id`; it cannot be configured. Only a user with a `primaryParty` is
+onboarded to the wallet, with that party. `dnm credentials` marks the others as not onboarded:
+signing in as one of them and onboarding from the wallet UI creates a new party for it rather than
+using a configured one.
 
 `dnm credentials` prints the current set for an instance, and `dnm credentials --json` gives the same
 data for scripts.
@@ -26,8 +29,9 @@ data for scripts.
 ## Keycloak admin is not a wallet login
 
 The `auth.keycloak.admin` and `auth.keycloak.password` values configure the persistent Keycloak
-master realm admin, reachable at `http://localhost:5082`. They are **not** validator wallet
-credentials.
+master realm admin, reachable at `http://localhost:5082` (`basePort + 82`). They are not validator
+wallet credentials. `dnm credentials` prints this login below the web UI table, and
+`dnm credentials --json` includes it as an entry with realm `master`.
 
 ## Hostnames and ports
 

@@ -6,11 +6,11 @@ description: Install the dnm CLI or the @denex/network-manager SDK, and what eac
 ## Requirements
 
 - Docker running locally
-- Deno 2.0+ for the CLI
+- Nothing else for the pre-compiled `dnm` binary, or Deno 2.0+ to run the CLI from source
 - Deno 2.0+, Node.js 18+, or Bun for the SDK/API layer
 
-The CLI is Deno-only because it uses Cliffy and `Deno.*` APIs. The SDK and low-level API use `node:`
-built-ins and are intended to work on Deno, Node.js, and Bun.
+The CLI source is Deno-only because it uses Cliffy and `Deno.*` APIs. The SDK and low-level API use
+`node:` built-ins and are intended to work on Deno, Node.js, and Bun.
 
 :::caution[Bun caveat]
 Bun does not support Docker Unix sockets reliably through `node:http`. If you use the SDK from Bun,
@@ -18,8 +18,10 @@ configure Docker to listen on a TCP socket.
 :::
 
 :::note[Splice version]
-This release targets Splice/Canton version **0.6.6**. From the SDK, pass `images` in
-`LocalNetOptions` to override individual images. The CLI and the YAML config cannot override them.
+This release targets Splice/Canton version 0.6.6. From the SDK, pass `images` in the
+`LocalNetOptions` given to `LocalNet.fromConfig()` to override individual images, keyed by component
+(for example `splice` or `canton`). `LocalNetBuilder`, the CLI, and the YAML config cannot
+override them.
 :::
 
 ## CLI
@@ -31,7 +33,7 @@ curl -fsSL https://raw.githubusercontent.com/denex-io/denex-network-manager/main
 ```
 
 This installs to `~/.dnm/bin` and verifies the download against the release checksums. Set
-`DNM_INSTALL_DIR` to install elsewhere, or `DNM_VERSION` (e.g. `v0.1.0-beta.1`) to pin a version.
+`DNM_INSTALL_DIR` to install elsewhere, or `DNM_VERSION` (for example `v0.1.0-beta.1`) to pin a version.
 
 Prefer not to pipe a script to your shell? Download the archive for your platform from the
 [latest release](https://github.com/denex-io/denex-network-manager/releases/latest), verify it

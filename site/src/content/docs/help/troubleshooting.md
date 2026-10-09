@@ -44,23 +44,41 @@ Resolve each party to its host validator and open a connection there. See
 Expected after a failed first start, and not a second problem. A failed `start()` removes only what it
 created, so a crashed first bring-up leaves nothing behind.
 
-A failed resume of an existing instance, for example a timeout, keeps the stopped containers, the
-network, and the PostgreSQL volume. Read the logs with `docker logs default-splice` (or
-`LocalNet.logs()` from the SDK), then run `dnm start --instance <id>` again from the config
-directory, or pass `--config <path>`. It repairs what is missing.
+A failed resume of an existing instance, for example a timeout, is non-destructive. It stops the
+containers again but keeps them, the network, and the PostgreSQL volume, so after a failed resume
+of a stopped instance `docker ps` is empty while `docker ps -a` still lists them. Read the logs with `docker logs <id>-splice`, or from the SDK
+with `net.logs()` on a handle from `LocalNet.fromInstanceId()`, which attaches to stopped
+containers too. Then run
+`dnm start --instance <id>` again from the directory that holds the config, or pass
+`--config <path>`. It resumes the instance with its data and creates anything that is missing.
 
 ## `start` aborts with "appears to be starting in another process"
 
-`dnm start` found a container in `created` state that is less than 60 seconds old and assumes
-another process is starting the same instance. Wait a minute and retry. If no other process is
-running, the next attempt proceeds. The check is best-effort and cannot see a start that is already
-waiting for health checks.
+`dnm start` assumes another process is starting the same instance when it finds one of the
+instance's containers in `created` state for less than 60 seconds, or when creating a container
+fails because the name is already taken. It stops without touching what it did not create. Wait a
+minute and retry; if no other process is running, the next attempt proceeds. The check is best-effort
+and cannot see a start that is already waiting for health checks.
 
-## Only Nginx is running after a Docker restart
+## Nothing works after a Docker restart
 
-When the Docker daemon restarts after `dnm stop`, only containers with a restart policy of `always`
-come back, which here is Nginx. `dnm status` shows the instance as mixed. `dnm start` repairs it by
-starting the stopped containers and restarting Nginx and the web UIs after Splice.
+When the Docker daemon restarts after `dnm stop`, the containers with an `unless-stopped` policy and
+the web UIs stay stopped. Nginx (`restart: always`) comes back but crash-loops, because its
+upstreams are down. `dnm status` shows it as restarting, and `dnm instances` usually shows the
+instance as stopped. `dnm start` repairs it by starting the stopped containers and
+then restarting Nginx so it picks up the web UIs again.
+
+## Config fails with "must be lowercase"
+
+Validator names and user IDs must be lowercase, because Keycloak lowercases usernames and a
+mixed-case name never matches its token. The error names the field and the fix, for example:
+
+```text
+Validator name 'App' must be lowercase (Keycloak lowercases usernames, so the validator's service account would not match); use 'app'
+```
+
+Rename the validator or user in your config. The same rule applies to `LocalNet.createUser()` at
+runtime.
 
 ## A warning says "Unrecognized key"
 
@@ -83,7 +101,8 @@ stopped ones, and the object it returns reports itself as running. Gate on `isRu
 ## `dnm stop` seems to hang
 
 Check the unit. `start --timeout` is in milliseconds, but `stop --timeout` and `destroy --timeout` are
-in **seconds** — passing `300000` to `stop` asks it to wait three and a half days.
+in seconds: they set how long Docker waits for each container to stop before killing it. Passing
+`300000` to `stop` gives a container that ignores the stop signal three and a half days.
 
 ## Still stuck?
 
