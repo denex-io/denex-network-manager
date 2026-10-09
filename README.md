@@ -119,21 +119,21 @@ dnm <command> --help
 
 Commands:
 
-| Command        | Description                                              |
-| -------------- | -------------------------------------------------------- |
-| `start`        | Start LocalNet containers                                |
-| `stop`         | Stop all containers gracefully                           |
-| `status`       | Show container state and health                          |
-| `destroy`      | Remove containers, networks, volumes, and generated data |
-| `init`         | Initialize users and parties on a running LocalNet       |
-| `config`       | Generate `localnet.yaml` interactively                   |
-| `parties`      | List parties across validators                           |
-| `packages`     | List packages known to each participant (built-ins too)  |
-| `env`          | Show API URLs, auth config, and DSO party ID             |
-| `credentials`  | Show web UI login credentials                            |
-| `instances`    | List LocalNet instances (running, mixed or stopped)      |
-| `entitlements` | List users with their rights                             |
-| `discovery`    | Run the multi-instance discovery HTTP server             |
+| Command        | Description                                                        |
+| -------------- | ------------------------------------------------------------------ |
+| `start`        | Start LocalNet containers                                          |
+| `stop`         | Stop all containers gracefully                                     |
+| `status`       | Show container state and health                                    |
+| `destroy`      | Remove containers, networks, volumes, and generated data           |
+| `init`         | Create parties and users, upload `packages:` on a running LocalNet |
+| `config`       | Generate `localnet.yaml` interactively                             |
+| `parties`      | List parties across validators                                     |
+| `packages`     | List packages known to each participant (built-ins too)            |
+| `env`          | Show API URLs, auth config, and DSO party ID                       |
+| `credentials`  | Show web UI login credentials                                      |
+| `instances`    | List LocalNet instances (running, mixed or stopped)                |
+| `entitlements` | List users with their rights                                       |
+| `discovery`    | Run the multi-instance discovery HTTP server                       |
 
 Only `start` and `config` accept `--config <path>`. State commands attach to Docker containers
 through labels. Without `--instance <id>` they pick the one running instance, else the one mixed

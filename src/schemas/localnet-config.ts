@@ -313,7 +313,23 @@ function checkConfigInvariants(parsed: ParsedLocalNetConfig): z.ZodIssue[] {
       });
     });
   }
-  const hostNames = new Set(['sv', ...normalizeValidators(parsed.validators).map((v) => v.name)]);
+  // The numeric form is never expanded into a list: a huge count must not allocate
+  // (the port-limit issue above already reports it).
+  const listNames = typeof parsed.validators === 'number'
+    ? null
+    : new Set(['sv', ...parsed.validators.map((v) => v.name)]);
+  const isHostName = (target: string): boolean => {
+    if (listNames) return listNames.has(target);
+    if (target === 'sv') return true;
+    const m = /^validator-([1-9]\d*)$/.exec(target);
+    return m !== null && Number(m[1]) <= count;
+  };
+  const expectedHosts = (): string =>
+    listNames
+      ? [...listNames].join(', ')
+      : count <= 20
+      ? ['sv', ...normalizeValidators(count).map((v) => v.name)].join(', ')
+      : `sv, validator-1 to validator-${count}`;
   (parsed.packages ?? []).forEach((pkg, i) => {
     if (pkg.uploadTo === undefined) return;
     if (pkg.uploadTo.length === 0) {
@@ -326,12 +342,12 @@ function checkConfigInvariants(parsed: ParsedLocalNetConfig): z.ZodIssue[] {
       return;
     }
     pkg.uploadTo.forEach((target, j) => {
-      if (hostNames.has(target)) return;
+      if (isHostName(target)) return;
       issues.push({
         code: z.ZodIssueCode.custom,
         path: ['packages', i, 'uploadTo', j],
         message: `Unknown upload target '${target}'; expected one of: ` +
-          [...hostNames].join(', '),
+          expectedHosts(),
       });
     });
   });
