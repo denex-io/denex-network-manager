@@ -1,5 +1,6 @@
 import { assert, assertEquals, assertRejects } from '@std/assert';
-import { LocalNet } from '../../src/localnet.ts';
+import { LocalNet, type LocalNetOptions } from '../../src/localnet.ts';
+import type { LocalNetConfig } from '../../src/types/config.ts';
 import { NetworkManager } from '../../src/docker/network.ts';
 import type { DockerClient } from '../../src/docker/client.ts';
 import type {
@@ -9,6 +10,9 @@ import type {
   VolumeInfo,
 } from '../../src/docker/types.ts';
 import { parseLocalNetConfig } from '../../src/schemas/localnet-config.ts';
+import { mkdtemp, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { isAbsolute, join } from 'node:path';
 import { createMinimalConfig } from '../../src/utils/yaml.ts';
 
 // Fake-Docker tests for start() rollback. The dedicated basePort keeps these
@@ -232,6 +236,8 @@ class FakeDockerClient {
 
 async function withFakeNet(
   fn: (net: LocalNet, fake: FakeDockerClient) => Promise<void>,
+  customize?: (config: LocalNetConfig) => void,
+  netOptions?: LocalNetOptions,
 ): Promise<void> {
   // Keycloak bootstrap-admin cleanup runs after a successful start; never let
   // it reach a real server.
@@ -240,7 +246,8 @@ async function withFakeNet(
   try {
     const config = createMinimalConfig(1);
     config.basePort = BASE_PORT;
-    const net = await LocalNet.fromConfig(config, { instanceId: ID });
+    customize?.(config);
+    const net = await LocalNet.fromConfig(config, { instanceId: ID, ...netOptions });
     const prefix = net.getOptions().labelPrefix;
     const fake = new FakeDockerClient(prefix);
     fake.setConfig(JSON.stringify(parseLocalNetConfig(net.getConfig())));
@@ -636,6 +643,185 @@ Deno.test('state - a missing expected container makes the instance partial, not 
   });
 });
 
+// --- detectConfigMismatch compares through the stored-label (silent, lenient) parse ---
+
+Deno.test('detectConfigMismatch - a label carrying parties[].validator matches the YAML without it', async () => {
+  await withFakeNet(async (net, fake) => {
+    fake.seedExisting(ALL_NAMES);
+    const stored = {
+      ...parseLocalNetConfig(net.getConfig()),
+      validators: [{ name: 'validator-1', parties: [{ hint: 'p', validator: 'validator-1' }] }],
+    };
+    fake.setConfig(JSON.stringify(stored));
+    Reflect.set(
+      net,
+      'config',
+      parseLocalNetConfig({
+        ...net.getConfig(),
+        validators: [{ name: 'validator-1', parties: [{ hint: 'p' }] }],
+      }),
+    );
+    assertEquals((await net.detectConfigMismatch()).hasMismatch, false);
+  });
+});
+
+Deno.test('detectConfigMismatch - a label that fails the input rules does not throw', async () => {
+  await withFakeNet(async (net, fake) => {
+    fake.seedExisting(ALL_NAMES);
+    fake.setConfig(JSON.stringify({
+      ...net.getConfig(),
+      validators: [{ name: 'a' }, { name: 'A' }],
+    }));
+    const result = await net.detectConfigMismatch();
+    assertEquals(result.hasMismatch, true);
+    assertEquals(result.actual.validators, ['a', 'A']);
+  });
+});
+
+const OLD_LABEL_PACKAGES = [{ name: 'app', dar: 'dars/app.dar' }];
+
+Deno.test('packages - an old label (relative dar, no uploadTo, no config-dir) is not a mismatch', async () => {
+  await withFakeNet(async (net, fake) => {
+    // fake.setConfig already holds the parse of the same config: no uploadTo, dar as written.
+    fake.seedExisting(ALL_NAMES);
+    const mismatch = await net.detectConfigMismatch();
+    assertEquals(mismatch.hasMismatch, false);
+    // The parsed config is not rewritten: dar stays relative, uploadTo gets no default.
+    assertEquals(net.getConfig().packages, OLD_LABEL_PACKAGES);
+  }, (c) => {
+    c.packages = [...OLD_LABEL_PACKAGES];
+  }, { configDir: '/somewhere/else' });
+});
+
+Deno.test('packages - a fresh start with a missing DAR fails before Docker is touched', async () => {
+  await withFakeNet(async (net, fake) => {
+    await assertRejects(
+      () => net.start({ skipHealthChecks: true }),
+      Error,
+      'DAR file not found',
+    );
+    assertEquals(fake.mutations, []);
+    assertEquals(net.getOptions().instanceId, ID);
+  }, (c) => {
+    c.packages = [{ name: 'app', dar: 'definitely-missing.dar' }];
+  }, { configDir: '/nonexistent-config-dir' });
+});
+
+Deno.test('packages - a resume with a missing DAR does not fail the pre-flight', async () => {
+  await withFakeNet(async (net, fake) => {
+    // Containers exist but are stopped, so start() goes past the all-running early return and
+    // would hit the pre-flight if it ran on a resume. The timeout then fails the start.
+    fake.seedExisting(ALL_NAMES);
+    await assertRejects(
+      () => net.start({ skipHealthChecks: true, timeout: -1 }),
+      Error,
+      'Startup timeout',
+    );
+  }, (c) => {
+    c.packages = [{ name: 'app', dar: 'definitely-missing.dar' }];
+  }, { configDir: '/nonexistent-config-dir' });
+});
+
+Deno.test('packages - a fresh start with skipInitialization ignores a missing DAR', async () => {
+  await withFakeNet(async (net) => {
+    await assertRejects(
+      () => net.start({ skipHealthChecks: true, skipInitialization: true, timeout: -1 }),
+      Error,
+      'Startup timeout',
+    );
+  }, (c) => {
+    c.packages = [{ name: 'app', dar: 'definitely-missing.dar' }];
+  }, { configDir: '/nonexistent-config-dir' });
+});
+
+Deno.test('packages - the same YAML loaded from another directory is not a mismatch', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'pkg-yaml-'));
+  const raw = {
+    ...createMinimalConfig(1),
+    basePort: BASE_PORT,
+    packages: [{ name: 'app', dar: 'dars/app.dar' }],
+  };
+  // JSON is valid YAML.
+  const path = join(dir, 'localnet.yaml');
+  await writeFile(path, JSON.stringify(raw));
+  const net = await LocalNet.fromConfig(path, { instanceId: ID });
+  const prefix = net.getOptions().labelPrefix;
+  const fake = new FakeDockerClient(prefix);
+  // Old-format label: relative dar, no uploadTo, no config-dir label.
+  fake.setConfig(JSON.stringify(raw));
+  const client = fake as unknown as DockerClient;
+  Reflect.set(net, 'client', client);
+  Reflect.set(net, 'networkManager', new NetworkManager(client, { prefix }));
+  fake.seedExisting(ALL_NAMES);
+  assertEquals(net.getOptions().configDir, dir);
+  assertEquals((await net.detectConfigMismatch()).hasMismatch, false);
+  assertEquals(net.getConfig().packages, [{ name: 'app', dar: 'dars/app.dar' }]);
+});
+
+Deno.test('packages - a relative configDir is stored as an absolute path', async () => {
+  await withFakeNet(
+    (net) => {
+      assert(isAbsolute(net.getOptions().configDir ?? ''));
+      return Promise.resolve();
+    },
+    undefined,
+    { configDir: './cfg' },
+  );
+});
+
+Deno.test('packages - containers carry the config-dir label, not part of the config label', async () => {
+  await withFakeNet(
+    (net) => {
+      const specs = Reflect.get(net, 'buildContainerSpecs').call(net, {
+        cantonConfig: '',
+        spliceConfig: '',
+        nginxConfig: '',
+        postgresInitScript: '',
+        keycloakRealms: {},
+      }) as ContainerSpec[];
+      const prefix = net.getOptions().labelPrefix;
+      for (const spec of specs) {
+        assertEquals(spec.labels?.[`${prefix}.config-dir`], '/the/config/dir');
+        assertEquals(spec.labels?.[`${prefix}.config`]?.includes('/the/config/dir'), false);
+      }
+      return Promise.resolve();
+    },
+    undefined,
+    { configDir: '/the/config/dir' },
+  );
+});
+
+Deno.test('packages - upload failure and missing DAR warn and the next package is still tried', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'pkg-'));
+  await writeFile(join(dir, 'a.dar'), 'x');
+  await writeFile(join(dir, 'b.dar'), 'x');
+  const warnings: string[] = [];
+  const progress: string[] = [];
+  const uploads: string[] = [];
+  await withFakeNet(async (net) => {
+    Reflect.set(net, 'uploadDar', (path: string, targets: string[]) => {
+      uploads.push(`${path.split('/').pop()}->${targets.join(',')}`);
+      return path.endsWith('a.dar') ? Promise.reject(new Error('boom')) : Promise.resolve();
+    });
+    await Reflect.get(net, 'uploadConfiguredPackages').call(net, (m: string) => progress.push(m));
+  }, (c) => {
+    c.packages = [
+      { name: 'a', dar: 'a.dar' },
+      { name: 'gone', dar: 'gone.dar' },
+      { name: 'b', dar: 'b.dar', uploadTo: ['validator-1'] },
+    ];
+  }, { configDir: dir, onWarning: (w) => warnings.push(`${w.source}:${w.message}`) });
+  assertEquals(uploads, ['a.dar->sv,validator-1', 'b.dar->validator-1']);
+  assertEquals(warnings.length, 2);
+  assert(warnings[0].startsWith("packages:Package 'a' upload failed: boom"));
+  assert(warnings[1].includes('DAR file not found'));
+  assertEquals(progress, [
+    "Uploading package 'a' to sv, validator-1...",
+    "Uploading package 'b' to validator-1...",
+    "Uploaded package 'b' to validator-1",
+  ]);
+});
+
 Deno.test('start repair - nginx crash-looping (restarting) is stopped and started, with health checks', async () => {
   await withFakeNet(async (net, fake) => {
     fake.seedExisting(ALL_NAMES, 'exited');
@@ -670,40 +856,5 @@ Deno.test('start rollback - a transient inspect error is not mistaken for a 409'
       assertEquals(fake.containers.get(n)?.state, 'exited', n);
     }
     assertEquals(net.currentState, 'stopped');
-  });
-});
-
-// --- detectConfigMismatch compares through the stored-label (silent, lenient) parse ---
-
-Deno.test('detectConfigMismatch - a label carrying parties[].validator matches the YAML without it', async () => {
-  await withFakeNet(async (net, fake) => {
-    fake.seedExisting(ALL_NAMES);
-    const stored = {
-      ...parseLocalNetConfig(net.getConfig()),
-      validators: [{ name: 'validator-1', parties: [{ hint: 'p', validator: 'validator-1' }] }],
-    };
-    fake.setConfig(JSON.stringify(stored));
-    Reflect.set(
-      net,
-      'config',
-      parseLocalNetConfig({
-        ...net.getConfig(),
-        validators: [{ name: 'validator-1', parties: [{ hint: 'p' }] }],
-      }),
-    );
-    assertEquals((await net.detectConfigMismatch()).hasMismatch, false);
-  });
-});
-
-Deno.test('detectConfigMismatch - a label that fails the input rules does not throw', async () => {
-  await withFakeNet(async (net, fake) => {
-    fake.seedExisting(ALL_NAMES);
-    fake.setConfig(JSON.stringify({
-      ...net.getConfig(),
-      validators: [{ name: 'a' }, { name: 'A' }],
-    }));
-    const result = await net.detectConfigMismatch();
-    assertEquals(result.hasMismatch, true);
-    assertEquals(result.actual.validators, ['a', 'A']);
   });
 });

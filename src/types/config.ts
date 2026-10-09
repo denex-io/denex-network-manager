@@ -99,10 +99,17 @@ export interface PackageConfig {
   /** Name to identify this package. */
   name: string;
 
-  /** Path to the DAR file. */
+  /**
+   * Path to the DAR file. A relative path resolves against the config file's directory
+   * (`LocalNetOptions.configDir`), then the current directory, when the package is
+   * uploaded; the config itself keeps the path as written.
+   */
   dar: string;
 
-  /** Which validators to upload this package to. Defaults to all validators. */
+  /**
+   * Which participants to upload this package to: `'sv'` and/or validator names. Defaults
+   * to `sv` and every validator (applied at upload time). Must not be empty.
+   */
   uploadTo?: string[];
 }
 
@@ -182,7 +189,7 @@ export interface LocalNetConfig {
   /** Authentication configuration. */
   auth: AuthConfig;
 
-  /** DAR packages to upload after startup. */
+  /** DAR packages uploaded to their `uploadTo` participants at the end of initialization. */
   packages?: PackageConfig[];
 
   /**

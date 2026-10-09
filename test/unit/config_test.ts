@@ -664,3 +664,96 @@ Deno.test('LocalNetConfigSchema - stays a strip-mode object that removes unknown
   const out = LocalNetConfigSchema.parse({ validators: 1, auth: AUTH, junk: 1 });
   assertEquals('junk' in out, false);
 });
+
+const PACKAGES_BASE = {
+  validators: [{ name: 'validator-1' }],
+  auth: { keycloak: { admin: 'a', password: 'b' } },
+};
+
+Deno.test('packages.uploadTo - an unknown target is rejected at its path', () => {
+  const result = validateLocalNetConfig({
+    ...PACKAGES_BASE,
+    packages: [{ name: 'a', dar: 'a.dar' }, { name: 'b', dar: 'b.dar', uploadTo: ['sv', 'nope'] }],
+  });
+  assert(!result.success);
+  const issue = result.errors.issues.find((i) => i.message.includes("'nope'"));
+  assertExists(issue);
+  assertEquals(issue.path, ['packages', 1, 'uploadTo', 1]);
+});
+
+Deno.test('packages.uploadTo - an empty list is rejected on input but parses when stored', () => {
+  const input = {
+    ...PACKAGES_BASE,
+    packages: [{ name: 'a', dar: 'a.dar', uploadTo: [] }],
+  };
+  const result = validateLocalNetConfig(input);
+  assert(!result.success);
+  assertEquals(result.errors.issues[0].path, ['packages', 0, 'uploadTo']);
+  assertEquals(parseStoredLocalNetConfig(input).packages?.[0].uploadTo, []);
+});
+
+Deno.test('packages.uploadTo - sv and configured validators are accepted; dar stays as written', () => {
+  const config = parseLocalNetConfig({
+    ...PACKAGES_BASE,
+    packages: [{ name: 'a', dar: 'rel/a.dar', uploadTo: ['sv', 'validator-1'] }, {
+      name: 'b',
+      dar: './b.dar',
+    }],
+  });
+  assertEquals(config.packages?.[0], {
+    name: 'a',
+    dar: 'rel/a.dar',
+    uploadTo: ['sv', 'validator-1'],
+  });
+  assertEquals(config.packages?.[1], { name: 'b', dar: './b.dar' });
+});
+
+Deno.test('packages.uploadTo - validator names are checked for the numeric count form too', () => {
+  const ok = validateLocalNetConfig({
+    validators: 2,
+    auth: PACKAGES_BASE.auth,
+    packages: [{ name: 'a', dar: 'a.dar', uploadTo: ['validator-2'] }],
+  });
+  assert(ok.success);
+  const bad = validateLocalNetConfig({
+    validators: 2,
+    auth: PACKAGES_BASE.auth,
+    packages: [{ name: 'a', dar: 'a.dar', uploadTo: ['validator-3'] }],
+  });
+  assert(!bad.success);
+});
+
+Deno.test('validateLocalNetConfig - a huge validator count returns the port error and does not throw', () => {
+  for (const count of [5e9, 1e12]) {
+    const result = validateLocalNetConfig({ validators: count, auth: AUTH });
+    assert(!result.success, `${count}`);
+    assert(result.errors.issues[0].message.includes('65535'), result.errors.message);
+  }
+  // With packages the numeric form is not expanded either.
+  const withPackages = validateLocalNetConfig({
+    validators: 5e9,
+    auth: AUTH,
+    packages: [{ name: 'p', dar: 'p.dar', uploadTo: ['validator-3', 'validator-0', 'nope'] }],
+  });
+  assert(!withPackages.success);
+  const targets = withPackages.errors.issues.filter((i) => i.path[0] === 'packages').map((i) =>
+    i.path[3]
+  );
+  assertEquals(targets, [1, 2]);
+});
+
+Deno.test('validateLocalNetConfig - numeric validators accept sv and validator-1..N as upload targets', () => {
+  const ok = validateLocalNetConfig({
+    validators: 3,
+    auth: AUTH,
+    packages: [{ name: 'p', dar: 'p.dar', uploadTo: ['sv', 'validator-1', 'validator-3'] }],
+  });
+  assert(ok.success);
+  const bad = validateLocalNetConfig({
+    validators: 3,
+    auth: AUTH,
+    packages: [{ name: 'p', dar: 'p.dar', uploadTo: ['validator-4'] }],
+  });
+  assert(!bad.success);
+  assert(bad.errors.message.includes('sv, validator-1, validator-2, validator-3'));
+});

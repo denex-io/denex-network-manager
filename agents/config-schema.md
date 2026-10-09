@@ -45,8 +45,9 @@ user-facing schema, fills defaults, and feeds the generator and lifecycle layers
 - Input (YAML, objects given to `fromConfig()`/the `LocalNet` constructor, builder output) goes
   through `parseLocalNetConfig()`, `validateLocalNetConfig()` or `withDefaults()`: strip parse plus
   unknown-key warnings plus `checkConfigInvariants()` (port limit, lowercase and unique names,
-  lowercase user ids, reserved `sv`, Keycloak realm collisions via `getRealmName`). These invariants
-  are not in the exported Zod schema, so the schema type is unchanged.
+  lowercase user ids, reserved `sv`, Keycloak realm collisions via `getRealmName`,
+  `packages[].uploadTo` non-empty and naming `sv` or a configured validator). These invariants are
+  not in the exported Zod schema, so the schema type is unchanged.
 - Stored labels (`fromInstanceId()`, `discover()`, `reconstructConfigFromLabels()`,
   `detectConfigMismatch()` on both sides) use `parseStoredLocalNetConfig()`: strip parse only, no
   warnings, no invariants. Instances created by older versions (11+ validators, case-variant names,
@@ -66,8 +67,10 @@ user-facing schema, fills defaults, and feeds the generator and lifecycle layers
 
 - YAML merge keys (`<<`) and `x-*` anchor keys are not exempt from unknown-key detection; they warn
   as "Unrecognized key".
-- `packages:` is parsed and validated, but startup does not currently auto-upload those DARs. Use
-  `LocalNet.uploadDar()` for runtime uploads.
+- `packages:` is uploaded by `initializeResources()`. The parsed config keeps `dar` as written and
+  `uploadTo` without a default (both are resolved at upload time), because `detectConfigMismatch`
+  compares the whole parsed config with the label. `uploadTo: []` and unknown targets are input-only
+  rules in `checkConfigInvariants`, so stored labels with them still parse.
 - `withDefaults()` does **not** inject a default `discovery` value. If `config.discovery` is absent,
   the output has `discovery: undefined`. Old code that relied on `withDefaults()` always producing a
   `discovery` object will see `undefined` now.
