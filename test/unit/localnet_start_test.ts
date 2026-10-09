@@ -405,7 +405,7 @@ Deno.test('start rollback - a non-404 volume lookup error removes only the netwo
   });
 });
 
-// Repair of partially running instances (#4).
+// Repair of partially running instances.
 
 const ALL_BUT = (...skip: string[]) => ALL_NAMES.filter((n) => !skip.includes(n));
 const WEB_UIS = LAYER_4;

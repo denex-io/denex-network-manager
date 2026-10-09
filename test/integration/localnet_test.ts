@@ -464,7 +464,7 @@ Deno.test({
 });
 
 // ============================================================================
-// REPAIR TEST (#4)
+// REPAIR TEST
 // basePort 21000 is shared with the rollback test above; tests run one at a time.
 // ============================================================================
 

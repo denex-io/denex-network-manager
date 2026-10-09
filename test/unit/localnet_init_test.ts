@@ -3,7 +3,7 @@ import { LocalNet } from '../../src/localnet.ts';
 import { createMinimalConfig } from '../../src/utils/yaml.ts';
 
 // initializeResources() with its Docker/API dependencies stubbed: only the
-// party pre-check (#14) is under test.
+// party pre-check is under test.
 async function setup(hosted: string[]) {
   const config = createMinimalConfig(1);
   config.validators = [
