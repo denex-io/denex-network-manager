@@ -128,7 +128,7 @@ Commands:
 | `init`         | Initialize users and parties on a running LocalNet       |
 | `config`       | Generate `localnet.yaml` interactively                   |
 | `parties`      | List parties across validators                           |
-| `packages`     | List uploaded DAR packages                               |
+| `packages`     | List packages known to each participant (built-ins too)  |
 | `env`          | Show API URLs, auth config, and DSO party ID             |
 | `credentials`  | Show web UI login credentials                            |
 | `instances`    | List running LocalNet instances                          |
@@ -309,12 +309,13 @@ await net.uploadDar('./my-app.dar', ['app', 'users-val']);
 const packages = await net.getPackages(); // [{ packageId, validators: ['sv', 'app', ...] }]
 ```
 
-Per-validator queries (`getParties()`, `getPackages()`, `getUsersWithRights()`, `getSnapshot()`)
-return the reachable participants' results and report each unreachable one through
-`LocalNetOptions.onWarning` (default `console.warn`); they throw if no participant responds. With a
-validator name they throw for an unknown or unreachable validator. A hint passed to `createUser`
-resolves only against parties hosted on that user's validator; a hint hosted only elsewhere is
-allocated afresh there, with the same hint but a different party id.
+Per-validator queries (`getParties()`, `getPackages()`, `getUsersWithRights()`) return the reachable
+participants' results and report each unreachable one through `LocalNetOptions.onWarning` (default
+`console.warn`); they throw if no participant responds. With a validator name they throw for an
+unknown or unreachable validator. `getSnapshot()` is best-effort: it returns empty `parties` and
+`packages` when no participant responds and omits an unreachable validator's users with a warning. A
+hint passed to `createUser` resolves only against parties hosted on that user's validator; a hint
+hosted only elsewhere is allocated afresh there, with the same hint but a different party id.
 
 > **Note:** DAR packages listed in the `packages:` config field are validated on load but are
 > **not** uploaded automatically on startup. Call `net.uploadDar(path)` after start, or use `dnm` to
@@ -358,7 +359,8 @@ Useful routes:
 - `GET /instances/:id/env`
 - `GET /instances/:id/parties` (200 with `failures` on partial results, 503 if no participant
   responds)
-- `GET /instances/:id/packages`
+- `GET /instances/:id/packages` (200 with `failures` on partial results, 503
+  `{ error: 'Could not list packages', detail, instanceId }` if no participant responds)
 - `GET /instances/:id/snapshot`
 
 Example:

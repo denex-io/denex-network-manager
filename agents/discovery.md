@@ -37,7 +37,9 @@ and exposes running instances over an optional foreground Hono HTTP server.
 - `GET /instances/:id/parties`: each party once, with `validator` = its hosting participant. On
   partial results returns 200 with `failures: [{ validator, error }]`; 503
   `{ error: 'Could not list parties', detail, instanceId }` when no participant responds.
-- `GET /instances/:id/packages`
+- `GET /instances/:id/packages`: same contract as `/parties`. On partial results returns 200 with
+  `failures: [{ validator, error }]`; 503 `{ error: 'Could not list packages', detail, instanceId }`
+  when no participant responds.
 - `GET /instances/:id/snapshot`
 
 ## Critical gotchas

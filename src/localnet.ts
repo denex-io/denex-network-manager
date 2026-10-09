@@ -845,23 +845,26 @@ export class LocalNet {
     const names = this.hostNames();
     const settled = await Promise.allSettled(names.map((n) => this.getUsersWithRightsCached(n)));
     const users: ApiUserInfoWithRights[] = [];
-    const failures: string[] = [];
+    const failures: Array<{ validator: string; error: string }> = [];
     settled.forEach((result, index) => {
-      const name = names[index];
       if (result.status === 'fulfilled') {
         users.push(...result.value);
         return;
       }
       const error = result.reason instanceof Error ? result.reason.message : String(result.reason);
-      failures.push(`${name}: ${error}`);
+      failures.push({ validator: names[index], error });
+    });
+    // Total failure throws before any warning, like getParties() and getPackages().
+    if (failures.length === names.length) {
+      const detail = failures.map((f) => `${f.validator}: ${f.error}`).join('; ');
+      throw new Error(`Could not list users: no participant responded (${detail})`);
+    }
+    for (const { validator, error } of failures) {
       this.warn({
         source: 'query',
-        validator: name,
-        message: `Could not list users on ${name}: ${error}; its users are omitted`,
+        validator,
+        message: `Could not list users on ${validator}: ${error}; its users are omitted`,
       });
-    });
-    if (failures.length === names.length) {
-      throw new Error(`Could not list users: no participant responded (${failures.join('; ')})`);
     }
     return users;
   }

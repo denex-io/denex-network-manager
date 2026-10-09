@@ -243,7 +243,7 @@ Deno.test('getUsersWithRights - partial failure returns the others and retries t
 });
 
 Deno.test('getUsersWithRights - all rejected throws; unknown name throws', async () => {
-  const { net } = harness({
+  const { net, warnings } = harness({
     sv: { participantId: 'p', down: 'a' },
     'validator-1': { participantId: 'p', down: 'b' },
     'validator-2': { participantId: 'p', down: 'c' },
@@ -253,6 +253,7 @@ Deno.test('getUsersWithRights - all rejected throws; unknown name throws', async
     Error,
     'Could not list users: no participant responded (sv: a; validator-1: b; validator-2: c)',
   );
+  assertEquals(warnings.length, 0, 'total failure throws without warnings');
   await assertRejects(() => net.getUsersWithRights('nope'), Error, 'Unknown validator: nope');
   await assertRejects(() => net.getUsersWithRights('sv'), Error, 'a');
 });
