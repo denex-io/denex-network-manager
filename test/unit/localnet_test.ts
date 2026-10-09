@@ -158,7 +158,7 @@ Deno.test('LocalNet - createUser accepts UserConfig-shaped options', async () =>
   );
 });
 
-// --- P7 (#11): the constructor validates ---
+// --- the constructor validates ---
 
 Deno.test('LocalNet constructor - a too-long validator name throws ZodError', () => {
   assertThrows(

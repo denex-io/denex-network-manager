@@ -174,7 +174,7 @@ Deno.test('SDK mod.ts exports all expected value symbols', async () => {
   assertExists(sdk.createMinimalConfig);
 });
 
-// --- P7: builder validation ---
+// --- builder validation ---
 
 Deno.test('LocalNetBuilder - withValidators(count) throws RangeError for a bad count', () => {
   for (const bad of [0, -1, 2.5, NaN]) {

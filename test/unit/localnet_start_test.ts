@@ -673,7 +673,7 @@ Deno.test('start rollback - a transient inspect error is not mistaken for a 409'
   });
 });
 
-// --- P7: detectConfigMismatch compares through the stored-label (silent, lenient) parse ---
+// --- detectConfigMismatch compares through the stored-label (silent, lenient) parse ---
 
 Deno.test('detectConfigMismatch - a label carrying parties[].validator matches the YAML without it', async () => {
   await withFakeNet(async (net, fake) => {
