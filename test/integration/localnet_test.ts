@@ -1,3 +1,4 @@
+import { LABEL_INSTANCE } from '../../src/api/discovery-utils.ts';
 import { assertEquals, assertExists, assertRejects } from '@std/assert';
 import {
   cleanupTestResources,
@@ -133,12 +134,12 @@ Deno.test({
       await localnet.destroy({ removeVolumes: true });
 
       const containersAfter = await client.listContainers({
-        'localnet.instance': instanceId,
+        [LABEL_INSTANCE]: instanceId,
       });
       assertEquals(containersAfter.length, 0);
 
       const volumesAfter = await client.listVolumes({
-        'localnet.instance': instanceId,
+        [LABEL_INSTANCE]: instanceId,
       });
       assertEquals(volumesAfter.length, 0);
     } finally {

@@ -1,3 +1,4 @@
+import { LABEL_INSTANCE } from '../../src/api/discovery-utils.ts';
 import { assertEquals } from '@std/assert';
 import { chromium } from 'npm:playwright@1.57.0';
 import { LocalNet } from '../../src/localnet.ts';
@@ -257,7 +258,7 @@ Deno.test({
       await localnet.destroy({ removeVolumes: true });
 
       const containersAfterDestroy = await client.listContainers({
-        'localnet.instance': instanceId,
+        [LABEL_INSTANCE]: instanceId,
       });
       assertEquals(
         containersAfterDestroy.length,
