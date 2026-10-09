@@ -28,8 +28,15 @@ All notable changes to this project will be documented in this file. The format 
   started (nginx and the web UIs after splice) and re-runs initialization. It refuses paused
   containers and aborts on a 409 or a `created` container under 60 s old (another process is
   probably starting the instance; best-effort, it cannot see a start in its health-wait phase). A
-  failed repair stops only containers it started and starts back dependents it had stopped. nginx
-  now depends on the web UIs and starts in its own layer.
+  failed repair stops only containers it started and starts back dependents it had stopped. A
+  container in Docker's restart backoff (nginx crash-looping after a daemon restart) is stopped and
+  started again, since a plain start is a no-op. On a 409 the network and volume this call created
+  are left in place too. Repair needs a handle that is not already attached (`fromInstanceId()`
+  handles and handles that ran a state query throw "already running"). nginx now depends on the web
+  UIs and starts in its own layer.
+- `DockerClient.findContainer()` returns `null` only for a 404 and rethrows other inspect errors;
+  `start()` uses it, so a transient inspect error aborts the start (and rolls back) instead of
+  looking like a name conflict.
 - **Breaking:** `ApiPartyInfo.isLocal` is removed (also from `dnm parties --json`, the discovery
   `/parties` response and `getSnapshot().parties`; the `dnm parties` table loses its Local column).
 - **Breaking:** `getParties(name)` returns only parties hosted on `name` (the DSO party appears only
@@ -62,7 +69,9 @@ All notable changes to this project will be documented in this file. The format 
   created, and stops again any pre-existing containers it had started. A failed first start still
   leaves nothing behind; a failed resume (for example a timeout) keeps the stopped containers, the
   network and the data volume. The progress message is now "Startup failed; removing resources
-  created by this attempt...". `restart()` whose start step fails leaves the instance stopped.
+  created by this attempt...". `restart()` whose start step fails leaves the instance stopped,
+  unless it aborted on a 409 name conflict (another process starting it), which leaves the
+  containers it started running.
 - `getParties()` listed every party once per participant (18 rows for 6 parties); it now lists each
   party once, under the validator whose participant hosts it, with the host's display name.
 - `createUser` bound hints to parties hosted on other validators; hints now resolve against the

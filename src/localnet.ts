@@ -307,7 +307,13 @@ export class LocalNet {
    * A name conflict (HTTP 409) on create can happen mid-start, after this call
    * has already changed things. It also means another process is probably
    * starting the instance: `start()` aborts, removes only the containers this
-   * call created, and does not stop the containers this call started.
+   * call created, and neither stops the containers this call started nor
+   * removes the network or volume it created.
+   *
+   * A handle that already counts as running (one from `fromInstanceId()`, or one
+   * on which a state query such as `getParties()` has attached) throws
+   * `LocalNet is already running` instead of repairing: repair needs a handle
+   * that is not attached.
    */
   async start(options?: StartOptions): Promise<void> {
     if (this.internalState === 'running') {
@@ -506,8 +512,9 @@ export class LocalNet {
    * 3. unless a create hit a 409, stop pre-existing containers this call
    *    started, one layer at a time in reverse layer order (a layer's stops
    *    finish before the previous layer's begin);
-   * 4. remove the network only if this call created it;
-   * 5. remove the postgres volume only if this call created it;
+   * 4. remove the network only if this call created it (and no 409 happened);
+   * 5. remove the postgres volume only if this call created it (and no 409
+   *    happened);
    * 6. forget the created containers' ids.
    * A failed resume therefore leaves existing containers, network and data
    * volume in place (stopped), while a failed fresh start leaves nothing.
@@ -541,10 +548,12 @@ export class LocalNet {
       }
     }
 
-    if (rb.networkCreated) {
+    // After a 409 the other process may already build on the network and volume
+    // this call created: leave them for it (or for a retry) as well.
+    if (rb.networkCreated && !rb.conflict) {
       await this.networkManager.remove(this.options.instanceId).catch(() => {});
     }
-    if (rb.volumeCreated) {
+    if (rb.volumeCreated && !rb.conflict) {
       await this.client.removeVolume(`${this.options.instanceId}-postgres-data`).catch(() => {});
     }
 
@@ -582,7 +591,9 @@ export class LocalNet {
 
   /**
    * Stop then start. If the start step fails the instance is left stopped (a
-   * failed start never removes pre-existing containers or data).
+   * failed start never removes pre-existing containers or data), except after a
+   * name conflict (409) on create, when another process is probably starting the
+   * instance and the containers this call started are left running.
    */
   async restart(options?: StartOptions & StopOptions): Promise<void> {
     await this.stop();
@@ -1608,7 +1619,7 @@ export class LocalNet {
     options?: StartOptions,
   ): Promise<void> {
     const progress = options?.onProgress ?? (() => {});
-    const exists = await this.client.getContainerInfo(spec.name);
+    const exists = await this.client.findContainer(spec.name);
     let containerId: string;
 
     if (exists) {
@@ -1620,6 +1631,10 @@ export class LocalNet {
         // never started is a harmless 304).
         rb.started.set(spec.name, { id: containerId, layer: rb.layer });
         rb.touched.add(spec.name);
+        // A container in restart backoff (a crash-looping nginx after a daemon
+        // restart) counts as running to Docker, so a plain start is a no-op and
+        // the backoff would go on. Stop it first to end the loop.
+        if (exists.state === 'restarting') await this.client.stopContainer(containerId, 30);
         await this.client.startContainer(containerId);
       } else if ((spec.dependsOn ?? []).some((dep) => rb.touched.has(dep))) {
         // A dependency was just (re)started: restart this container so it does
