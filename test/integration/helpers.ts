@@ -4,6 +4,13 @@
  */
 
 import { DockerClient } from '../../src/docker/client.ts';
+import { LABEL_INSTANCE, LABEL_PREFIX } from '../../src/api/discovery-utils.ts';
+
+// Resources created by LocalNet or DockerClient with default options use the 'denex.localnet'
+// prefix. Tests that label resources with 'localnet.instance' by hand, or use NetworkManager's
+// default 'localnet' prefix, need the legacy prefix too. Clean up both.
+const INSTANCE_LABEL_KEYS = [LABEL_INSTANCE, 'localnet.instance'];
+const NETWORK_PREFIXES = [LABEL_PREFIX, 'localnet'];
 
 const INTEGRATION_TEST_PREFIX = 'localnet-integration-test';
 
@@ -26,39 +33,38 @@ export async function cleanupTestResources(
   client: DockerClient,
   instanceId: string,
 ): Promise<void> {
-  const containers = await client.listContainers({
-    'localnet.instance': instanceId,
-  });
-
-  for (const container of containers) {
-    try {
-      await client.stopContainer(container.id, 5);
-    } catch {
-      // Best-effort cleanup.
+  for (const labelKey of INSTANCE_LABEL_KEYS) {
+    const containers = await client.listContainers({ [labelKey]: instanceId });
+    for (const container of containers) {
+      try {
+        await client.stopContainer(container.id, 5);
+      } catch {
+        // Best-effort cleanup.
+      }
+      try {
+        await client.removeContainer(container.id, true);
+      } catch {
+        // Best-effort cleanup.
+      }
     }
+  }
+
+  for (const prefix of NETWORK_PREFIXES) {
     try {
-      await client.removeContainer(container.id, true);
+      await client.removeNetwork(`${prefix}-${instanceId}`);
     } catch {
       // Best-effort cleanup.
     }
   }
 
-  const networkName = `localnet-${instanceId}`;
-  try {
-    await client.removeNetwork(networkName);
-  } catch {
-    // Best-effort cleanup.
-  }
-
-  const volumes = await client.listVolumes({
-    'localnet.instance': instanceId,
-  });
-
-  for (const volume of volumes) {
-    try {
-      await client.removeVolume(volume.name);
-    } catch {
-      // Best-effort cleanup.
+  for (const labelKey of INSTANCE_LABEL_KEYS) {
+    const volumes = await client.listVolumes({ [labelKey]: instanceId });
+    for (const volume of volumes) {
+      try {
+        await client.removeVolume(volume.name);
+      } catch {
+        // Best-effort cleanup.
+      }
     }
   }
 }

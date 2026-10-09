@@ -241,7 +241,7 @@ Deno.test('runtime createUser: performance bound (< 30s)', async () => {
   try {
     await localnet.start({ timeout: 300000 });
 
-    let timeoutId: number | undefined;
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
     try {
       const createUserPromise = localnet.createUser('perf-test', 'validator-1');
       const timeoutPromise = new Promise<never>((_, reject) => {
