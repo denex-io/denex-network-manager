@@ -1,4 +1,6 @@
-import { assert, assertEquals, assertExists } from '@std/assert';
+import { assert, assertEquals, assertExists, assertThrows } from '@std/assert';
+import { ZodError } from 'zod';
+import type { LocalNetConfig } from '../../src/types/config.ts';
 import { normalizeValidators } from '../../src/mod.ts';
 import { LocalNetBuilder } from '../../src/sdk/builder.ts';
 import { LocalNet } from '../../src/localnet.ts';
@@ -170,4 +172,56 @@ Deno.test('SDK mod.ts exports all expected value symbols', async () => {
   assertExists(sdk.loadConfigFile);
   assertExists(sdk.loadConfigFromString);
   assertExists(sdk.createMinimalConfig);
+});
+
+// --- builder validation ---
+
+Deno.test('LocalNetBuilder - withValidators(count) throws RangeError for a bad count', () => {
+  for (const bad of [0, -1, 2.5, NaN]) {
+    assertThrows(() => LocalNetBuilder.create().withValidators(bad), RangeError);
+  }
+});
+
+Deno.test('LocalNetBuilder - withValidators(10) and (11) work', () => {
+  assertEquals(
+    normalizeValidators(LocalNetBuilder.create().withValidators(10).build().validators).length,
+    10,
+  );
+  assertEquals(
+    normalizeValidators(LocalNetBuilder.create().withValidators(11).build().validators).length,
+    11,
+  );
+});
+
+Deno.test('LocalNetBuilder - build() rejects a count whose ports exceed 65535', () => {
+  const builder = LocalNetBuilder.create().withValidators(55).withBasePort(60000);
+  assertThrows(() => builder.build(), ZodError);
+  // Order of the two calls does not matter.
+  assertThrows(
+    () => LocalNetBuilder.create().withBasePort(60000).withValidators(55).build(),
+    ZodError,
+  );
+});
+
+Deno.test('LocalNetBuilder - build() rejects duplicate validator names', () => {
+  assertThrows(() => LocalNetBuilder.create().withValidators('a', 'A').build(), ZodError);
+  assertThrows(
+    () => LocalNetBuilder.create().addValidator('x').addValidator('x').build(),
+    ZodError,
+  );
+});
+
+Deno.test('LocalNet.fromConfig - a misspelt key loads with one config warning', async () => {
+  const seen: string[] = [];
+  const config = { validators: 1, auth: { keycloak: { admin: 'a', password: 'b' } }, basport: 1 };
+  const widened: Record<string, unknown> = config;
+  const net = await LocalNet.fromConfig(widened as unknown as LocalNetConfig, {
+    instanceId: 't-warn',
+    onWarning: (w) => seen.push(w.message),
+  });
+  assertEquals(net.warnings.length, 1);
+  assertEquals(net.warnings[0].source, 'config');
+  assertEquals(net.warnings[0].path, 'basport');
+  assertEquals(seen.length, 1);
+  assertEquals(net.getConfig().basePort, 5000);
 });

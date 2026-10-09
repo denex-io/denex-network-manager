@@ -16,8 +16,9 @@ user-facing schema, fills defaults, and feeds the generator and lifecycle layers
 ## Main modules
 
 - `src/types/config.ts`: TypeScript config types and naming helpers.
-- `src/schemas/localnet-config.ts`: Zod schemas, `parseLocalNetConfig()`,
-  `validateLocalNetConfig()`, and `withDefaults()`.
+- `src/schemas/localnet-config.ts`: Zod schemas (built by `makeSchemas('strip' | 'strict')`),
+  `parseLocalNetConfig()`, `validateLocalNetConfig()`, `parseLocalNetConfigWithWarnings()`,
+  `parseStoredLocalNetConfig()`, and `withDefaults()`.
 - `src/utils/yaml.ts`: file/string/dir loading and environment variable expansion.
 - `src/sdk/builder.ts`: programmatic config builder that delegates to `withDefaults()`.
 
@@ -26,7 +27,9 @@ user-facing schema, fills defaults, and feeds the generator and lifecycle layers
 - `version` is optional and defaults to `1.0`.
 - `validators` can be a count or a detailed array; counts normalize to `validator-1`, `validator-2`,
   and so on.
-- Validator count is schema-capped at 10.
+- There is no cap on the validator count; the input rule is that the highest derived port
+  (`getHighestPort(basePort, n)`) is at most `MAX_PORT` (65535).
+- `parties[].validator` and `users[].validator` no longer exist; on input they warn and are dropped.
 - `basePort` defaults to `5000` and must be between `1024` and `60000`.
 - OAuth2 with Keycloak is the only auth mode; config stores `auth.keycloak.admin` and
   `auth.keycloak.password`.
@@ -37,14 +40,43 @@ user-facing schema, fills defaults, and feeds the generator and lifecycle layers
   correctly. Previously it was silently stripped by Zod. OAuth2 with Keycloak remains the only
   supported auth mode.
 
+## Input rules versus stored-label rules
+
+- Input (YAML, objects given to `fromConfig()`/the `LocalNet` constructor, builder output) goes
+  through `parseLocalNetConfig()`, `validateLocalNetConfig()` or `withDefaults()`: strip parse plus
+  unknown-key warnings plus `checkConfigInvariants()` (port limit, lowercase and unique names,
+  lowercase user ids, reserved `sv`, Keycloak realm collisions via `getRealmName`,
+  `packages[].uploadTo` non-empty and naming `sv` or a configured validator). These invariants are
+  not in the exported Zod schema, so the schema type is unchanged.
+- Stored labels (`fromInstanceId()`, `discover()`, `reconstructConfigFromLabels()`,
+  `detectConfigMismatch()` on both sides) use `parseStoredLocalNetConfig()`: strip parse only, no
+  warnings, no invariants. Instances created by older versions (11+ validators, case-variant names,
+  `validator` keys) must stay discoverable, stoppable and destroyable.
+- Unknown keys are detected by re-parsing with the strict twin of the schema tree and collecting
+  `unrecognized_keys` issues (also inside union branches). They are warnings (`ConfigWarning`,
+  `source: 'config'`, `path`), never errors: validator config options churn across versions.
+- Warnings go to `options.onWarning` (default `console.warn`). The `LocalNet` constructor,
+  `fromConfig()` and the CLI loaders (`loadConfigFile(path, { onWarning })`) pass it through.
+  `LocalNet.warnings` keeps the construction-time config warnings only; runtime query warnings are
+  never stored. `fromConfig()`/`fromInstanceId()` register their parsed config in a module-private
+  `trustedConfigs` WeakMap so the constructor does not re-parse it.
+- `dnm config` validates the generated config in `writeConfig()` before writing (no file, no `.bak`
+  on failure).
+
 ## Critical gotchas
 
-- `packages:` is parsed and validated, but startup does not currently auto-upload those DARs. Use
-  `LocalNet.uploadDar()` for runtime uploads.
+- YAML merge keys (`<<`) and `x-*` anchor keys are not exempt from unknown-key detection; they warn
+  as "Unrecognized key".
+- `packages:` is uploaded by `initializeResources()`. The parsed config keeps `dar` as written and
+  `uploadTo` without a default (both are resolved at upload time), because `detectConfigMismatch`
+  compares the whole parsed config with the label. `uploadTo: []` and unknown targets are input-only
+  rules in `checkConfigInvariants`, so stored labels with them still parse.
 - `withDefaults()` does **not** inject a default `discovery` value. If `config.discovery` is absent,
   the output has `discovery: undefined`. Old code that relied on `withDefaults()` always producing a
   `discovery` object will see `undefined` now.
-- `PartyConfig.hint` and `ValidatorConfig.name` must match `/^[a-z][a-z0-9-]*$/i`.
+- `PartyConfig.hint` and `ValidatorConfig.name` must match `/^[a-z][a-z0-9-]*$/i`; on input a
+  validator name must also be lowercase (`checkConfigInvariants`), and user ids must be lowercase
+  too (`validators[i].users[j].id`). Stored labels stay lenient for both.
 - `UserConfig.rights` accepts all rights for backward compatibility, but per-party rights should be
   modeled with `UserConfig.parties`.
 

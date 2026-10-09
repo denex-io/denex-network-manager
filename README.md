@@ -119,21 +119,21 @@ dnm <command> --help
 
 Commands:
 
-| Command        | Description                                              |
-| -------------- | -------------------------------------------------------- |
-| `start`        | Start LocalNet containers                                |
-| `stop`         | Stop all containers gracefully                           |
-| `status`       | Show container state and health                          |
-| `destroy`      | Remove containers, networks, volumes, and generated data |
-| `init`         | Initialize users and parties on a running LocalNet       |
-| `config`       | Generate `localnet.yaml` interactively                   |
-| `parties`      | List parties across validators                           |
-| `packages`     | List packages known to each participant (built-ins too)  |
-| `env`          | Show API URLs, auth config, and DSO party ID             |
-| `credentials`  | Show web UI login credentials                            |
-| `instances`    | List LocalNet instances (running, mixed or stopped)      |
-| `entitlements` | List users with their rights                             |
-| `discovery`    | Run the multi-instance discovery HTTP server             |
+| Command        | Description                                                        |
+| -------------- | ------------------------------------------------------------------ |
+| `start`        | Start LocalNet containers                                          |
+| `stop`         | Stop all containers gracefully                                     |
+| `status`       | Show container state and health                                    |
+| `destroy`      | Remove containers, networks, volumes, and generated data           |
+| `init`         | Create parties and users, upload `packages:` on a running LocalNet |
+| `config`       | Generate `localnet.yaml` interactively                             |
+| `parties`      | List parties across validators                                     |
+| `packages`     | List packages known to each participant (built-ins too)            |
+| `env`          | Show API URLs, auth config, and DSO party ID                       |
+| `credentials`  | Show web UI login credentials                                      |
+| `instances`    | List LocalNet instances (running, mixed or stopped)                |
+| `entitlements` | List users with their rights                                       |
+| `discovery`    | Run the multi-instance discovery HTTP server                       |
 
 Only `start` and `config` accept `--config <path>`. State commands attach to Docker containers
 through labels. Without `--instance <id>` they pick the one running instance, else the one mixed
@@ -232,6 +232,14 @@ User rights are split into participant-wide rights and per-party rights:
 per-party rights and default to `CanActAs` when `rights` is omitted. Party hints referenced by users
 are auto-allocated if they are not listed under the validator's top-level `parties`.
 
+Validator names must be lowercase (Keycloak lowercases usernames, so `App` would never
+authenticate), unique, must not be `sv`, and must not map to the same Keycloak realm as another
+validator (`ab` and `ab-` both become `Ab`). User ids must be lowercase for the same reason. There
+is no cap on the validator count, but the highest port derived from `basePort` must stay at or below
+65535, so a config such as 55 validators at `basePort: 60000` is rejected. Unknown keys (for example
+a misspelt `basport`) are ignored with a warning, on stderr in the CLI; the value they would have
+set falls back to its default.
+
 Party hints supplied by users are normalized for Canton when needed. Validator operator party hints
 are generated separately from validator names.
 
@@ -326,9 +334,14 @@ unknown or unreachable validator. `getSnapshot()` is best-effort: it returns emp
 hint passed to `createUser` resolves only against parties hosted on that user's validator; a hint
 hosted only elsewhere is allocated afresh there, with the same hint but a different party id.
 
-> **Note:** DAR packages listed in the `packages:` config field are validated on load but are
-> **not** uploaded automatically on startup. Call `net.uploadDar(path)` after start, or use `dnm` to
-> upload after the network is running.
+> **Note:** DAR packages listed in the `packages:` config field are uploaded at the end of
+> initialization, so `dnm start` uploads them and `dnm init` uploads them again (re-uploading an
+> existing DAR is expected to be a no-op). A relative `dar` resolves against the config file's
+> directory, then the current directory; with the SDK pass `configDir` in the options when you give
+> `LocalNet` a config object. `uploadTo` lists `sv` and/or validator names and defaults to all of
+> them. A missing DAR stops a fresh start before anything is created; on resume, and for any failed
+> upload, you get a warning and the start continues. `--skip-init` / `skipInitialization` skip the
+> upload. Call `net.uploadDar(path)` to upload at any other time.
 
 `createUser` provisions the ledger user, Keycloak user, and wallet onboarding. It is idempotent per
 side, so retries converge after partial failures.
