@@ -43,9 +43,9 @@ health, and labels resources for discovery and cleanup.
   `src/utils/ports.ts` (offsets in `SV_INTERNAL_PORT_OFFSETS`): `mediatorAdmin +7`,
   `sequencerPublic +8`, `sequencerAdmin +9`, `scanAdmin +12`, `splicePrometheus +13`, `svAdmin +14`,
   `sequencerGrpcHealth +62`, `mediatorGrpcHealth +63`, `cantonPrometheus +64`. Sequencer and
-  mediator ports are bound inside `canton`; Scan/SV admin and the Prometheus reporter inside
-  `splice`. Only Scan and SV admin are published to the host, and the container port equals the host
-  port.
+  mediator ports and `cantonPrometheus` are bound inside `canton`; Scan/SV admin and
+  `splicePrometheus` inside `splice`. Only Scan and SV admin are published to the host, and the
+  container port equals the host port.
 - All offsets are below 100 and distinct from `PORT_SUFFIXES`, so no SV-level port can equal a
   validator port. `test/unit/ports_test.ts` brute-forces this.
 - `SV_INTERNAL_PORTS` no longer exists. The helpers are internal: they are not exported from
