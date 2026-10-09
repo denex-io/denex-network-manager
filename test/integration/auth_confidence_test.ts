@@ -237,6 +237,7 @@ Deno.test({
       assertEquals(Array.isArray(validatorUsers), true);
       const validatorPackages = await validatorCantonClient.listPackages();
       assertEquals(Array.isArray(validatorPackages), true);
+      assert(validatorPackages.length > 0, 'validator should report built-in packages');
       const validatorParties = await validatorCantonClient.listParties();
       assertEquals(Array.isArray(validatorParties), true);
 

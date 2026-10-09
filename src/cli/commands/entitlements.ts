@@ -1,6 +1,6 @@
 import { Command } from '@cliffy/command';
 import { Table } from '@cliffy/table';
-import { colors, getRunningLocalNet, printError } from '../utils.ts';
+import { colors, getRunningLocalNet, printError, warnToStderr } from '../utils.ts';
 import type { ApiUserRight } from '../../api/canton.ts';
 
 function formatRight(right: ApiUserRight): string {
@@ -36,7 +36,7 @@ export const entitlementsCommand = new Command()
   .option('--json', 'Output as JSON')
   .action(async (options) => {
     try {
-      const localnet = await getRunningLocalNet(options.instance);
+      const localnet = await getRunningLocalNet(options.instance, { onWarning: warnToStderr });
       const users = await localnet.getUsersWithRights(options.validator);
 
       if (options.json) {

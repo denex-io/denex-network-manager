@@ -103,6 +103,19 @@ Deno.test({
       const bobParty = bobParties.find((p) => p.hint === 'bob');
       assertExists(bobParty, 'bob party should exist');
       assertEquals(bobParty.displayName, 'Bob');
+
+      // Each party is listed once, under the validator that hosts it, and the
+      // displayName comes from the hosting participant's annotation (regression guard).
+      const partyIds = allParties.map((p) => p.partyId);
+      assertEquals(new Set(partyIds).size, partyIds.length, 'partyIds should be unique');
+      assertEquals(aliceParty.validator, 'alice');
+      assertEquals(bobParty.validator, 'bob');
+      const bobHosted = await localnet.getParties('bob');
+      assertEquals(
+        bobHosted.some((p) => p.hint === 'alice'),
+        false,
+        "getParties('bob') should not include alice's party",
+      );
     } finally {
       await localnet.destroy({ removeVolumes: true });
       await cleanupTestResources(client, instanceId);

@@ -74,8 +74,22 @@ initialization, and runtime operations.
   container list fetched during attach.
 - `initializeResources()` carries `@internal` JSDoc and should not be called by application code —
   use `start()`. It remains public because the CLI `init` command depends on it.
-- `uploadDar()` throws an aggregate error listing all failed validators; it does not swallow
-  individual upload failures silently.
+- `uploadDar()` validates its arguments first (empty target list, `Unknown validator: <name>` both
+  throw before any upload), then throws an aggregate error listing all validators whose upload
+  failed, including Canton's message for a rejected DAR. It returns nothing.
+- `getParties()` lists each hosted party once, under the validator whose participant hosts it (first
+  host in SV-then-config order if several do). `getParties(name)` returns only parties hosted on
+  `name`. Hosted lists are cached per validator (`parties:<name>`, successes only). `createUser`
+  resolves hints with the uncached `fetchHostedParties(validatorName)`, so a hint matches only
+  parties hosted on the user's own validator; a hint hosted only elsewhere is allocated afresh on
+  the home validator (same hint, different namespace).
+- Warning channel: `LocalNetOptions.onWarning` (default `console.warn`) receives `LocalNetWarning`s.
+  Partial-failure rule for per-validator queries (`getParties`, `getPackages`, `getUsersWithRights`,
+  the users part of `getSnapshot`): a named validator that is unknown or unreachable throws;
+  unnamed, each failed validator produces one warning naming it and the others' results are
+  returned; if no participant responds, `getParties`/`getPackages`/`getUsersWithRights` throw
+  (`getSnapshot` is best-effort and maps that to empty lists). Failures are never cached, so they
+  are re-queried (and re-warned) on every call. Runtime query warnings are not stored.
 
 ## Editing guidance
 

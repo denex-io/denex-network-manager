@@ -1,5 +1,11 @@
-import { assertEquals, assertExists, assertStringIncludes } from '@std/assert';
-import { colors, formatHealth, formatState, formatUptime } from '../../src/cli/utils.ts';
+import { assert, assertEquals, assertExists, assertStringIncludes } from '@std/assert';
+import {
+  buildPackageMatrix,
+  colors,
+  formatHealth,
+  formatState,
+  formatUptime,
+} from '../../src/cli/utils.ts';
 
 Deno.test('colors.green - returns green text', () => {
   const result = colors.green('test');
@@ -84,4 +90,15 @@ Deno.test('formatUptime - formats days', () => {
   const past = new Date(now.getTime() - 3 * 24 * 60 * 60 * 1000);
   const result = formatUptime(past);
   assertStringIncludes(result, 'd');
+});
+
+Deno.test('buildPackageMatrix - marks unreachable participants with ? and a header note', () => {
+  const { header, rows } = buildPackageMatrix(['sv', 'validator-1'], new Set(['validator-1']), [
+    { packageId: 'p1', validators: ['sv'] },
+    { packageId: 'p2', validators: [] },
+  ]);
+  assertEquals(header, ['Package ID', 'sv', 'validator-1 (unreachable)']);
+  assert(rows[0][1].includes('✓'));
+  assertEquals(rows[0][2], '?');
+  assertEquals(rows[1], ['p2', '', '?']);
 });

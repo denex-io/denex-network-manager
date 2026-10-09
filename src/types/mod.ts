@@ -27,6 +27,7 @@ export type {
   LedgerApiAuth,
   LocalNetState,
   LocalNetStatus,
+  LocalNetWarning,
   NetworkEnvironment,
   PackageInfo,
   PartyEnvironmentInfo,

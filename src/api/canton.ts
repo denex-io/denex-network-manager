@@ -1,6 +1,8 @@
 import { readFile } from 'node:fs/promises';
 import { createAuthHeader, TokenManager } from './auth.ts';
 
+const MAX_PARTY_PAGES = 1000;
+
 export interface PartyDetails {
   party: string;
   localMetadata?: {
@@ -8,7 +10,11 @@ export interface PartyDetails {
     annotations?: Record<string, string>;
   };
   identityProviderId?: string;
-  isLocal: boolean;
+  /**
+   * True when this participant hosts the party. Optional on the wire: absent means the
+   * party is not hosted here (or belongs to another identity provider).
+   */
+  isLocal?: boolean;
 }
 
 export interface UserDetails {
@@ -31,13 +37,6 @@ export interface ApiUserRight {
     | { CanReadAsAnyParty: { value: Record<string, never> } }
     | { CanExecuteAsAnyParty: { value: Record<string, never> } }
     | { IdentityProviderAdmin: { value: Record<string, never> } };
-}
-
-export interface PackageDetails {
-  packageId: string;
-  packageSize: number;
-  knownSince: string;
-  sourceDescription?: string;
 }
 
 export interface ConnectedSynchronizer {
@@ -172,9 +171,31 @@ export class CantonClient {
     return result.connectedSynchronizers ?? [];
   }
 
+  /**
+   * Lists every party in this participant's topology view, following pagination.
+   *
+   * `GET /v2/parties` returns the whole topology on every participant, not only the
+   * parties it hosts. Filter on `isLocal` for hosted parties.
+   *
+   * @throws If the server returns a repeated page token or more than 1000 pages.
+   */
   async listParties(): Promise<PartyDetails[]> {
-    const result = await this.request<{ partyDetails: PartyDetails[] }>('GET', '/v2/parties');
-    return result.partyDetails ?? [];
+    const parties: PartyDetails[] = [];
+    const seenTokens = new Set<string>();
+    let path = '/v2/parties';
+    for (let page = 0; page < MAX_PARTY_PAGES; page++) {
+      const result = await this.request<{ partyDetails?: PartyDetails[]; nextPageToken?: string }>(
+        'GET',
+        path,
+      );
+      parties.push(...(result.partyDetails ?? []));
+      const token = result.nextPageToken;
+      if (!token) return parties;
+      if (seenTokens.has(token)) break;
+      seenTokens.add(token);
+      path = `/v2/parties?pageToken=${encodeURIComponent(token)}`;
+    }
+    throw new Error('listParties: pagination did not terminate');
   }
 
   async allocateParty(
@@ -265,37 +286,42 @@ export class CantonClient {
     return result.rights ?? [];
   }
 
-  async listPackages(): Promise<PackageDetails[]> {
-    const result = await this.request<{ packageDetails: PackageDetails[] }>('GET', '/v2/packages');
-    return result.packageDetails ?? [];
+  /** Lists the IDs of all packages known to this participant, built-ins included. */
+  async listPackages(): Promise<string[]> {
+    const result = await this.request<{ packageIds?: string[] }>('GET', '/v2/packages');
+    return result.packageIds ?? [];
   }
 
-  async uploadDar(darContent: Uint8Array): Promise<string> {
+  /**
+   * Uploads a DAR as a raw `application/octet-stream` body.
+   *
+   * Canton answers with an empty body and validates the DAR itself.
+   *
+   * @throws {CantonApiError} `DAR upload failed: ...` carrying Canton's error when it
+   *   rejects the DAR.
+   */
+  async uploadDar(darContent: Uint8Array): Promise<void> {
     const authHeaders = await this.getAuthHeaders();
-    const url = `${this.baseUrl}/v2/dars`;
-
-    const formData = new FormData();
-    const blob = new Blob([new Uint8Array(darContent)], { type: 'application/octet-stream' });
-    formData.append('dar_file', blob, 'package.dar');
-
-    const response = await fetch(url, {
+    const response = await fetch(`${this.baseUrl}/v2/dars`, {
       method: 'POST',
-      headers: authHeaders,
-      body: formData,
+      headers: {
+        ...authHeaders,
+        'Content-Type': 'application/octet-stream',
+        Accept: 'application/json',
+      },
+      body: new Uint8Array(darContent),
     });
 
     if (!response.ok) {
       const errorText = await response.text();
       throw new CantonApiError(response.status, `DAR upload failed: ${errorText}`);
     }
-
-    const result = await response.json();
-    return result.mainPackageId ?? '';
+    await response.arrayBuffer();
   }
 
-  async uploadDarFromFile(filePath: string): Promise<string> {
+  async uploadDarFromFile(filePath: string): Promise<void> {
     const darContent = await readFile(filePath);
-    return this.uploadDar(darContent);
+    await this.uploadDar(darContent);
   }
 
   async healthCheck(): Promise<boolean> {

@@ -72,6 +72,18 @@ Deno.test('LocalNet - tier 3: getParties() rejects with "is not running" when no
   );
 });
 
+Deno.test('LocalNet - tier 3: getParties(\'nope\') rejects with "is not running" when not running', async () => {
+  const net = new LocalNet(createMinimalConfig(2), {
+    instanceId: 't-tier3-parties-named-' + Date.now(),
+  });
+
+  await assertRejects(
+    () => net.getParties('nope'),
+    Error,
+    'is not running',
+  );
+});
+
 Deno.test('LocalNet - tier 3: getCredentials() rejects with "is not running" when not running', async () => {
   const config = createMinimalConfig(2);
   const net = new LocalNet(config, {

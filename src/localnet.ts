@@ -36,7 +36,7 @@ import { getSvInternalPorts, getSvPorts, getValidatorPorts } from './utils/ports
 import { loadConfigFile } from './utils/yaml.ts';
 import { buildConfigEnvironmentInfo } from './utils/env-info.ts';
 import { type CredentialInfo, getCredentials as getCredentialsList } from './utils/credentials.ts';
-import type { FullEnvironmentInfo, ValidatorEndpoints } from './types/state.ts';
+import type { FullEnvironmentInfo, LocalNetWarning, ValidatorEndpoints } from './types/state.ts';
 import {
   type ApiUserRight,
   CantonClient,
@@ -47,11 +47,11 @@ import {
   createCanReadAsAnyParty,
   createIdentityProviderAdmin,
   createParticipantAdmin,
-  type PackageDetails,
   type PartyDetails,
   type UserDetails,
 } from './api/canton.ts';
 import { ValidatorAdminClient, ValidatorApiError } from './api/validator.ts';
+import { type HostedParties, mergeHostedParties } from './api/parties.ts';
 import { KeycloakAdminClient } from './api/keycloak-admin.ts';
 import type {
   ApiLocalNetSnapshot,
@@ -63,6 +63,7 @@ import type {
 } from './api/state-types.ts';
 import { type DiscoveredInstance, discoverInstances } from './api/discovery-utils.ts';
 import { generateNginxConfigString } from './docker/nginx.ts';
+import { readFile } from 'node:fs/promises';
 
 export interface LocalNetOptions {
   instanceId?: string;
@@ -70,6 +71,12 @@ export interface LocalNetOptions {
   images?: ContainerBuilderOptions['images'];
   dbUser?: string;
   dbPassword?: string;
+  /**
+   * Receives non-fatal problems, for example a validator that did not respond to a
+   * query whose other results are still returned. Defaults to `console.warn`.
+   * Runtime query warnings are delivered here on every occurrence.
+   */
+  onWarning?: (warning: LocalNetWarning) => void;
 }
 
 export interface ConfigMismatch {
@@ -138,6 +145,7 @@ export class LocalNet {
       images: options?.images ?? {},
       dbUser: options?.dbUser ?? 'cnadmin',
       dbPassword: options?.dbPassword ?? 'supersafe',
+      onWarning: options?.onWarning ?? ((w) => console.warn(w.message)),
     };
 
     this.client = new DockerClient({ labelPrefix });
@@ -681,39 +689,106 @@ export class LocalNet {
     throw new Error(`Could not retrieve party ID for ${validatorName} after ${maxRetries} retries`);
   }
 
+  /**
+   * Each party hosted on the LocalNet, listed once under the validator whose participant
+   * hosts it, or only the parties hosted on `validatorName`.
+   *
+   * Canton's `/v2/parties` returns the whole topology on every participant; this method
+   * keeps only hosted (`isLocal`) entries. `displayName` is the host's annotation, else
+   * the hint. With no name, a participant that does not respond produces a warning naming
+   * it (via `onWarning`, default `console.warn`) and its parties are omitted from the
+   * result; if none responds it throws. A named validator that is unknown or unreachable
+   * throws. Per-validator results are cached for 30 seconds; `allocateParty` and
+   * `createUser` clear the affected validator's entry. A party hosted on several
+   * participants (DNM never does this) is listed under the first, in SV-then-config order.
+   *
+   * @param validatorName - Restrict to parties hosted on this validator (`'sv'` or a
+   *   configured validator name).
+   */
   async getParties(validatorName?: string): Promise<ApiPartyInfo[]> {
     await this.requireRunning('getParties');
 
-    const cacheKey = `parties:${validatorName ?? 'all'}`;
-    const cached = this.getCached<ApiPartyInfo[]>(cacheKey);
-    if (cached) return cached;
-
-    const validatorNames = validatorName
-      ? [validatorName]
-      : ['sv', ...normalizeValidators(this.config.validators).map((v) => v.name)];
-
-    const allParties: ApiPartyInfo[] = [];
-
-    for (const name of validatorNames) {
-      const client = this.cantonClients.get(name);
-      if (!client) continue;
-
-      try {
-        const participantId = await client.getParticipantId();
-        const parties = await client.listParties();
-
-        for (const party of parties) {
-          allParties.push(this.toPartyInfo(party, name, participantId));
-        }
-      } catch {
-        // Validator might not be healthy - continue to next
-      }
+    if (validatorName) {
+      const hosted = await this.getHostedPartiesCached(validatorName);
+      return hosted.parties.map((p) => this.toPartyInfo(p, validatorName, hosted.participantId));
     }
 
-    this.setCache(cacheKey, allParties);
-    return allParties;
+    const { parties, failures } = await this.listPartiesWithFailures();
+    for (const failure of failures) {
+      this.warn({
+        source: 'query',
+        validator: failure.validator,
+        message:
+          `Could not list parties on ${failure.validator}: ${failure.error}; its parties are omitted`,
+      });
+    }
+    return parties;
   }
 
+  /**
+   * Like {@link LocalNet.getParties} with no name, but returns the per-validator failures
+   * instead of passing them to `onWarning`. Used by the discovery server.
+   *
+   * @throws If no participant responds.
+   */
+  async listPartiesWithFailures(): Promise<
+    { parties: ApiPartyInfo[]; failures: Array<{ validator: string; error: string }> }
+  > {
+    await this.requireRunning('listPartiesWithFailures');
+
+    const names = this.hostNames();
+    const settled = await Promise.allSettled(names.map((n) => this.getHostedPartiesCached(n)));
+    const merged = mergeHostedParties(names, settled);
+    if (merged.failures.length === names.length) {
+      const detail = merged.failures.map((f) => `${f.validator}: ${f.error}`).join('; ');
+      throw new Error(`Could not list parties: no participant responded (${detail})`);
+    }
+    return {
+      parties: merged.parties.map((m) => this.toPartyInfo(m.party, m.validator, m.participantId)),
+      failures: merged.failures,
+    };
+  }
+
+  /** `'sv'` followed by the configured validators, in config order. */
+  private hostNames(): string[] {
+    return ['sv', ...normalizeValidators(this.config.validators).map((v) => v.name)];
+  }
+
+  private warn(warning: LocalNetWarning): void {
+    this.options.onWarning(warning);
+  }
+
+  /** Queries the parties hosted on `name` (uncached). Errors propagate. */
+  private async fetchHostedParties(name: string): Promise<HostedParties> {
+    const client = this.cantonClients.get(name);
+    if (!client) throw new Error(`Unknown validator: ${name}`);
+
+    const [participantId, parties] = await Promise.all([
+      client.getParticipantId(),
+      client.listParties(),
+    ]);
+    return { participantId, parties: parties.filter((p) => p.isLocal === true) };
+  }
+
+  /** Cached {@link LocalNet.fetchHostedParties}; only successes are cached. */
+  private async getHostedPartiesCached(name: string): Promise<HostedParties> {
+    const cacheKey = `parties:${name}`;
+    const cached = this.getCached<HostedParties>(cacheKey);
+    if (cached) return cached;
+
+    const hosted = await this.fetchHostedParties(name);
+    this.setCache(cacheKey, hosted);
+    return hosted;
+  }
+
+  /**
+   * Allocates a party on `validatorName`'s participant.
+   *
+   * @param hint - Party ID hint (the part of the party ID before `::`).
+   * @param validatorName - `'sv'` or a configured validator name.
+   * @param displayName - Stored as the `displayName` annotation on the hosting participant
+   *   and returned by `getParties`; when omitted, `getParties` reports the hint.
+   */
   async allocateParty(
     hint: string,
     validatorName: string,
@@ -728,11 +803,13 @@ export class LocalNet {
     const participantId = await client.getParticipantId();
 
     this.invalidateCache(`parties:${validatorName}`);
-    this.invalidateCache('parties:all');
 
     return this.toPartyInfo(party, validatorName, participantId);
   }
 
+  /**
+   * Users on one validator's participant. An unknown or unreachable validator throws.
+   */
   async getUsers(validatorName: string): Promise<ApiUserInfo[]> {
     await this.requireRunning('getUsers');
 
@@ -750,48 +827,88 @@ export class LocalNet {
     return userInfos;
   }
 
+  /**
+   * Users with their rights, for one validator or for every participant.
+   *
+   * With `validatorName`, an unknown or unreachable validator throws. With no name, a
+   * participant that does not respond produces a warning naming it (via `onWarning`) and
+   * its users are omitted; if none responds it throws. A user whose rights cannot be
+   * listed is returned with `rights: []` and a warning. Per-validator results are cached
+   * for 30 seconds; failures are never cached.
+   */
   async getUsersWithRights(validatorName?: string): Promise<ApiUserInfoWithRights[]> {
     await this.requireRunning('getUsersWithRights');
 
-    const cacheKey = `usersWithRights:${validatorName ?? 'all'}`;
+    if (validatorName) return await this.getUsersWithRightsCached(validatorName);
+
+    const names = this.hostNames();
+    const settled = await Promise.allSettled(names.map((n) => this.getUsersWithRightsCached(n)));
+    const users: ApiUserInfoWithRights[] = [];
+    const failures: Array<{ validator: string; error: string }> = [];
+    settled.forEach((result, index) => {
+      if (result.status === 'fulfilled') {
+        users.push(...result.value);
+        return;
+      }
+      const error = result.reason instanceof Error ? result.reason.message : String(result.reason);
+      failures.push({ validator: names[index], error });
+    });
+    // Total failure throws before any warning, like getParties() and getPackages().
+    if (failures.length === names.length) {
+      const detail = failures.map((f) => `${f.validator}: ${f.error}`).join('; ');
+      throw new Error(`Could not list users: no participant responded (${detail})`);
+    }
+    for (const { validator, error } of failures) {
+      this.warn({
+        source: 'query',
+        validator,
+        message: `Could not list users on ${validator}: ${error}; its users are omitted`,
+      });
+    }
+    return users;
+  }
+
+  private async getUsersWithRightsCached(name: string): Promise<ApiUserInfoWithRights[]> {
+    const cacheKey = `usersWithRights:${name}`;
     const cached = this.getCached<ApiUserInfoWithRights[]>(cacheKey);
     if (cached) return cached;
 
-    const validatorNames = validatorName
-      ? [validatorName]
-      : ['sv', ...normalizeValidators(this.config.validators).map((v) => v.name)];
+    const client = this.cantonClients.get(name);
+    if (!client) throw new Error(`Unknown validator: ${name}`);
 
-    const allUsers: ApiUserInfoWithRights[] = [];
-
-    for (const name of validatorNames) {
-      const client = this.cantonClients.get(name);
-      if (!client) continue;
-
+    const users = await client.listUsers();
+    const result: ApiUserInfoWithRights[] = [];
+    let complete = true;
+    for (const user of users) {
+      let rights: ApiUserRight[] = [];
       try {
-        const users = await client.listUsers();
-
-        for (const user of users) {
-          let rights: ApiUserRight[] = [];
-          try {
-            rights = await client.listApiUserRights(user.id);
-          } catch {
-            // If rights query fails, include user with empty rights
-          }
-
-          allUsers.push({
-            ...this.toUserInfo(user, name),
-            rights,
-          });
-        }
-      } catch {
-        // Skip unhealthy validators
+        rights = await client.listApiUserRights(user.id);
+      } catch (err) {
+        complete = false;
+        this.warn({
+          source: 'query',
+          validator: name,
+          message: `Could not list rights for ${user.id} on ${name}: ${
+            err instanceof Error ? err.message : String(err)
+          }; listed with no rights`,
+        });
       }
+      result.push({ ...this.toUserInfo(user, name), rights });
     }
 
-    this.setCache(cacheKey, allUsers);
-    return allUsers;
+    // A partial result is never cached, so the next call re-queries the failed rights.
+    if (complete) this.setCache(cacheKey, result);
+    return result;
   }
 
+  /**
+   * Creates (or converges) a user on `validatorName` with the requested party and rights.
+   *
+   * Party hints resolve against parties hosted on `validatorName` only; a hint hosted only
+   * on another validator is allocated afresh here, with the same hint but this
+   * participant's namespace, so it is a different party id. A failure to query the
+   * validator's parties fails the call instead of re-allocating blindly.
+   */
   async createUser(
     userId: string,
     validatorName: string,
@@ -815,23 +932,32 @@ export class LocalNet {
       for (const p of options.parties) referencedHints.add(p.hint);
     }
 
-    const partyMap = new Map<string, string>();
+    const partyMap = new Map<string, { partyId: string; ownNamespace: boolean }>();
     if (referencedHints.size > 0) {
-      const existingParties = await this.getParties(validatorName);
-      for (const party of existingParties) {
-        if (referencedHints.has(party.hint)) {
-          partyMap.set(party.hint, party.partyId);
+      // Resolve against this validator's own hosted parties, uncached; a query failure
+      // fails createUser instead of triggering blind re-allocation.
+      const hosted = await this.fetchHostedParties(validatorName);
+      const participantNamespace = hosted.participantId.split('::').pop();
+      for (const party of hosted.parties) {
+        const [hint, ...rest] = party.party.split('::');
+        if (!referencedHints.has(hint)) continue;
+        const known = partyMap.get(hint);
+        const ownNamespace = rest.join('::') === participantNamespace;
+        if (known === undefined || (ownNamespace && !known.ownNamespace)) {
+          partyMap.set(hint, { partyId: party.party, ownNamespace });
         }
       }
       for (const hint of referencedHints) {
         if (!partyMap.has(hint)) {
           const allocated = await this.allocateParty(hint, validatorName, hint);
-          partyMap.set(hint, allocated.partyId);
+          partyMap.set(hint, { partyId: allocated.partyId, ownNamespace: true });
         }
       }
     }
 
-    const primaryPartyId = options?.primaryParty ? partyMap.get(options.primaryParty) : undefined;
+    const primaryPartyId = options?.primaryParty
+      ? partyMap.get(options.primaryParty)?.partyId
+      : undefined;
 
     try {
       await client.getUser(userId);
@@ -875,7 +1001,7 @@ export class LocalNet {
 
     if (options?.parties) {
       for (const partyConfig of options.parties) {
-        const partyId = partyMap.get(partyConfig.hint);
+        const partyId = partyMap.get(partyConfig.hint)?.partyId;
         if (!partyId) continue;
 
         const partyRights = partyConfig.rights ?? ['CanActAs'];
@@ -926,9 +1052,7 @@ export class LocalNet {
     this.invalidateCache(`users:${validatorName}`);
     this.invalidateCache('users:all');
     this.invalidateCache(`parties:${validatorName}`);
-    this.invalidateCache('parties:all');
     this.invalidateCache(`usersWithRights:${validatorName}`);
-    this.invalidateCache('usersWithRights:all');
 
     const latest = await client.getUser(userId);
     return this.toUserInfo(latest, validatorName);
@@ -945,71 +1069,135 @@ export class LocalNet {
     return this.keycloakAdminClient;
   }
 
+  /**
+   * Packages known to the participants, one row per package with the validators that
+   * know it. Built-in Splice and Daml packages are included. Rows are sorted by
+   * `packageId`; `validators` is in SV-then-config order.
+   *
+   * With `validatorName`, `validators` is `[validatorName]`, and an unknown or unreachable
+   * validator throws. With no name, a participant that does not respond produces a
+   * warning naming it (via `onWarning`) and is left out of every row; if none responds it
+   * throws. Per-validator results are cached for 30 seconds; failures are never cached.
+   */
   async getPackages(validatorName?: string): Promise<ApiPackageInfo[]> {
     await this.requireRunning('getPackages');
 
-    const cacheKey = `packages:${validatorName ?? 'all'}`;
-    const cached = this.getCached<ApiPackageInfo[]>(cacheKey);
-    if (cached) return cached;
-
-    const validatorNames = validatorName
-      ? [validatorName]
-      : ['sv', ...normalizeValidators(this.config.validators).map((v) => v.name)];
-
-    const allPackages: ApiPackageInfo[] = [];
-    const seenPackageIds = new Set<string>();
-
-    for (const name of validatorNames) {
-      const client = this.cantonClients.get(name);
-      if (!client) continue;
-
-      try {
-        const packages = await client.listPackages();
-
-        for (const pkg of packages) {
-          if (!seenPackageIds.has(pkg.packageId)) {
-            seenPackageIds.add(pkg.packageId);
-            allPackages.push(this.toPackageInfo(pkg, name));
-          }
-        }
-      } catch {
-        // Skip unhealthy validators
-      }
+    const { packages, failures } = await this.collectPackages(validatorName);
+    for (const failure of failures) {
+      this.warn({
+        source: 'query',
+        validator: failure.validator,
+        message:
+          `Could not list packages on ${failure.validator}: ${failure.error}; its packages are omitted`,
+      });
     }
-
-    this.setCache(cacheKey, allPackages);
-    return allPackages;
+    return packages;
   }
 
-  async uploadDar(filePath: string, validatorNames?: string[]): Promise<string> {
+  /**
+   * Like {@link LocalNet.getPackages} with no name, but returns the per-validator failures
+   * instead of passing them to `onWarning`. Used by the discovery server.
+   *
+   * @throws If no participant responds.
+   */
+  async listPackagesWithFailures(): Promise<
+    { packages: ApiPackageInfo[]; failures: Array<{ validator: string; error: string }> }
+  > {
+    await this.requireRunning('listPackagesWithFailures');
+    return await this.collectPackages();
+  }
+
+  private async collectPackages(
+    validatorName?: string,
+  ): Promise<
+    { packages: ApiPackageInfo[]; failures: Array<{ validator: string; error: string }> }
+  > {
+    const names = validatorName ? [validatorName] : this.hostNames();
+    const settled = await Promise.allSettled(names.map((n) => this.getPackageIdsCached(n)));
+
+    const validatorsByPackage = new Map<string, string[]>();
+    const failures: Array<{ validator: string; error: string }> = [];
+    settled.forEach((result, index) => {
+      const name = names[index];
+      if (result.status === 'rejected') {
+        if (validatorName) throw result.reason;
+        failures.push({
+          validator: name,
+          error: result.reason instanceof Error ? result.reason.message : String(result.reason),
+        });
+        return;
+      }
+      for (const packageId of result.value) {
+        const hosts = validatorsByPackage.get(packageId);
+        if (hosts) hosts.push(name);
+        else validatorsByPackage.set(packageId, [name]);
+      }
+    });
+    if (failures.length === names.length) {
+      const detail = failures.map((f) => `${f.validator}: ${f.error}`).join('; ');
+      throw new Error(`Could not list packages: no participant responded (${detail})`);
+    }
+
+    const packages = [...validatorsByPackage.entries()]
+      .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+      .map(([packageId, validators]) => ({ packageId, validators }));
+    return { packages, failures };
+  }
+
+  private async getPackageIdsCached(name: string): Promise<string[]> {
+    const cacheKey = `packages:${name}`;
+    const cached = this.getCached<string[]>(cacheKey);
+    if (cached) return cached;
+
+    const client = this.cantonClients.get(name);
+    if (!client) throw new Error(`Unknown validator: ${name}`);
+
+    const packageIds = await client.listPackages();
+    this.setCache(cacheKey, packageIds);
+    return packageIds;
+  }
+
+  /**
+   * Uploads a DAR file to the given validators (default: `sv` and every validator).
+   * Canton validates the DAR; use {@link LocalNet.getPackages} to see the result.
+   *
+   * Arguments are checked before anything is uploaded: an empty `validatorNames` list
+   * or an unknown validator name (`Unknown validator: <name>`) throws without sending a
+   * request. If an upload fails on some validators (including Canton rejecting the DAR),
+   * the rest are still attempted and one error naming the failed validators and Canton's
+   * message is thrown.
+   *
+   * @param filePath - Path to the `.dar` file.
+   * @param validatorNames - Target participants (`'sv'` or validator names).
+   */
+  async uploadDar(filePath: string, validatorNames?: string[]): Promise<void> {
+    const targets = validatorNames ?? this.hostNames();
+    if (targets.length === 0) {
+      throw new Error('uploadDar: no target validators given');
+    }
+    for (const name of targets) {
+      if (!this.cantonClients.has(name)) throw new Error(`Unknown validator: ${name}`);
+    }
+
+    const darContent = new Uint8Array(await readFile(filePath));
+
     await this.requireRunning('uploadDar');
 
-    const targets = validatorNames ??
-      ['sv', ...normalizeValidators(this.config.validators).map((v) => v.name)];
-
-    let mainPackageId = '';
     const errors = new Map<string, Error>();
-
     for (const name of targets) {
-      const client = this.cantonClients.get(name);
-      if (!client) continue;
-
+      const client = this.cantonClients.get(name)!;
       try {
-        mainPackageId = await client.uploadDarFromFile(filePath);
+        await client.uploadDar(darContent);
         this.invalidateCache(`packages:${name}`);
       } catch (error) {
         errors.set(name, error instanceof Error ? error : new Error(String(error)));
       }
     }
 
-    this.invalidateCache('packages:all');
-
     if (errors.size > 0) {
       const details = [...errors.entries()].map(([n, e]) => `${n}: ${e.message}`).join('; ');
       throw new Error(`DAR upload failed for ${errors.size} validator(s): ${details}`);
     }
-
-    return mainPackageId;
   }
 
   async getDsoPartyId(): Promise<string> {
@@ -1027,23 +1215,34 @@ export class LocalNet {
     return dsoPartyId;
   }
 
+  /**
+   * Best-effort snapshot of validators, parties, users and packages. `parties` and
+   * `packages` are empty if no participant responds; a validator whose users cannot be
+   * listed (or that is unhealthy) is omitted from `users` with a warning via `onWarning`.
+   */
   async getSnapshot(): Promise<ApiLocalNetSnapshot> {
     await this.requireRunning('getSnapshot');
 
     const validators = await this.getAllValidatorStates();
-    const parties = await this.getParties();
-    const packages = await this.getPackages();
+    const parties = await this.getParties().catch(() => []);
+    const packages = await this.getPackages().catch(() => []);
 
     const users: ApiUserInfo[] = [];
     for (const validator of validators) {
+      let reason = 'unhealthy';
       if (validator.isHealthy) {
         try {
-          const validatorUsers = await this.getUsers(validator.name);
-          users.push(...validatorUsers);
-        } catch {
-          // Skip unavailable validators
+          users.push(...await this.getUsers(validator.name));
+          continue;
+        } catch (err) {
+          reason = err instanceof Error ? err.message : String(err);
         }
       }
+      this.warn({
+        source: 'query',
+        validator: validator.name,
+        message: `Could not list users on ${validator.name}: ${reason}; its users are omitted`,
+      });
     }
 
     return {
@@ -1250,7 +1449,6 @@ export class LocalNet {
       displayName: party.localMetadata?.annotations?.displayName ?? hint,
       validator,
       participantId,
-      isLocal: party.isLocal,
     };
   }
 
@@ -1260,15 +1458,6 @@ export class LocalNet {
       primaryParty: user.primaryParty,
       validator,
       isDeactivated: user.isDeactivated,
-    };
-  }
-
-  private toPackageInfo(pkg: PackageDetails, validator: string): ApiPackageInfo {
-    return {
-      packageId: pkg.packageId,
-      packageSize: pkg.packageSize,
-      knownSince: pkg.knownSince,
-      validator,
     };
   }
 
