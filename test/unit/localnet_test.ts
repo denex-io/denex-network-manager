@@ -145,7 +145,20 @@ interface FakeLogsExecClient {
   ): Promise<{ exitCode: number; output: string; stdout: string; stderr: string }>;
 }
 
-function makeNetWithFakeDocker(instanceId: string) {
+const ALL_CONTAINER_SUFFIXES = [
+  'postgres',
+  'canton',
+  'keycloak',
+  'splice',
+  'wallet-web-ui-sv',
+  'wallet-web-ui-validator-1',
+  'sv-web-ui',
+  'scan-web-ui',
+  'nginx',
+];
+
+/** `allExpected`: list every container a one-validator instance has (for start()). */
+function makeNetWithFakeDocker(instanceId: string, allExpected = false) {
   const net = new LocalNet(createMinimalConfig(1), { instanceId });
   const calls = {
     list: [] as (Record<string, string> | undefined)[],
@@ -159,15 +172,13 @@ function makeNetWithFakeDocker(instanceId: string) {
       const configLabels = {
         'denex.localnet.config': JSON.stringify(parseLocalNetConfig(net.getConfig())),
       };
-      const all = [
-        { id: 'id-splice', name: `${instanceId}-splice`, state: 'running', labels: configLabels },
-        {
-          id: 'id-postgres',
-          name: `${instanceId}-postgres`,
-          state: 'running',
-          labels: configLabels,
-        },
-      ];
+      const suffixes = allExpected ? ALL_CONTAINER_SUFFIXES : ['splice', 'postgres'];
+      const all = suffixes.map((s) => ({
+        id: `id-${s}`,
+        name: `${instanceId}-${s}`,
+        state: 'running',
+        labels: configLabels,
+      }));
       // Honour the instance filter; an unfiltered call also sees another instance.
       if (labels?.['denex.localnet.instance'] === instanceId) return Promise.resolve(all);
       return Promise.resolve([
@@ -220,7 +231,7 @@ Deno.test('LocalNet.logs/exec reject unknown names and list the instance contain
 });
 
 Deno.test('LocalNet.logs/exec resolve by runtime name after start() returns early on a running instance', async () => {
-  const { net, calls } = makeNetWithFakeDocker('t-early');
+  const { net, calls } = makeNetWithFakeDocker('t-early', true);
   // All containers already run: start() attaches and returns without creating anything.
   await net.start();
   assertEquals(net.getContainerId('t-early-splice'), undefined);
