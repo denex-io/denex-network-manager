@@ -401,7 +401,7 @@ Deno.test('buildConfigEnvironmentInfo - SV participantId is null without live da
   assertEquals(info.validators['validator-1'].participantId, null);
 });
 
-// --- P7: unknown-key warnings, input-only rules, stored-label leniency ---
+// --- unknown-key warnings, input-only rules, stored-label leniency ---
 
 const AUTH = { keycloak: { admin: 'admin', password: 'admin' } };
 

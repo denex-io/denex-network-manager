@@ -65,7 +65,7 @@ user-facing schema, fills defaults, and feeds the generator and lifecycle layers
 ## Critical gotchas
 
 - YAML merge keys (`<<`) and `x-*` anchor keys are not exempt from unknown-key detection; they warn
-  as "Unrecognized key" (decision D8).
+  as "Unrecognized key".
 - `packages:` is parsed and validated, but startup does not currently auto-upload those DARs. Use
   `LocalNet.uploadDar()` for runtime uploads.
 - `withDefaults()` does **not** inject a default `discovery` value. If `config.discovery` is absent,
