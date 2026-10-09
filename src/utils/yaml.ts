@@ -94,8 +94,9 @@ export function loadConfigFromString(
  * Validated config with `validatorCount` validators named `validator-1`, `validator-2`, and so
  * on, base port 5000, and Keycloak admin `admin`/`admin`.
  *
- * @param validatorCount - 1 to 10.
- * @throws A Zod validation error if the count is out of range.
+ * @param validatorCount - At least 1; a count whose highest derived port exceeds 65535 is
+ *   rejected.
+ * @throws A Zod validation error if the count is invalid.
  */
 export function createMinimalConfig(validatorCount: number = 2): ParsedLocalNetConfig {
   return withDefaults({ validators: validatorCount });

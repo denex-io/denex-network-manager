@@ -100,8 +100,9 @@ export class LocalNetBuilder {
    * Replaces any previously configured validators. Each name becomes a validator
    * with no parties or users (add those with {@link LocalNetBuilder.addValidator} instead).
    *
-   * @param names - One or more validator names: at most 12 characters, starting with a letter,
-   *   and containing only letters, digits, and hyphens. Checked by {@link LocalNetBuilder.build}.
+   * @param names - One or more validator names: lowercase, at most 12 characters, starting with a
+   *   letter, containing only letters, digits, and hyphens, unique, and not `sv`. Checked by
+   *   {@link LocalNetBuilder.build}.
    *
    * @example
    * ```typescript
@@ -140,7 +141,7 @@ export class LocalNetBuilder {
    * Use this for detailed per-validator configuration.
    *
    * @param name - Validator name, with the same rules as {@link LocalNetBuilder.withValidators}.
-   *   Give each validator a distinct name; `build()` does not check for duplicates.
+   *   Names must be unique; {@link LocalNetBuilder.build} rejects duplicates.
    * @param options - Party hints to allocate and users to create on this validator during
    *   `start()`.
    *

@@ -83,7 +83,8 @@ export interface ValidatorConfig {
    *
    * Must be at most 12 characters: Splice node names have a 30-character limit
    * and the validator backend appends "-validator_backend" (18 chars). Must start with a letter
-   * and contain only letters, digits, and hyphens.
+   * and contain only letters, digits, and hyphens. Must also be lowercase, unique, not `sv`, and
+   * not map to the same Keycloak realm as another validator; rejected on input otherwise.
    */
   name: string;
 

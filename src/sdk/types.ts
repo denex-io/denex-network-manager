@@ -35,11 +35,9 @@ export interface ValidatorSpec {
    *
    * Must be lowercase (Keycloak lowercases usernames, so 'Alice' would never authenticate;
    * `build()` throws a ZodError), unique across all validators in the LocalNet, must not be
-   * 'sv', must not map to the same Keycloak realm as another validator, and at most 12
-   * characters (Splice appends "-validator_backend" to form a node name, which
-   * has a 30-character limit).
-   * Keycloak realm name is derived by title-casing each dash-separated segment.
-   * Example: 'alice-val' → realm 'AliceVal'.
+   * 'sv', must not map to the same Keycloak realm as another validator, must start with a
+   * letter and contain only letters, digits, and hyphens, and be at most 12 characters (Splice
+   * appends "-validator_backend" to form a node name, which has a 30-character limit).
    */
   name: string;
 

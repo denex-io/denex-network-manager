@@ -373,9 +373,10 @@ export class LocalNet {
    * This is an existence check, not a liveness check. Stopped containers count, and the returned
    * object treats itself as running without checking, so ledger methods do not throw a "not
    * running" error and `start()` throws "LocalNet is already running" until you call `stop()`.
-   * On a stopped instance, some query methods fail with network errors (for example
-   * `getUsers()` and `getDsoPartyId()`) while those that skip failing validators return empty
-   * results without an error (for example `getParties()` and `getEnvironment()`). Gate on
+   * On a stopped instance, most query methods fail with network errors or throw because no
+   * participant responded (for example `getUsers()`, `getParties()` and `getDsoPartyId()`), while
+   * the best-effort ones return empty or partial results without an error (for example
+   * `getEnvironment()` and `getSnapshot()`). Gate on
    * {@link LocalNet.isRunning} or {@link LocalNet.state} before using it.
    *
    * @param options - `labelPrefix` selects the labels to search; `instanceId` is replaced by `id`.
@@ -526,7 +527,12 @@ export class LocalNet {
 
   /**
    * Start the instance, creating or starting whatever containers, network and
-   * postgres volume are missing.
+   * postgres volume are missing, wait for them to become healthy, and run initialization.
+   *
+   * Throws before changing anything if the instance already has containers whose stored
+   * config differs from this handle's config or cannot be read. After the guards below, it
+   * throws if another Docker container already publishes a required host port (ports held
+   * by processes outside Docker are not checked).
    *
    * Failure is non-destructive: if `start()` fails, it removes only the
    * containers, network and volume that this call created, starts back any
@@ -566,12 +572,18 @@ export class LocalNet {
    * `LocalNet is already running` instead of repairing: repair needs a handle
    * that is not attached.
    *
+   * Initialization ({@link LocalNet.initializeResources}) waits for every validator's APIs and
+   * for Scan to become ready, allocates the configured parties, creates the configured users
+   * and uploads the configured `packages`. A party or user that fails is reported as a
+   * warning through `onProgress` and a package that fails through `onWarning`; neither fails
+   * `start()`, but a readiness wait that times out does.
+   *
    * @param options - `timeout` (milliseconds, default 300000) is checked before each layer of
    *   containers is started, not enforced as a wall-clock limit; health-check waits and
    *   initialization can run past it. `parallel` (default `true`) starts the containers of one
    *   layer concurrently. `skipHealthChecks` skips waiting for Docker health checks.
-   *   `skipInitialization` skips step 5, including the readiness waits. `onProgress` receives
-   *   progress and warning messages.
+   *   `skipInitialization` skips initialization, including the readiness waits and the package
+   *   upload. `onProgress` receives progress and warning messages.
    * @throws If this object is already running or starting, on a config mismatch or port conflict,
    *   if Docker is unavailable, a container exits or does not become healthy, the timeout check
    *   fails, or the APIs or Scan do not become ready.
@@ -1559,6 +1571,9 @@ export class LocalNet {
    * validator throws. With no name, a participant that does not respond produces a
    * warning naming it (via `onWarning`) and is left out of every row; if none responds it
    * throws. Per-validator results are cached for 30 seconds; failures are never cached.
+   *
+   * @throws If the instance is not running, a named validator is unknown or unreachable, or no
+   *   participant responds.
    */
   async getPackages(validatorName?: string): Promise<ApiPackageInfo[]> {
     await this.requireRunning('getPackages');
@@ -1805,8 +1820,9 @@ export class LocalNet {
 
   /**
    * Web UI login entries for this instance's config, as returned by the standalone
-   * {@link getCredentials} function. The list is derived from the config; no login is checked,
-   * and some listed wallet logins do not work (see {@link getCredentials}).
+   * {@link getCredentials} function. The list is derived from the config and no login is
+   * checked; per validator it starts with the wallet-admin login, and users without a
+   * `primaryParty` are labelled as not onboarded (see {@link getCredentials}).
    *
    * @throws If the instance is not running.
    */
@@ -2265,16 +2281,18 @@ export class LocalNet {
    * Run post-startup initialization: allocate configured parties, create users,
    * onboard wallets, and upload the configured `packages`. Called automatically
    * by start() unless skipInitialization is set. Also exposed for the
-   * `dnm init` CLI command on already-running instances.
+   * `dnm init` CLI command on already-running instances. It first waits for every validator's
+   * APIs and for Scan to become ready; those waits throw on timeout.
    *
    * Safe to re-run: a configured party whose hint is already hosted on its
    * validator's participant is skipped, and users converge on their configured
    * state (see {@link LocalNet.createUser}). Packages upload to their
    * `uploadTo` validators (default `sv` and every validator); relative `dar`
    * paths resolve against `configDir`, then the current directory. A missing
-   * DAR or failed upload is a `'packages'` warning, not an error. Re-uploading
-   * an existing DAR is expected to be a no-op (to be confirmed by live
-   * validation).
+   * DAR or failed upload is a `'packages'` warning (via `onWarning`), not an error.
+   * Re-uploading a DAR the participant already has succeeds. A party or user that fails is
+   * reported through `onProgress`; if the hosted-party query fails for a validator with
+   * configured parties, the call throws without allocating anything there.
    *
    * @internal Do not call directly in application code — use start() instead.
    */
@@ -2535,9 +2553,9 @@ done
 /**
  * Construct a {@link LocalNet} and call {@link LocalNet.start} with default start options.
  *
- * Like the `LocalNet` constructor, this does not validate the config or apply schema defaults.
- * Prefer `LocalNet.fromConfig()` followed by `start()`, which validates first and accepts start
- * options.
+ * Like the `LocalNet` constructor, this validates the config, applies schema defaults and reports
+ * warnings through `onWarning`; an invalid config rejects with a `ZodError` before Docker is
+ * touched. Use `LocalNet.fromConfig()` followed by `start()` to pass start options.
  */
 export async function createLocalNet(
   config: LocalNetConfig,

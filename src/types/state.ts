@@ -86,11 +86,15 @@ export interface FullEnvironmentInfo {
    */
   auth: EnvironmentAuthConfig;
   /**
-   * Web UI logins, as returned by {@link getCredentials}, including its known-broken
-   * per-validator wallet entries.
+   * Web UI logins, as returned by {@link getCredentials}: the wallet-admin login per validator,
+   * then one entry per configured user (users without a `primaryParty` are labelled as not
+   * onboarded).
    */
   credentials: CredentialEntry[];
-  /** Each party once, under its hosting validator, read from the running instance; empty when built from config alone or when no participant responds. */
+  /**
+   * Each party once, under its hosting validator, read from the running instance; empty when
+   * built from config alone or when no participant responds.
+   */
   parties: PartyEnvironmentInfo[];
 }
 
