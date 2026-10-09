@@ -87,9 +87,10 @@ All notable changes to this project will be documented in this file. The format 
 - **Breaking:** validator names must be lowercase (Keycloak lowercases usernames, so a name such as
   `App` left the validator backend retrying `PERMISSION_DENIED` forever), unique, must not be `sv`,
   and must not map to the same Keycloak realm as another validator (`ab` and `ab-`). User ids must
-  be lowercase for the same reason (`Alice` is rejected, use `alice`). Checked on input only; stored
-  labels from older SDKs still load. `withValidators(count)` throws `RangeError` for a non-integer
-  or `< 1` count.
+  be lowercase for the same reason (`Alice` is rejected, use `alice`); this rule covers config input
+  and runtime `LocalNet.createUser()`. Stored labels from older SDKs are not re-checked and still
+  load; a stored user with an uppercase id is reported as a warning at startup instead of created.
+  `withValidators(count)` throws `RangeError` for a non-integer or `< 1` count.
 - **Breaking:** the `LocalNet` constructor (and so `createLocalNet`) validates its config and throws
   `ZodError`, applies schema defaults and reports warnings; `getConfig()` returns the normalized
   copy, not the object passed in. Existing instances remain discoverable, stoppable and destroyable;

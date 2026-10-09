@@ -122,6 +122,19 @@ Deno.test('LocalNet - tier 3: createUser is Tier 3 guarded', async () => {
   );
 });
 
+Deno.test('LocalNet - createUser rejects a non-lowercase user id', async () => {
+  const config = createMinimalConfig(2);
+  const net = new LocalNet(config, {
+    instanceId: 't-createuser-case-' + Date.now(),
+  });
+
+  await assertRejects(
+    () => net.createUser('Alice', 'validator-1'),
+    Error,
+    "User id 'Alice' must be lowercase (Keycloak lowercases usernames); use 'alice'",
+  );
+});
+
 Deno.test('LocalNet - createUser accepts UserConfig-shaped options', async () => {
   const config = createMinimalConfig(2);
   const net = new LocalNet(config, {

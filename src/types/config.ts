@@ -56,7 +56,10 @@ export interface PartyConfig {
  * Configuration for a user to be created on a Participant.
  */
 export interface UserConfig {
-  /** Unique user ID within the Participant. Must be lowercase (Keycloak lowercases usernames); rejected on input otherwise. */
+  /**
+   * Unique user ID within the Participant. Must be lowercase (Keycloak lowercases usernames);
+   * rejected on input otherwise.
+   */
   id: string;
 
   /** Reference to party hint that this user's primary party will be. Optional — omit for users with only participant-wide rights. */
@@ -167,7 +170,7 @@ export interface LocalNetConfig {
    * Can be a simple count (creates validator-1, validator-2, etc.; at least 1)
    * or a non-empty list of detailed configurations. Names must be lowercase,
    * unique, not `sv`, and must not map to the same Keycloak realm; user ids within a validator
-   * must be unique case-insensitively.
+   * must be unique and lowercase.
    * The highest port derived from `basePort` and the validator count must be
    * at most 65535 (see {@link LocalNetConfig.basePort}). These rules apply to
    * input; configs stored in container labels by older versions are not
