@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { LocalNet } from '../../src/localnet.ts';
 import type { LocalNetConfig } from '../../src/types/config.ts';
-import { generateTestInstanceId, isDockerAvailable } from './helpers.ts';
+import { generateTestInstanceId, isDockerAvailable, newestDar } from './helpers.ts';
 
 const CONFIG: LocalNetConfig = {
   basePort: 22000,
@@ -43,13 +43,13 @@ Deno.test({
       assert(before.every((p) => p.validators.length === 1 && p.validators[0] === 'validator-1'));
       const known = new Set((await localnet.getPackages()).map((p) => p.packageId));
 
-      // Upload the shipped DARs to validator-1 only; at least one is new to every participant.
+      // Upload one DAR that a default LocalNet does not ship to validator-1 only. Uploading all
+      // ~180 shipped DARs takes over half an hour and many exceed Canton's request timeout.
       const dir = await copyImageDars(instanceId);
-      const dars = (await readdir(dir)).filter((f) => f.endsWith('.dar'));
-      assert(dars.length > 0, 'expected shipped DARs in the splice image');
-      for (const name of dars) {
-        await localnet.uploadDar(join(dir, name), ['validator-1']);
-      }
+      const shipped = (await readdir(dir)).filter((f) => f.endsWith('.dar'));
+      const dar = newestDar(shipped, /^splitwell-\d[\d.]*\.dar$/);
+      assert(dar !== undefined, 'the splice image should ship a splitwell DAR');
+      await localnet.uploadDar(join(dir, dar), ['validator-1']);
 
       const rows = await localnet.getPackages();
       const added = rows.filter((p) => !known.has(p.packageId));
@@ -59,7 +59,7 @@ Deno.test({
       }
 
       await assertRejects(
-        () => localnet.uploadDar(join(dir, dars[0]), ['nope']),
+        () => localnet.uploadDar(join(dir, dar), ['nope']),
         Error,
         'Unknown validator: nope',
       );
