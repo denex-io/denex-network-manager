@@ -72,8 +72,8 @@ All notable changes to this project will be documented in this file. The format 
 - The splice and canton Prometheus metrics reporters now listen on basePort+13 (splice) and
   basePort+64 (canton) inside their containers instead of the image default 10013, at every
   `basePort` including 5000. The port is never published to the host and is not persisted, so
-  nothing outside the container sees the change; it removes a collision at `basePort` values such
-  as 9010 (splice) or 9951 (canton).
+  nothing outside the container sees the change; it removes a collision at `basePort` values such as
+  9010 (splice) or 9951 (canton).
 
 ### Fixed
 
