@@ -14,7 +14,6 @@ All notable changes to this project will be documented in this file. The format 
 
 - `LocalNet.listPartiesWithFailures()` and `LocalNet.listPackagesWithFailures()` return the
   reachable results together with per-validator failures instead of calling `onWarning`.
-- `readDarMainPackageId()` is exported from the API barrel.
 - Discovery `GET /instances/:id/packages` returns 503 when no participant responds and a `failures`
   list alongside the reachable packages on partial results.
 
@@ -53,9 +52,11 @@ All notable changes to this project will be documented in this file. The format 
 - `CantonClient.listParties()` ignored pagination; it now follows `nextPageToken`.
 - `getUsersWithRights()` and `getSnapshot()` silently omitted validators that failed to respond;
   they now return the reachable results and warn for each failed validator.
+- **Breaking:** `uploadDar()` (and `CantonClient.uploadDar()` / `uploadDarFromFile()`) now returns
+  `Promise<void>`; the package id was never populated before. Use `getPackages()` to see the result.
 - `uploadDar()` sent a multipart body Canton rejects, returned an empty package id, and silently
-  skipped unknown validators; it now sends a raw octet-stream body, returns the main package id
-  computed from the DAR, and throws on an unknown validator, an empty target list or an invalid DAR.
+  skipped unknown validators; it now sends a raw octet-stream body and throws on an unknown
+  validator or an empty target list; Canton's error for a rejected DAR is surfaced.
 - `getPackages()` and `listPackages()` always returned an empty list.
 
 ## [0.1.0-beta.1] — 2026-07-28

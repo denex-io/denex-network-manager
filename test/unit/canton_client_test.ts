@@ -1,6 +1,4 @@
 import { assertEquals, assertInstanceOf, assertRejects } from '@std/assert';
-import { createHash } from 'node:crypto';
-import { deflateRawSync } from 'node:zlib';
 import { CantonApiError, CantonClient } from '../../src/api/canton.ts';
 
 interface FetchCall {
@@ -52,86 +50,13 @@ function newClient(): CantonClient {
   });
 }
 
-/** A tiny but valid DAR: stored zip with a manifest and one DALF. */
-function tinyDar(): { bytes: Uint8Array; packageId: string } {
-  const encoder = new TextEncoder();
-  const payload = encoder.encode('payload');
-  const packageId = createHash('sha256').update(payload).digest('hex');
-  const field = (n: number, v: Uint8Array) => {
-    const out = new Uint8Array(2 + v.length);
-    out[0] = n * 8 + 2;
-    out[1] = v.length;
-    out.set(v, 2);
-    return out;
-  };
-  const dalf = new Uint8Array([...field(3, payload), ...field(4, encoder.encode(packageId))]);
-  const u16 = (n: number) => [n & 0xff, n >>> 8];
-  const u32 = (n: number) => [n & 0xff, (n >>> 8) & 0xff, (n >>> 16) & 0xff, n >>> 24];
-  const entries = [
-    { name: 'META-INF/MANIFEST.MF', data: encoder.encode('Main-Dalf: a.dalf\n') },
-    { name: 'a.dalf', data: dalf },
-  ];
-  const parts: number[] = [];
-  const central: number[] = [];
-  for (const e of entries) {
-    const body = new Uint8Array(deflateRawSync(e.data));
-    const name = encoder.encode(e.name);
-    const offset = parts.length;
-    parts.push(
-      ...u32(0x04034b50),
-      ...u16(20),
-      ...u16(0),
-      ...u16(8),
-      ...u32(0),
-      ...u32(0),
-      ...u32(body.length),
-      ...u32(e.data.length),
-      ...u16(name.length),
-      ...u16(0),
-      ...name,
-      ...body,
-    );
-    central.push(
-      ...u32(0x02014b50),
-      ...u16(20),
-      ...u16(20),
-      ...u16(0),
-      ...u16(8),
-      ...u32(0),
-      ...u32(0),
-      ...u32(body.length),
-      ...u32(e.data.length),
-      ...u16(name.length),
-      ...u16(0),
-      ...u16(0),
-      ...u16(0),
-      ...u16(0),
-      ...u32(0),
-      ...u32(offset),
-      ...name,
-    );
-  }
-  const dirOffset = parts.length;
-  parts.push(
-    ...central,
-    ...u32(0x06054b50),
-    ...u16(0),
-    ...u16(0),
-    ...u16(entries.length),
-    ...u16(entries.length),
-    ...u32(central.length),
-    ...u32(dirOffset),
-    ...u16(0),
-  );
-  return { bytes: new Uint8Array(parts), packageId };
-}
+/** Stand-in DAR bytes; the client does not parse them, Canton validates. */
+const DAR_BYTES = new TextEncoder().encode('dar-bytes');
 
-Deno.test('CantonClient.uploadDar - sends raw octet-stream body and returns the computed id', async () => {
-  const { bytes, packageId } = tinyDar();
+Deno.test('CantonClient.uploadDar - sends a raw octet-stream body', async () => {
   const { calls, restore } = installFetchMock(() => json({}));
   try {
-    const id = await newClient().uploadDar(bytes);
-    assertEquals(id, packageId);
+    await newClient().uploadDar(DAR_BYTES);
     assertEquals(calls.length, 1);
     const call = calls[0];
     assertEquals(call.url, 'http://canton.test:7575/v2/dars');
@@ -141,32 +66,21 @@ Deno.test('CantonClient.uploadDar - sends raw octet-stream body and returns the 
     assertEquals(headers['Accept'], 'application/json');
     assertEquals(headers['Authorization'], 'Bearer tok');
     assertEquals(call.init?.body instanceof FormData, false);
-    assertEquals(new Uint8Array(call.init?.body as Uint8Array), bytes);
+    assertEquals(new Uint8Array(call.init?.body as Uint8Array), DAR_BYTES);
   } finally {
     restore();
   }
 });
 
 Deno.test('CantonClient.uploadDar - HTTP 400 becomes CantonApiError', async () => {
-  const { bytes } = tinyDar();
   const { restore } = installFetchMock(() => new Response('bad dar', { status: 400 }));
   try {
-    const err = await assertRejects(() => newClient().uploadDar(bytes), CantonApiError);
-    assertEquals((err as CantonApiError).statusCode, 400);
-  } finally {
-    restore();
-  }
-});
-
-Deno.test('CantonClient.uploadDar - invalid DAR throws before any upload request', async () => {
-  const { calls, restore } = installFetchMock(() => json({}));
-  try {
-    await assertRejects(
-      () => newClient().uploadDar(new TextEncoder().encode('nope')),
-      Error,
-      'Invalid DAR:',
+    const err = await assertRejects(
+      () => newClient().uploadDar(DAR_BYTES),
+      CantonApiError,
+      'DAR upload failed: bad dar',
     );
-    assertEquals(calls.length, 0);
+    assertEquals((err as CantonApiError).statusCode, 400);
   } finally {
     restore();
   }

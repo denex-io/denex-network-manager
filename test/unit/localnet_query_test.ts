@@ -342,15 +342,14 @@ Deno.test('createUser - a failing hosted-party query fails the call and allocate
   assertEquals(fakes['validator-1'].allocated, []);
 });
 
-Deno.test('uploadDar - rejects an empty or unknown target list and an invalid DAR without any request', async () => {
+Deno.test('uploadDar - rejects an empty or unknown target list without any request', async () => {
   const { net, fakes } = harness(threeNodes());
   const dir = await mkdtemp(join(tmpdir(), 'dar-test-'));
-  const path = join(dir, 'bad.dar');
-  await writeFile(path, 'not a dar');
+  const path = join(dir, 'any.dar');
+  await writeFile(path, 'dar bytes');
 
   await assertRejects(() => net.uploadDar(path, []), Error, 'no target validators');
   await assertRejects(() => net.uploadDar(path, ['nope']), Error, 'Unknown validator: nope');
-  await assertRejects(() => net.uploadDar(path, ['sv']), Error, 'Invalid DAR:');
   assertEquals(fakes['sv'].calls, []);
 });
 

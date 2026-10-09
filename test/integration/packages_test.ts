@@ -3,7 +3,6 @@ import { mkdtemp, readdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { LocalNet } from '../../src/localnet.ts';
-import { readDarMainPackageId } from '../../src/api/dar.ts';
 import type { LocalNetConfig } from '../../src/types/config.ts';
 import { generateTestInstanceId, isDockerAvailable } from './helpers.ts';
 
@@ -28,7 +27,7 @@ async function copyImageDars(instanceId: string): Promise<string> {
 }
 
 Deno.test({
-  name: 'Packages: getPackages lists built-ins and uploadDar returns an id visible on the target',
+  name: 'Packages: getPackages lists built-ins and an uploaded DAR shows up on the target only',
   ignore: !(await isDockerAvailable()),
   sanitizeOps: false,
   sanitizeResources: false,
@@ -44,32 +43,23 @@ Deno.test({
       assert(before.every((p) => p.validators.length === 1 && p.validators[0] === 'validator-1'));
       const known = new Set((await localnet.getPackages()).map((p) => p.packageId));
 
-      // Pick a shipped DAR whose main package the participants do not know yet.
+      // Upload the shipped DARs to validator-1 only; at least one is new to every participant.
       const dir = await copyImageDars(instanceId);
       const dars = (await readdir(dir)).filter((f) => f.endsWith('.dar'));
-      let probe: { path: string; packageId: string } | undefined;
+      assert(dars.length > 0, 'expected shipped DARs in the splice image');
       for (const name of dars) {
-        const path = join(dir, name);
-        const packageId = readDarMainPackageId(new Uint8Array(await Deno.readFile(path)));
-        if (!known.has(packageId)) {
-          probe = { path, packageId };
-          break;
-        }
+        await localnet.uploadDar(join(dir, name), ['validator-1']);
       }
-      assert(probe, 'expected a shipped DAR that is not yet uploaded on any participant');
-
-      const id = await localnet.uploadDar(probe.path, ['validator-1']);
-      assertEquals(id, probe.packageId);
-      assert(/^[0-9a-f]{64}$/.test(id));
 
       const rows = await localnet.getPackages();
-      const row = rows.find((p) => p.packageId === id);
-      assert(row, 'uploaded package should be listed');
-      assert(row.validators.includes('validator-1'));
-      assert(!row.validators.includes('sv'), 'package should be absent on sv');
+      const added = rows.filter((p) => !known.has(p.packageId));
+      assert(added.length > 0, 'uploaded packages should be listed');
+      for (const row of added) {
+        assertEquals(row.validators, ['validator-1']);
+      }
 
       await assertRejects(
-        () => localnet.uploadDar(probe.path, ['nope']),
+        () => localnet.uploadDar(join(dir, dars[0]), ['nope']),
         Error,
         'Unknown validator: nope',
       );
