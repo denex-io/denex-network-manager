@@ -2086,8 +2086,8 @@ export class LocalNet {
       try {
         await assertPackageFilesExist([pkg]);
         onProgress?.(`Uploading package '${pkg.name}' to ${pkg.targets.join(', ')}...`);
-        const packageId = await this.uploadDar(pkg.dar, pkg.targets);
-        onProgress?.(`Uploaded package '${pkg.name}': ${packageId}`);
+        await this.uploadDar(pkg.dar, pkg.targets);
+        onProgress?.(`Uploaded package '${pkg.name}' to ${pkg.targets.join(', ')}`);
       } catch (error) {
         const reason = error instanceof Error ? error.message : String(error);
         this.warn({
