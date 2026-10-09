@@ -123,6 +123,8 @@ graph TB
     end
     
     postgres --> canton
+    postgres --> splice
+    keycloak --> canton
     canton --> splice
     keycloak --> splice
     splice --> nginx
@@ -134,7 +136,12 @@ graph TB
     nginx --> sv-web-ui
     nginx --> scan-web-ui
     nginx --> wallet-sv
+    nginx --> wallet-v1
+    nginx --> wallet-v2
 ```
+
+Runtime container names carry the instance ID as a prefix, for example `default-postgres` or
+`default-splice` for the `default` instance. The headings below use the unprefixed names.
 
 ### Container Details
 
@@ -150,8 +157,9 @@ graph TB
 - **Port**: 5432, on the Docker network only. It is not published to the host.
 - **Health Check**: `pg_isready` command
 
-The PostgreSQL container uses a custom entrypoint script that dynamically creates all required
-databases on startup based on environment variables.
+The PostgreSQL container uses a custom entrypoint that writes an init script from an environment
+variable. The script creates the databases listed in `CREATE_DATABASE_*` environment variables when
+the data volume is first initialized.
 
 #### canton
 
@@ -163,7 +171,7 @@ databases on startup based on environment variables.
   - SV Participant (with Sequencer and Mediator for Global Synchronizer)
   - Validator Participants (one per configured validator)
 - **Exposed Ports**: Ledger API, Admin API, JSON API for each participant
-- **Health Check**: HTTP health endpoint on port 5000
+- **Health Check**: HTTP `/health` on the SV's HTTP health port, `basePort + 0` (5000 at the default `basePort`)
 - **Dependencies**: postgres
 
 All participants run in a single Canton process, sharing the same JVM. This matches the upstream
@@ -183,7 +191,7 @@ separate containers or hosts for each participant.
   - Scan App (network explorer backend)
   - SV Validator App
   - Regular Validator Apps (one per configured validator)
-- **Exposed Ports**: Validator Admin API for each validator, Scan Admin, SV Admin
+- **Exposed Ports**: Validator Admin API for the SV and each validator, Scan Admin, SV Admin
 - **Health Check**: HTTP request to Scan status endpoint
 - **Dependencies**: canton
 
@@ -194,8 +202,8 @@ separate containers or hosts for each participant.
 - **Image**: `quay.io/keycloak/keycloak:26.1.0`
 - **Role**: Manages user authentication and issues JWT tokens
 - **Configuration**: Realm definitions are delivered to the container as environment variables, written to files, and imported on startup. Keycloak runs in `start-dev` mode
-- **Port**: 5082 (mapped from internal 8080)
-- **Health Check**: TCP connection to health endpoint
+- **Port**: `basePort + 82` (5082 at the default `basePort`), mapped from internal 8080
+- **Health Check**: `GET /health/ready` on the management port 9000, sent over a bash `/dev/tcp` connection because the image has no `curl`
 - **Storage**: Keycloak's embedded H2 database inside the container. It survives `dnm stop` and is removed with the container by `dnm destroy`. Keycloak does not use PostgreSQL.
 - **Dependencies**: postgres, for start order only
 
@@ -206,16 +214,16 @@ Keycloak is always started as part of the LocalNet.
 **Purpose**: Reverse proxy for web UIs.
 
 - **Image**: `nginx:1.27.0`
-- **Role**: Routes requests to appropriate backend services based on hostname
+- **Role**: Routes requests to appropriate backend services based on hostname and port
 - **Routing**:
-  - `sv.localhost:5080` → SV Web UI + SV Admin API
-  - `scan.localhost:5080` → Scan Web UI + Scan API
-  - `wallet.localhost:5080` → SV Wallet UI + Validator Admin API
-  - `wallet.localhost:5180` → Validator 1 Wallet UI
-  - `wallet.localhost:5280` → Validator 2 Wallet UI
-- **Listens on**: the Web UI ports that are published to the host (5080, 5180, 5280 at the default `basePort`)
-- **Health Check**: HTTP request to port 5080
-- **Dependencies**: the web UI containers
+  - `sv.localhost:5080` → SV Web UI, and `/api/sv` → SV Admin API
+  - `scan.localhost:5080` → Scan Web UI, and `/api/scan` and `/registry` → Scan Admin API
+  - `wallet.localhost:5080` → SV Wallet UI, and `/api/validator` → SV Validator Admin API
+  - `wallet.localhost:5180` → Validator 1 Wallet UI, and `/api/validator` → Validator 1 Validator Admin API
+  - `wallet.localhost:5280` → Validator 2 Wallet UI, and `/api/validator` → Validator 2 Validator Admin API
+- **Listens on**: the Web UI ports that are published to the host, `basePort + 80` for the SV and `basePort + 100 × N + 80` for validator N (5080, 5180, 5280 at the default `basePort`)
+- **Health Check**: HTTP request to the SV Web UI port, `basePort + 80`
+- **Dependencies**: `splice` and the web UI containers. Nginx resolves its upstream hostnames once at startup, so when `start()` starts or creates one of them while `nginx` is running, it restarts `nginx` too
 
 #### Web UI Containers
 
@@ -257,17 +265,18 @@ Keycloak serves as the identity provider for all Splice and Validator Admin APIs
 **Realm Structure**:
 
 - `SV` realm: For Super Validator services and UIs
-- `Validator1`, `Validator2`, etc.: One realm per regular validator
+- One realm per regular validator, named from the validator name in PascalCase: `validator-1`
+  becomes `Validator1`, and `alice-val` becomes `AliceVal`
 
 **Client Types per Realm**:
 
-| Client ID                | Type         | Purpose                           |
-| ------------------------ | ------------ | --------------------------------- |
-| `{name}-validator`       | Confidential | Service account for validator app |
-| `{name}-wallet`          | Public       | Wallet web UI authentication      |
+| Client ID                | Type         | Purpose                                   |
+| ------------------------ | ------------ | ----------------------------------------- |
+| `{name}-validator`       | Confidential | Service account for validator app         |
+| `{name}-wallet`          | Public       | Wallet web UI authentication              |
 | `{name}-ledger-api-user` | Public       | Direct access grants for ledger API users |
-| `{name}-backend`         | Confidential | Backend service integration       |
-| `{name}-pqs`             | Confidential | PQS (Participant Query Store)    |
+| `{name}-backend`         | Confidential | Backend service integration               |
+| `{name}-pqs`             | Confidential | PQS (Participant Query Store)             |
 
 The `SV` realm has its own set of clients: `sv-validator`, `sv-wallet`, `sv-ledger-api-user`, and
 public clients for the SV and Scan web UIs. A `master` realm is generated too, holding the admin
@@ -280,6 +289,7 @@ sequenceDiagram
     participant User
     participant WebUI as Web UI
     participant Keycloak
+    participant Nginx
     participant Splice as Splice App
     participant Canton
     
@@ -289,13 +299,15 @@ sequenceDiagram
     Keycloak->>WebUI: Authorization code
     WebUI->>Keycloak: Exchange code for tokens
     Keycloak->>WebUI: Access token (JWT)
-    WebUI->>Splice: API request + Bearer token
+    WebUI->>Nginx: /api/validator request + Bearer token
+    Nginx->>Splice: Proxied request
     Splice->>Keycloak: Fetch signing keys (JWKS)
     Keycloak->>Splice: Public keys
     Splice->>Splice: Verify token signature
     Splice->>Canton: Ledger API request
     Canton->>Splice: Response
-    Splice->>WebUI: API response
+    Splice->>Nginx: API response
+    Nginx->>WebUI: API response
 ```
 
 ### Default Credentials
@@ -325,7 +337,7 @@ validators:
 
 ### Token Validation
 
-- Splice apps fetch JWKS from Keycloak:
+- Splice apps and the Canton participants' Ledger APIs fetch JWKS from Keycloak:
   `http://keycloak:8080/realms/{realm}/protocol/openid-connect/certs`
 - RS-256 signature verification using public keys from JWKS
 - Audience claim must match `https://canton.network.global`
@@ -404,7 +416,8 @@ graph TB
 - One per validator (including SV)
 - Auto-created during validator onboarding
 - Used for validator-specific operations
-- Party hint derived from validator name or config
+- For a regular validator, the party hint is `localnet-<name without hyphens>-<position>`, for
+  example `localnet-validator1-1` for `validator-1`
 
 #### User Parties
 
@@ -414,7 +427,7 @@ graph TB
 
 ### User Rights
 
-Users are granted rights on parties:
+Users are granted rights on parties, or on the whole participant. The most common ones:
 
 | Right              | Description                                                       |
 | ------------------ | ----------------------------------------------------------------- |
@@ -464,6 +477,10 @@ graph LR
 Parties are **hosted** on participants but can interact with parties on other participants through
 the synchronizer.
 
+Every participant's party listing shows the whole topology, including parties hosted elsewhere.
+`net.getParties()` and `dnm parties` keep only the hosted entries, so each party appears once,
+under the validator whose participant hosts it.
+
 ---
 
 ## Initialization and Onboarding
@@ -496,8 +513,8 @@ sequenceDiagram
     Note over Docker: Layer 3
     Docker->>Splice: Start
     Splice->>Splice: Found DSO
-    Splice->>Splice: Onboard Validators
-    Splice-->>Docker: Healthy
+    Splice-->>Docker: Healthy (Scan status answers)
+    Note over Splice: Validators onboard in the background
     
     Note over Docker: Layer 4 (parallel)
     Docker->>WebUIs: Start all
@@ -508,26 +525,41 @@ sequenceDiagram
     Nginx-->>Docker: Healthy
     
     Note over Init: Resource Initialization
-    Init->>Splice: Wait for APIs ready
+    Init->>Splice: Wait for APIs and Scan ready
     Init->>Canton: Allocate parties
-    Init->>Canton: Create users
+    Init->>Canton: Create users and grant rights
+    Init->>Keycloak: Create Keycloak users
     Init->>Splice: Onboard wallet users
+    Init->>Canton: Upload packages
 ```
 
 ### Container Startup Order
 
 Containers start in layers based on dependencies:
 
-| Layer | Containers         | Dependencies |
-| ----- | ------------------ | ------------ |
-| 1     | postgres           | None         |
-| 2     | canton, keycloak   | postgres     |
-| 3     | splice             | canton       |
-| 4     | all web UIs        | splice       |
-| 5     | nginx              | web UIs      |
+| Layer | Containers       | Dependencies    |
+| ----- | ---------------- | --------------- |
+| 1     | postgres         | None            |
+| 2     | canton, keycloak | postgres        |
+| 3     | splice           | canton          |
+| 4     | all web UIs      | splice          |
+| 5     | nginx            | splice, web UIs |
 
 Within each layer, containers start in parallel. The next layer only begins after all containers in
-the current layer are healthy.
+the current layer are healthy. With `dnm start --no-parallel` (SDK `parallel: false`) they start one
+at a time, and `--skip-health-checks` (SDK `skipHealthChecks`) skips the health waits.
+
+`start()` only creates or starts what is missing. On a partially running instance, for example
+after a Docker daemon restart brought back only some containers, it starts the stopped containers,
+creates the missing ones, restarts running containers whose dependencies it started, created or restarted, and runs
+initialization again. If a start fails, it undoes only its own changes. It removes the containers,
+network and volume it created, stops again the containers it started, and starts back the running
+containers it had restarted. A failed first start therefore leaves nothing behind (unless a
+container name conflict aborted it). A failed resume or repair leaves the existing containers, the
+network and the PostgreSQL data volume in place, and containers that were already running stay
+running. The
+[`start()` API reference](/denex-network-manager/reference/api/classes/localnet/#start) lists the
+guards that refuse a start before anything changes.
 
 ### DSO Creation
 
@@ -554,6 +586,8 @@ Regular validators onboard to the network via secrets:
 - `validator-2-onboarding-secret`
 - etc.
 
+The number is the validator's position in the config, whatever its name.
+
 ### Resource Initialization
 
 After containers are healthy, LocalNet initializes resources:
@@ -572,18 +606,22 @@ flowchart TD
 
 **Steps**:
 
-1. **Wait for APIs**: Poll each validator's JSON API and Scan until responsive
+1. **Wait for APIs**: Poll the SV and each validator until its JSON API answers and its validator
+   app reports the validator party, then poll Scan until it reports itself active
 2. **Allocate Parties**: For each validator, allocate the parties from `validators[].parties[]` whose
    hint is not already hosted there
 3. **Create Users**: Create users from `validators[].users[]`, resolving party hints against the
-   user's own validator
+   user's own validator and allocating a hint that is not hosted there yet
 4. **Grant Rights**: Assign the configured rights to each user
 5. **Create Keycloak Users**: Create a Keycloak user in the validator's realm for each user
 6. **Onboard to Wallet**: Register users that have a `primaryParty` with the wallet app
 7. **Upload Packages**: Upload the configured `packages` DARs to their target participants
 
-Running initialization again converges on the same state. A failed party or user is a warning and
-the rest continues, but a failed query for the parties already hosted on a validator stops it.
+Running initialization again converges on the same state. A failed party or user is reported through
+`onProgress` (in the CLI, the progress spinner), and a failed package upload as a `packages`
+warning through `onWarning`. Either way the rest continues. A readiness wait that times out, or a failed query for the
+parties already hosted on a validator with configured parties, stops initialization and fails
+`start()`.
 
 ---
 
@@ -602,7 +640,7 @@ graph TB
     end
     
     subgraph "Entry Points"
-        nginx[nginx:5080]
+        nginx[nginx:5080, 5180, ...]
         ledger[Ledger APIs]
         admin[Admin APIs]
     end
@@ -632,8 +670,13 @@ graph TB
     end
     
     Browser --> nginx
-    SDK --> ledger
-    SDK --> admin
+    SDK --> json
+    SDK --> vadmin
+    SDK --> kc
+    SDK --> scan-app
+    json --> sv-part
+    json --> v-parts
+    vadmin --> validator-app
     
     nginx --> sv-ui
     nginx --> scan-ui
@@ -641,10 +684,6 @@ graph TB
     nginx --> sv-app
     nginx --> scan-app
     nginx --> validator-app
-    
-    sv-ui --> sv-app
-    scan-ui --> scan-app
-    wallet-ui --> validator-app
     
     sv-app --> sv-part
     scan-app --> sv-part
@@ -662,6 +701,8 @@ graph TB
     
     sv-app --> kc
     validator-app --> kc
+    sv-part --> kc
+    v-parts --> kc
 ```
 
 ### Port Allocation Strategy
@@ -703,13 +744,14 @@ offsets in [SV-only ports](#sv-only-ports). The highest port a network uses is
 
 **Internal (Docker Network)**:
 
-- Containers communicate via hostnames: `canton`, `splice`, `postgres`, `keycloak`
+- Containers communicate via hostnames: `canton`, `splice`, `postgres`, `keycloak`, `nginx`, and
+  the unprefixed web UI names such as `sv-web-ui`
 - No port mapping needed for internal communication
-- Example: Splice connects to Canton at `canton:5001`
+- Example: Splice connects to the SV participant's Ledger API at `canton:5001`
 
 **External (Host Access)**:
 
-- Ports mapped to localhost
+- Published ports carry no host IP, so Docker binds them on all host interfaces by default
 - Web UIs accessed via `*.localhost` hostnames
 - APIs accessed via `localhost:{port}`
 
