@@ -344,7 +344,7 @@ export function parseLocalNetConfigWithWarnings(
  * `onWarning` (default `console.warn`), also when the config is then rejected.
  *
  * Besides the schema it enforces the input-only rules: unique validator names
- * (lowercase, not `sv`, no Keycloak realm collisions), case-insensitively unique user ids
+ * (lowercase, not `sv`, no Keycloak realm collisions), lowercase user ids
  * and a highest derived port of at most 65535. Stored labels are parsed with {@link parseStoredLocalNetConfig} instead.
  *
  * @throws {z.ZodError} If the config is invalid.

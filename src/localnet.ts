@@ -1074,6 +1074,11 @@ export class LocalNet {
    * on another validator is allocated afresh here, with the same hint but this
    * participant's namespace, so it is a different party id. A failure to query the
    * validator's parties fails the call instead of re-allocating blindly.
+   *
+   * `userId` must be lowercase, the same rule config input follows: Keycloak lowercases
+   * usernames, so a mixed-case id would never match its token's subject.
+   *
+   * @throws {Error} If `userId` is not lowercase.
    */
   async createUser(
     userId: string,
@@ -1084,6 +1089,13 @@ export class LocalNet {
       parties?: Array<{ hint: string; rights?: PerPartyRight[] }>;
     },
   ): Promise<ApiUserInfo> {
+    const lowerUserId = userId.toLowerCase();
+    if (userId !== lowerUserId) {
+      throw new Error(
+        `User id '${userId}' must be lowercase (Keycloak lowercases usernames); ` +
+          `use '${lowerUserId}'`,
+      );
+    }
     await this.requireRunning('createUser');
 
     const client = this.cantonClients.get(validatorName);

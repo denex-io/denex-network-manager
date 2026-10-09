@@ -27,6 +27,9 @@ runtime YAML-defined users are also created in the relevant validator realm.
 ## Working rules
 
 - Realm names are title-cased validator names; `sv` resolves to `SV`.
+- Validator names are lowercase on input (`checkConfigInvariants`, see `config-schema.md`) because
+  Keycloak lowercases usernames; only stored labels from older versions can contain uppercase names,
+  whose validator backend never authenticates.
 - Use `resolveRealmName()` when handling arbitrary validator names that may include `sv`.
 - Keycloak and Splice realm naming must agree or wallet APIs return 401.
 - Default username equals password for built-in validator users and YAML-defined users.

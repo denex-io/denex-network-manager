@@ -1,4 +1,4 @@
-import { assertEquals } from '@std/assert';
+import { assert, assertEquals } from '@std/assert';
 import {
   type ContainerListItem,
   discoverInstances,
@@ -477,7 +477,7 @@ Deno.test('discoverInstances - an invalid first label is skipped and does not sk
   assertEquals(instances[0].status, 'mixed');
 });
 
-Deno.test('reconstructConfigFromLabels - stored labels are lenient: 11 validators, case-variant names, validator keys', () => {
+Deno.test('reconstructConfigFromLabels - stored labels are lenient: 11 validators, case-variant names, uppercase user ids, validator keys', () => {
   const config = {
     validators: [
       ...Array.from({ length: 10 }, (_, i) => ({ name: `v${i}` })),
@@ -494,12 +494,12 @@ Deno.test('reconstructConfigFromLabels - stored labels are lenient: 11 validator
   console.warn = () => warned++;
   try {
     const result = reconstructConfigFromLabels(labels);
-    assertEquals(result !== null, true);
+    assert(result !== null);
     assertEquals(warned, 0);
-    if (result && Array.isArray(result.validators)) {
-      assertEquals(result.validators.length, 12);
-      assertEquals('validator' in (result.validators[10].parties?.[0] ?? {}), false);
-    }
+    assert(Array.isArray(result.validators));
+    assertEquals(result.validators.length, 12);
+    assertEquals('validator' in (result.validators[10].parties?.[0] ?? {}), false);
+    assertEquals(result.validators[11].users?.[0].id, 'Bob');
   } finally {
     console.warn = original;
   }
