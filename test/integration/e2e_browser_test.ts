@@ -56,15 +56,15 @@ const WEB_UIS: WebUIConfig[] = [
   {
     name: 'Validator-1 Wallet',
     url: `http://wallet.localhost:${getValidatorPorts(0).webUi}`,
-    username: 'validator-1',
-    password: 'validator-1',
+    username: 'validator_1-wallet-admin',
+    password: 'validator_1-wallet-admin',
     screenshotName: 'e2e-validator-1-wallet.png',
   },
   {
     name: 'Validator-2 Wallet',
     url: `http://wallet.localhost:${getValidatorPorts(1).webUi}`,
-    username: 'validator-2',
-    password: 'validator-2',
+    username: 'validator_2-wallet-admin',
+    password: 'validator_2-wallet-admin',
     screenshotName: 'e2e-validator-2-wallet.png',
   },
 ];

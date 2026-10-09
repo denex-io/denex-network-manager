@@ -148,6 +148,13 @@ All notable changes to this project will be documented in this file. The format 
   attached implicitly. They take the full runtime container name (for example `default-splice`),
   look it up by the instance label on each call, and list the instance's container names when it is
   not found.
+- `getCredentials()` and `dnm credentials` reported `validator-1` / `validator-1` as the wallet
+  login, which Splice does not onboard. They now report the wallet-admin login
+  (`validator_1-wallet-admin`), skip duplicate ids per realm, and mark YAML users without
+  `primaryParty` as not onboarded. The generated `WALLET_ADMIN_USER_NAME` env variable had the same
+  mismatch and now matches.
+- `dnm credentials` printed a hardcoded `admin / admin` Keycloak login. It now shows the configured
+  `auth.keycloak` login, and `--json` output gains a `master` entry for it.
 
 ### Removed
 
