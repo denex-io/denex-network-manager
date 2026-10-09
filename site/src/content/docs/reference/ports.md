@@ -1,6 +1,6 @@
 ---
 title: Port allocation
-description: How LocalNet assigns host ports from basePort, and how to run several instances side by side.
+description: How denex-network-manager assigns host ports from basePort, and how to run several instances side by side.
 ---
 
 Ports derive from `basePort` with `+100` increments per validator. The Super Validator takes the first
@@ -17,15 +17,15 @@ block. These ports are published to the host:
 
 The Ledger API row is gRPC. Use the JSON API row when you need an HTTP endpoint for the ledger.
 
-With `basePort: 6000`, the same layout starts at `6000`, `6100`, `6200`, and so on. Each validator
-also has an HTTP health port at `+0` and a gRPC health port at `+61`. They exist inside the
-containers for health checks and are not published to the host.
+With `basePort: 6000`, the same layout starts at `6000`, `6100`, `6200`, and so on. The SV and each
+validator also have an HTTP health port at `+0` and a gRPC health port at `+61`. They exist inside
+the containers for health checks and are not published to the host.
 
 ## SV-only ports
 
-The SV also uses a set of ports below `basePort + 100`. They follow `basePort` as well, and none
-collides with a validator port. Only Scan Admin and SV Admin are published to the host, on the same
-number as inside the container. The rest are container-internal.
+The SV also uses a set of ports below `basePort + 100`. They follow `basePort` as well, so the
+defaults in this table apply only at `basePort: 5000`. Only Scan Admin and SV Admin are published to
+the host, on the same number as inside the container. The rest are container-internal.
 
 | Service                   | Offset | Default | Published |
 | ------------------------- | ------ | ------- | --------- |
@@ -65,11 +65,14 @@ const ops = await LocalNet.fromConfig(opsCfg, { instanceId: 'ops-stack' });
 ```
 
 :::caution
-Both the `instanceId` **and** the `basePort` have to differ. Varying only `basePort` leaves both
-configs on `instanceId: 'default'`; identical configs then attach to the first instance and return
-successfully, giving you one network where you expected two. See
+Both the `instanceId` and the `basePort` have to differ. If only `basePort` differs, both configs
+use `instanceId: 'default'` and the second `start()` throws because the instance already exists
+with a different config. Identical configs on the same `instanceId` attach to the first instance
+and return successfully, giving you one network where you expected two. If only the `instanceId`
+differs, the second `start()` fails on a port conflict. See
 [Running more than one instance](/denex-network-manager/guides/dev-stack/#running-more-than-one-instance).
 :::
 
-`dnm instances` lists every instance, whether running, mixed (partly running) or stopped, and `basePort` is recorded in each instance's
-Docker labels so `LocalNet.fromInstanceId()` recovers it without a config file.
+`dnm instances` lists the instances on the Docker daemon, whether running, mixed (partly running) or
+stopped, with the `basePort` of each. The `basePort` is part of the config stored in each instance's
+Docker labels, so `LocalNet.fromInstanceId()` recovers it without a config file.

@@ -63,17 +63,18 @@ auth:
 
 ## Top-level fields
 
-| Field        | Type                 | Default   | Description                                     |
-| ------------ | -------------------- | --------- | ----------------------------------------------- |
-| `version`    | string               | `'1.0'`   | Config schema version                           |
-| `validators` | number or array      | required  | Validator count (at least 1) or explicit definitions |
-| `auth`       | object               | required  | Keycloak bootstrap admin credentials            |
-| `basePort`   | number (1024–60000)  | `5000`    | Base of the port block                          |
-| `packages`   | array                | —         | DARs uploaded to participants at the end of initialization |
-| `discovery`  | object               | —         | **Deprecated.** Does not start a server.        |
+| Field        | Type                | Default  | Description                                                |
+| ------------ | ------------------- | -------- | ---------------------------------------------------------- |
+| `version`    | string              | `'1.0'`  | Config schema version                                      |
+| `validators` | number or array     | required | Validator count (at least 1) or explicit definitions       |
+| `auth`       | object              | required | Keycloak master realm admin credentials                    |
+| `basePort`   | number (1024–60000) | `5000`   | Base of the port block                                     |
+| `packages`   | array               | —        | DARs uploaded to participants at the end of initialization |
+| `discovery`  | object              | —        | Deprecated. Does not start a server.                       |
 
 `validators: 2` is shorthand for two validators named `validator-1` and `validator-2`. The field is
-required in YAML; only the SDK builder defaults to two validators.
+required in YAML, and a file without it fails to load. In the SDK, `LocalNetBuilder` and
+`createMinimalConfig()` default to two validators.
 
 There is no cap on the validator count. Instead, the highest port the config derives must be at most
 `65535`, so for example 55 validators at `basePort: 60000` are rejected. See
@@ -81,14 +82,14 @@ There is no cap on the validator count. Instead, the highest port the config der
 
 Unknown keys are ignored with a warning. A typo such as `basport: 7000` loads, prints
 `Unrecognized key 'basport' at root (ignored)` on stderr, and the network uses the default
-`basePort`. The SDK delivers the same warning to `LocalNetOptions.onWarning`. YAML merge keys
-(`<<`) are not supported.
+`basePort`. The SDK delivers the same warning to `LocalNetOptions.onWarning`. YAML merge keys are
+not supported: a `<<` key counts as an unknown key, so it warns and nothing is merged.
 
 ## Validators
 
 | Field      | Type   | Description                                    |
 | ---------- | ------ | ---------------------------------------------- |
-| `name`     | string | Required. Lowercase, starts with a letter, max **12** characters, letters/numbers/hyphens |
+| `name`     | string | Required. Lowercase, starts with a letter, max 12 characters, letters/numbers/hyphens |
 | `parties`  | array  | Parties to allocate on this validator          |
 | `users`    | array  | Users to provision on this validator           |
 
@@ -111,37 +112,43 @@ such as `App` would never authenticate.
 
 Party hints referenced by users are auto-allocated even if not listed under the validator's
 top-level `parties`. A party whose hint is already hosted on the validator is skipped when
-initialization runs again. Hints are normalized for Canton when needed, and validator operator party
-hints are generated separately from validator names.
+initialization runs again. Configured hints are passed to Canton unchanged. The validator operator
+party is separate, and its hint is generated from the validator name and position, for example
+`localnet-app-1` for the first validator, `app`.
+
+Earlier versions accepted a `validator` key on parties and users. It has been removed: a party or
+user always belongs to the validator it is listed under, and a leftover `validator` key produces a
+warning and is ignored.
 
 ## Users and rights
 
 | Field          | Type   | Description                                    |
 | -------------- | ------ | ---------------------------------------------- |
-| `id`           | string | Required. Lowercase and unique within the validator. Also the default password |
+| `id`           | string | Required. Lowercase, at least 3 characters (Keycloak's username minimum), and unique within the validator. Also the Keycloak password |
 | `primaryParty` | string | Grants `CanActAs` on that party and onboards the user to the wallet |
 | `rights`       | array  | Participant-wide rights                        |
 | `parties`      | array  | Per-party rights, as `{ hint, rights }`        |
 
 Rights split into two kinds:
 
-- **Participant-wide:** `ParticipantAdmin`, `CanReadAsAnyParty`, `CanExecuteAsAnyParty`,
+- Participant-wide: `ParticipantAdmin`, `CanReadAsAnyParty`, `CanExecuteAsAnyParty`,
   `IdentityProviderAdmin`
-- **Per-party:** `CanActAs`, `CanReadAs`, `CanExecuteAs`
+- Per-party: `CanActAs`, `CanReadAs`, `CanExecuteAs`
 
 Entries in `users[].parties` default to `CanActAs` when `rights` is omitted. `CanActAs`,
 `CanReadAs`, and `CanExecuteAs` listed in `users[].rights` apply to `primaryParty` and are ignored
 when the user has none.
 
 A user is onboarded to the wallet only when it has a `primaryParty`. Without one the user still
-exists on the ledger and in Keycloak, but cannot use the wallet.
+exists on the ledger and in Keycloak but is not onboarded. If it logs in to the wallet UI, the
+wallet onboards it with a new party, not one from your config.
 
 Party hints resolve against the parties hosted on the user's own validator. A hint that is not
 hosted there is allocated on that validator, even if another validator hosts a party with the same
 hint. The result is a different party ID, because the namespace belongs to the participant.
 
 :::note
-Rights are granted **per participant**. A user holding `CanActAs` on one validator has nothing on
+Rights are granted per participant. A user holding `CanActAs` on one validator has nothing on
 another, even for the same party. See
 [Visibility is not permission](/denex-network-manager/guides/dev-stack/#visibility-is-not-permission).
 :::
@@ -155,8 +162,8 @@ auth:
     password: admin
 ```
 
-These configure the persistent Keycloak master realm admin — **not** validator wallet credentials.
-See [Web UIs and credentials](/denex-network-manager/start/web-uis/).
+These configure the persistent Keycloak master realm admin, not validator wallet credentials. See
+[Web UIs and credentials](/denex-network-manager/start/web-uis/).
 
 ## Packages
 
@@ -168,7 +175,7 @@ packages:
 ```
 
 At the end of initialization, each DAR is uploaded to its `uploadTo` participants. That happens in
-`dnm start` and again in `dnm init`, and re-uploading a DAR a participant already has succeeds.
+`dnm start` when it creates, resumes or repairs the instance, and again in `dnm init`, and re-uploading a DAR a participant already has succeeds.
 
 | Field      | Type   | Description                                                                 |
 | ---------- | ------ | --------------------------------------------------------------------------- |
@@ -179,9 +186,10 @@ At the end of initialization, each DAR is uploaded to its `uploadTo` participant
 A relative `dar` resolves against the directory of the config file, then the current directory.
 That holds for a path passed to `dnm start --config` or `LocalNet.fromConfig()`. For an object config
 in the SDK, pass `configDir` in the options. Instances started by an earlier version have no stored
-config directory, so their relative paths resolve against the current directory.
+config directory, so `dnm init` and `LocalNet.fromInstanceId()` resolve their relative paths against the current
+directory. `dnm start --config` still uses the config file's directory.
 
-A missing DAR on a fresh start fails before anything is created. On a resume, or on `dnm init`, a
+A missing DAR on a fresh start fails before anything is created. On a resume, a repair, or on `dnm init`, a
 missing DAR or a failed upload is a warning and the rest of startup continues. `--skip-init` skips
 the upload.
 
@@ -199,10 +207,11 @@ auth:
     password: ${KEYCLOAK_PASSWORD:admin}
 ```
 
-`${VAR}` requires the variable to be set — loading fails with
-`Environment variable not found: VAR` if it is not. `${VAR:default}` falls back to `default` when the
-variable is unset. Expansion is textual and applies to the whole file, keys and comments included. The default is
-everything after the first colon, so `${VAR:-x}` falls back to `-x`, not `x`.
+`${VAR}` requires the variable to be set. If it is not, loading fails with
+`Environment variable not found: VAR`, so this example loads only when `KEYCLOAK_ADMIN` is set.
+`${VAR:default}` falls back to `default` when the variable is unset. Expansion is textual and
+applies to the whole file, keys and comments included. The default is everything after the first
+colon, so `${VAR:-x}` falls back to `-x`, not `x`.
 
 ## Port allocation
 
