@@ -429,7 +429,14 @@ export function buildNginxContainer(
       timeout: 5,
       retries: 3,
     },
-    dependsOn: ['splice'],
+    // nginx proxies the web UIs and resolves their addresses once, so it must
+    // start after them (and be restarted when one of them is restarted).
+    dependsOn: [
+      'splice',
+      ...buildWalletWebUiContainers(localNetConfig, options).map((c) => c.name),
+      buildSvWebUiContainer(localNetConfig, options).name,
+      buildScanWebUiContainer(localNetConfig, options).name,
+    ],
     restart: 'always',
     labels: {
       [`${options.labelPrefix}.service`]: 'nginx',

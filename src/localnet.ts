@@ -118,7 +118,31 @@ interface StartRollback {
   layer: number;
   created: Map<string, string>;
   started: Map<string, { id: string; layer: number }>;
+  /**
+   * Names of every container this call started, created or restarted. A
+   * running container that depends on one of these is restarted too (it may
+   * hold stale addresses), but is not added to `started`: rollback leaves it
+   * running.
+   */
+  touched: Set<string>;
+  /**
+   * Running dependents this call stopped to restart, by name. They were running
+   * before the call, so a rollback starts them again (best-effort).
+   */
+  restarted: Map<string, string>;
+  /**
+   * Set when a create hit a 409: another process is starting the instance, so
+   * rollback must not stop containers this call merely started.
+   */
+  conflict: boolean;
 }
+
+/**
+ * Containers in `created` state younger than this may belong to a start in another process.
+ * The age is the local clock minus the daemon's `Created` timestamp, so it assumes the two
+ * clocks agree to within a few seconds.
+ */
+const YOUNG_CREATED_SECONDS = 60;
 
 export class LocalNet {
   private client: DockerClient;
@@ -257,11 +281,39 @@ export class LocalNet {
    * postgres volume are missing.
    *
    * Failure is non-destructive: if `start()` fails, it removes only the
-   * containers, network and volume that this call created, and stops again any
-   * pre-existing containers it had started. A failed first start therefore
-   * leaves nothing behind, while a failed resume (for example a timeout)
-   * leaves the stopped containers, the network and the postgres data volume
-   * intact. The instance state returns to `'stopped'`.
+   * containers, network and volume that this call created, starts back any
+   * running dependents it had stopped in order to restart them, and stops
+   * again the pre-existing containers it had started (except after a 409, see
+   * below, when it leaves them running). A failed first start therefore leaves
+   * nothing behind, while a failed resume (for example a timeout) leaves the
+   * stopped containers, the network and the postgres data volume intact. The
+   * instance state returns to `'stopped'`.
+   *
+   * Returns without changes, marking this object running, only when every
+   * container the instance should have is running. A partially running
+   * instance (for example after a Docker daemon restart brought back only
+   * nginx) is repaired: stopped containers are started, missing ones are
+   * created, running containers that depend on a container started or created
+   * by this call (nginx and the web UIs after splice) are restarted, and
+   * initialization runs again unless `skipInitialization` is set.
+   *
+   * Two guards run before anything is changed or created:
+   * - a paused container is refused (run `docker unpause <name>`);
+   * - a container in `created` state for under 60 seconds means another
+   *   process is probably starting the instance, and `start()` aborts.
+   * A `created` container of 60 seconds or more is treated as stopped and
+   * started.
+   *
+   * A name conflict (HTTP 409) on create can happen mid-start, after this call
+   * has already changed things. It also means another process is probably
+   * starting the instance: `start()` aborts, removes only the containers this
+   * call created, and neither stops the containers this call started nor
+   * removes the network or volume it created.
+   *
+   * A handle that already counts as running (one from `fromInstanceId()`, or one
+   * on which a state query such as `getParties()` has attached) throws
+   * `LocalNet is already running` instead of repairing: repair needs a handle
+   * that is not attached.
    */
   async start(options?: StartOptions): Promise<void> {
     if (this.internalState === 'running') {
@@ -284,11 +336,37 @@ export class LocalNet {
     const existing = await this.client.listContainers({
       [`${this.options.labelPrefix}.instance`]: this.options.instanceId,
     });
-    const alreadyRunning = existing.filter((c) => c.state === 'running');
-    if (alreadyRunning.length > 0) {
+    const expectedNames = this.buildContainerSpecs(EMPTY_GENERATED_CONFIGS).map((s) => s.name);
+    const byName = new Map(existing.map((c) => [c.name, c]));
+    const present = expectedNames.flatMap((n) => byName.get(n) ?? []);
+
+    const paused = present.find((c) => c.state === 'paused');
+    if (paused) {
+      throw new Error(
+        `Container '${paused.name}' is paused. Run 'docker unpause ${paused.name}' and try again.`,
+      );
+    }
+    const nowSeconds = Date.now() / 1000;
+    for (const c of present) {
+      if (c.state !== 'created' || c.created === undefined) continue;
+      const age = Math.max(0, Math.round(nowSeconds - c.created));
+      if (age < YOUNG_CREATED_SECONDS) {
+        throw new Error(
+          `Instance '${this.options.instanceId}' appears to be starting in another process ` +
+            `('${c.name}' created ${age}s ago); if none is, retry in a minute.`,
+        );
+      }
+    }
+
+    const running = present.filter((c) => c.state === 'running');
+    if (running.length === expectedNames.length) {
       this.internalState = 'running';
       this.attachedToRunning = true;
       return;
+    }
+    if (running.length > 0) {
+      options?.onProgress?.('Instance is partially running; starting stopped containers...');
+      for (const c of present) this.containerIds.set(c.name, c.id);
     }
 
     const timeout = options?.timeout ?? 300000;
@@ -299,6 +377,9 @@ export class LocalNet {
       layer: 0,
       created: new Map(),
       started: new Map(),
+      touched: new Set(),
+      restarted: new Map(),
+      conflict: false,
     };
 
     try {
@@ -373,7 +454,8 @@ export class LocalNet {
       // Undo only what this call did (see rollbackStart). Best-effort: a
       // cleanup failure must not mask the original startup error.
       if (
-        rb.networkCreated || rb.volumeCreated || rb.created.size > 0 || rb.started.size > 0
+        rb.networkCreated || rb.volumeCreated || rb.created.size > 0 || rb.started.size > 0 ||
+        rb.restarted.size > 0
       ) {
         options?.onProgress?.('Startup failed; removing resources created by this attempt...');
         try {
@@ -425,16 +507,28 @@ export class LocalNet {
   /**
    * Undo a failed `start()` without touching anything the call did not itself
    * change. Every step is best-effort and independent:
-   * 1. force-remove containers this call created;
-   * 2. stop pre-existing containers this call started, one layer at a time in
-   *    reverse layer order (a layer's stops finish before the previous layer's begin);
-   * 3. remove the network only if this call created it;
-   * 4. remove the postgres volume only if this call created it;
-   * 5. forget the created containers' ids.
+   * 1. start again the running dependents this call stopped to restart;
+   * 2. force-remove containers this call created;
+   * 3. unless a create hit a 409, stop pre-existing containers this call
+   *    started, one layer at a time in reverse layer order (a layer's stops
+   *    finish before the previous layer's begin);
+   * 4. remove the network only if this call created it (and no 409 happened);
+   * 5. remove the postgres volume only if this call created it (and no 409
+   *    happened);
+   * 6. forget the created containers' ids.
    * A failed resume therefore leaves existing containers, network and data
    * volume in place (stopped), while a failed fresh start leaves nothing.
    */
   private async rollbackStart(rb: StartRollback): Promise<void> {
+    // Dependents that were running before this call and were stopped to restart.
+    // Start them first, while their upstreams still run: nginx has static
+    // proxy_pass hostnames and no resolver, and Docker DNS drops stopped
+    // containers, so an nginx started after its upstreams stop crash-loops with
+    // "host not found in upstream".
+    await Promise.allSettled(
+      [...rb.restarted.values()].map((id) => this.client.startContainer(id)),
+    );
+
     await Promise.allSettled(
       [...rb.created.values()].map((id) => this.client.removeContainer(id, true)),
     );
@@ -445,16 +539,21 @@ export class LocalNet {
     for (const { id, layer } of rb.started.values()) {
       byLayer.set(layer, [...(byLayer.get(layer) ?? []), id]);
     }
-    for (const layer of [...byLayer.keys()].sort((a, b) => b - a)) {
-      await Promise.allSettled(
-        (byLayer.get(layer) ?? []).map((id) => this.client.stopContainer(id, 30)),
-      );
+    // After a 409 another process may be mid-start: leave what this call started alone.
+    if (!rb.conflict) {
+      for (const layer of [...byLayer.keys()].sort((a, b) => b - a)) {
+        await Promise.allSettled(
+          (byLayer.get(layer) ?? []).map((id) => this.client.stopContainer(id, 30)),
+        );
+      }
     }
 
-    if (rb.networkCreated) {
+    // After a 409 the other process may already build on the network and volume
+    // this call created: leave them for it (or for a retry) as well.
+    if (rb.networkCreated && !rb.conflict) {
       await this.networkManager.remove(this.options.instanceId).catch(() => {});
     }
-    if (rb.volumeCreated) {
+    if (rb.volumeCreated && !rb.conflict) {
       await this.client.removeVolume(`${this.options.instanceId}-postgres-data`).catch(() => {});
     }
 
@@ -492,7 +591,9 @@ export class LocalNet {
 
   /**
    * Stop then start. If the start step fails the instance is left stopped (a
-   * failed start never removes pre-existing containers or data).
+   * failed start never removes pre-existing containers or data), except after a
+   * name conflict (409) on create, when another process is probably starting the
+   * instance and the containers this call started are left running.
    */
   async restart(options?: StartOptions & StopOptions): Promise<void> {
     await this.stop();
@@ -585,21 +686,29 @@ export class LocalNet {
     };
   }
 
+  /**
+   * `'running'` if every container the instance should have is running,
+   * `'partial'` if only some are (a missing container counts as not running),
+   * `'stopped'` if none are, and `'absent'` if the instance has no containers.
+   */
   async state(): Promise<'running' | 'stopped' | 'partial' | 'absent'> {
     try {
       const containers = await this.client.listContainers({
         [`${this.options.labelPrefix}.instance`]: this.options.instanceId,
       });
+      const expected = this.buildContainerSpecs(EMPTY_GENERATED_CONFIGS).map((s) => s.name);
+      const byName = new Map(containers.map((c) => [c.name, c]));
       if (containers.length === 0) return 'absent';
-      const running = containers.filter((c) => c.state === 'running').length;
+      const running = expected.filter((n) => byName.get(n)?.state === 'running').length;
       if (running === 0) return 'stopped';
-      if (running === containers.length) return 'running';
+      if (running === expected.length) return 'running';
       return 'partial';
     } catch {
       return 'absent';
     }
   }
 
+  /** `true` if every container of the instance is running (see {@link LocalNet.state}). */
   async isRunning(): Promise<boolean> {
     return (await this.state()) === 'running';
   }
@@ -1510,7 +1619,7 @@ export class LocalNet {
     options?: StartOptions,
   ): Promise<void> {
     const progress = options?.onProgress ?? (() => {});
-    const exists = await this.client.getContainerInfo(spec.name);
+    const exists = await this.client.findContainer(spec.name);
     let containerId: string;
 
     if (exists) {
@@ -1521,7 +1630,21 @@ export class LocalNet {
         // request still fails, rollback must stop it (stopping a container that
         // never started is a harmless 304).
         rb.started.set(spec.name, { id: containerId, layer: rb.layer });
+        rb.touched.add(spec.name);
+        // A container in restart backoff (a crash-looping nginx after a daemon
+        // restart) counts as running to Docker, so a plain start is a no-op and
+        // the backoff would go on. Stop it first to end the loop.
+        if (exists.state === 'restarting') await this.client.stopContainer(containerId, 30);
         await this.client.startContainer(containerId);
+      } else if ((spec.dependsOn ?? []).some((dep) => rb.touched.has(dep))) {
+        // A dependency was just (re)started: restart this container so it does
+        // not keep addresses from before. Not recorded in rb.started.
+        progress(`Restarting ${spec.name}...`);
+        rb.touched.add(spec.name);
+        rb.restarted.set(spec.name, containerId);
+        await this.client.stopContainer(containerId, 30);
+        await this.client.startContainer(containerId);
+        rb.restarted.delete(spec.name);
       }
     } else {
       const networkName = this.networkManager.getExpectedNetworkName(this.options.instanceId);
@@ -1532,8 +1655,22 @@ export class LocalNet {
 
       await this.pullImageIfNeeded(spec.image, progress);
       progress(`Creating ${spec.name}...`);
-      containerId = await this.client.createContainer(specWithNetwork);
+      try {
+        containerId = await this.client.createContainer(specWithNetwork);
+      } catch (error) {
+        if (
+          error instanceof Error && (error as Error & { statusCode?: number }).statusCode === 409
+        ) {
+          rb.conflict = true;
+          throw new Error(
+            `Instance '${this.options.instanceId}' appears to be starting in another process ` +
+              `('${spec.name}' already exists); if none is, retry in a minute.`,
+          );
+        }
+        throw error;
+      }
       rb.created.set(spec.name, containerId);
+      rb.touched.add(spec.name);
       await this.client.startContainer(containerId);
     }
 
@@ -1676,8 +1813,11 @@ export class LocalNet {
    * and onboard wallets. Called automatically by start() unless skipInitialization
    * is set. Also exposed for the `dnm init` CLI command on already-running instances.
    *
+   * Safe to re-run: a configured party whose hint is already hosted on its
+   * validator's participant is skipped, and users converge on their configured
+   * state (see {@link LocalNet.createUser}).
+   *
    * @internal Do not call directly in application code — use start() instead.
-   * Calling this on an already-initialized instance will create duplicate users.
    */
   async initializeResources(onProgress?: (msg: string) => void): Promise<void> {
     onProgress?.('Initializing resources...');
@@ -1687,13 +1827,33 @@ export class LocalNet {
 
     const validators = normalizeValidators(this.config.validators);
 
-    const partyMap = new Map<string, string>();
-
     for (const validator of validators) {
       const validatorName = validator.name;
       const parties = validator.parties ?? [];
+      if (parties.length === 0) continue;
+
+      // A failed query must not turn into blind re-allocation: let it propagate.
+      let hosted: HostedParties;
+      try {
+        hosted = await this.fetchHostedParties(validatorName);
+      } catch (error) {
+        throw new Error(
+          `Cannot check existing parties on '${validatorName}': ${
+            error instanceof Error ? error.message : error
+          }`,
+        );
+      }
+      const existingHints = new Set(
+        hosted.parties.map((p) => p.party.split('::')[0] ?? p.party),
+      );
 
       for (const partyConfig of parties) {
+        if (existingHints.has(partyConfig.hint)) {
+          onProgress?.(
+            `Party '${partyConfig.hint}' already allocated on ${validatorName}; skipping`,
+          );
+          continue;
+        }
         try {
           onProgress?.(`Allocating party '${partyConfig.hint}' on ${validatorName}...`);
           const partyInfo = await this.allocateParty(
@@ -1701,7 +1861,6 @@ export class LocalNet {
             validatorName,
             partyConfig.displayName ?? partyConfig.hint,
           );
-          partyMap.set(partyConfig.hint, partyInfo.partyId);
           onProgress?.(
             `Allocated party '${partyConfig.hint}': ${partyInfo.partyId.substring(0, 30)}...`,
           );

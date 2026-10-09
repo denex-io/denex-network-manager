@@ -7,7 +7,9 @@ import {
   buildKeycloakContainer,
   buildNginxContainer,
   buildPostgresContainer,
+  buildScanWebUiContainer,
   buildSpliceContainer,
+  buildSvWebUiContainer,
   buildWalletWebUiContainers,
   type ContainerBuilderOptions,
   DEFAULT_IMAGES,
@@ -222,6 +224,16 @@ Deno.test('buildKeycloakContainer - correct health check params', () => {
   assertEquals(container.healthCheck?.retries, 30);
   assertEquals(container.healthCheck?.interval, 5);
   assertEquals(container.healthCheck?.timeout, 5);
+});
+
+Deno.test('buildNginxContainer - depends on splice and every web UI', () => {
+  const container = buildNginxContainer(TEST_CONFIG, TEST_OPTIONS);
+  const webUis = [
+    ...buildWalletWebUiContainers(TEST_CONFIG, TEST_OPTIONS),
+    buildSvWebUiContainer(TEST_CONFIG, TEST_OPTIONS),
+    buildScanWebUiContainer(TEST_CONFIG, TEST_OPTIONS),
+  ].map((c) => c.name);
+  assertEquals(container.dependsOn, ['splice', ...webUis]);
 });
 
 Deno.test('buildNginxContainer - correct health check params', () => {

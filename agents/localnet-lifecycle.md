@@ -31,9 +31,33 @@ initialization, and runtime operations.
 - `fromConfig()` validates config objects through Zod; callers must still call `start()`.
 - `createLocalNet()` constructs and starts immediately.
 - `fromInstanceId()` reconstructs config from Docker labels and requires label schema `2`.
-- `start()` calls `detectConfigMismatch()` and is idempotent when matching containers are already
-  running.
-- `start()` runs `initializeResources()` unless `skipInitialization` is set.
+- `start()` calls `detectConfigMismatch()` and returns early only when every expected container
+  (`buildContainerSpecs(...).map(name)`) is running. A partially running instance is repaired:
+  stopped containers are started, missing ones created, and running containers whose `dependsOn`
+  intersects the containers started or created by this call (`rb.touched`) are restarted (not
+  recorded in `rb.started`, so rollback leaves them running). nginx depends on the web UIs, so it
+  gets its own layer. A container in `restarting` state (nginx crash-looping after a daemon restart)
+  is stopped and then started, because Docker answers a plain start with 304. Repair is not
+  reachable on an attached handle (`fromInstanceId()`, or after `requireRunning()` attached):
+  `start()` throws "already running" first.
+- Rollback (`rollbackStart`) first starts again the dependents it stopped for a restart and whose
+  start then failed (`rb.restarted`), then removes `rb.created`, then stops `rb.started` layer by
+  layer. The order matters: nginx uses static `proxy_pass` hostnames with no `resolver`, and Docker
+  DNS drops stopped containers, so an nginx started after its upstreams stop crash-loops with "host
+  not found in upstream".
+- Repair guards: a paused container is refused (`docker unpause` hint); a `created` container under
+  60 s old (from list `ContainerInfo.created`) aborts with "appears to be starting in another
+  process" before anything changes; an older `created` container is started normally. A 409 on
+  create can happen mid-start; it sets `rb.conflict`, and rollback then removes only the containers
+  this call created: it does not stop the containers this call started and does not remove the
+  network or volume. `ensureStarted` looks containers up with the 404-aware `findContainer()`, so a
+  transient inspect error is not mistaken for a missing container (and a 409). The concurrency guard
+  is best-effort: it cannot see another process that is already in its health-wait phase.
+- `start()` runs `initializeResources()` unless `skipInitialization` is set. Init is idempotent: the
+  party loop pre-checks `fetchHostedParties()` and skips hints already hosted. If that query fails
+  for a validator with configured parties, init throws "Cannot check existing parties on
+  '<validator>'" instead of re-allocating blindly, so a transient query failure aborts init and
+  rolls back a `start()`.
 - State-query methods call `requireRunning()` and may attach lazily to running containers.
 
 ## Critical gotchas
@@ -59,7 +83,7 @@ initialization, and runtime operations.
   `<id>-postgres-data` only if this call created them. A failed resume therefore keeps containers,
   network and data; a failed fresh start leaves nothing. State always returns to `'stopped'` (never
   `'error'`; only a failed `stop()` sets `'error'`). `restart()` whose start step fails leaves the
-  instance stopped.
+  instance stopped, except after a 409 (see above), which leaves the containers it started running.
 - Each startup layer runs `ensureStarted` for all specs via `Promise.allSettled`, throws the first
   rejection, and only then runs `waitHealthy` for the layer, so rollback never races a sibling that
   is still mutating Docker. Network and volume absence is decided by 404-aware

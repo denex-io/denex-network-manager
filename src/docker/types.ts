@@ -58,6 +58,8 @@ export interface ContainerInfo {
   health?: 'healthy' | 'unhealthy' | 'starting' | 'none';
   accessUrl?: string;
   labels: Record<string, string>;
+  /** Creation time as unix seconds. Set by `listContainers`. */
+  created?: number;
 }
 
 export interface NetworkInfo {
