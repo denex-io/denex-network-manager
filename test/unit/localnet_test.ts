@@ -132,7 +132,7 @@ Deno.test('LocalNet - createUser accepts UserConfig-shaped options', async () =>
   );
 });
 
-// --- logs() / exec() container resolution (#22, #23) ---
+// --- logs() / exec() container resolution ---
 
 interface FakeLogsExecClient {
   listContainers(
