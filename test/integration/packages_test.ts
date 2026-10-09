@@ -109,13 +109,9 @@ Deno.test({
     // Uploading all ~180 shipped DARs takes over half an hour and many exceed Canton's request
     // timeout, so use the newest of two apps that a default LocalNet does not upload.
     const shipped = (await readdir(dir)).filter((f) => f.endsWith('.dar'));
-    const newest = (prefix: RegExp) =>
-      shipped.filter((f) => prefix.test(f)).sort((a, b) =>
-        a.localeCompare(b, undefined, { numeric: true })
-      ).at(-1);
     const dars = [
-      newest(/^splitwell-\d[\d.]*\.dar$/),
-      newest(/^splice-token-test-trading-app-.*\.dar$/),
+      newestDar(shipped, /^splitwell-\d[\d.]*\.dar$/),
+      newestDar(shipped, /^splice-token-test-trading-app-.*\.dar$/),
     ]
       .filter((f): f is string => f !== undefined);
     assert(dars.length > 0, 'the splice image should ship splitwell or token-test DARs');
@@ -137,12 +133,22 @@ Deno.test({
       const packageWarnings = () => warnings.filter((w) => w.source === 'packages');
       assertEquals(packageWarnings(), [], 'first start should upload without warnings');
 
-      // Built-in packages live on every participant; the uploaded DARs only on validator-1.
+      // Built-in packages live on every participant, so any package on validator-1 and absent on
+      // sv might be a built-in one. Uploading the same DARs to sv must make some of them appear
+      // there, which proves they came from the configured upload.
       const rows = await localnet.getPackages();
       const onlyV1 = rows.filter((r) =>
         r.validators.includes('validator-1') && !r.validators.includes('sv')
       );
       assert(onlyV1.length > 0, 'expected a package on validator-1 and absent on sv');
+      for (const f of dars) await localnet.uploadDar(join(dir, f), ['sv']);
+      const afterSv = new Map(
+        (await localnet.getPackages()).map((r) => [r.packageId, r.validators]),
+      );
+      assert(
+        onlyV1.some((r) => afterSv.get(r.packageId)?.includes('sv')),
+        'the configured DARs should be what landed on validator-1',
+      );
 
       // A second run re-uploads the same DARs; Canton treats that as a no-op.
       await localnet.initializeResources();
