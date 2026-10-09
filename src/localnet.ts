@@ -433,10 +433,13 @@ export class LocalNet {
    * by this call (nginx and the web UIs after splice) are restarted, and
    * initialization runs again unless `skipInitialization` is set.
    *
-   * Two guards run before anything is changed or created:
+   * Three guards run before anything is changed or created:
    * - a paused container is refused (run `docker unpause <name>`);
    * - a container in `created` state for under 60 seconds means another
-   *   process is probably starting the instance, and `start()` aborts.
+   *   process is probably starting the instance, and `start()` aborts;
+   * - on a fresh start with initialization enabled, a configured `packages`
+   *   DAR that cannot be found throws (on resume or repair it is only a
+   *   warning).
    * A `created` container of 60 seconds or more is treated as stopped and
    * started.
    *
@@ -445,10 +448,6 @@ export class LocalNet {
    * starting the instance: `start()` aborts, removes only the containers this
    * call created, and neither stops the containers this call started nor
    * removes the network or volume it created.
-   *
-   * On a fresh start with initialization enabled, a configured `packages` DAR
-   * that cannot be found throws before Docker is touched (on resume or repair
-   * it is only a warning).
    *
    * A handle that already counts as running (one from `fromInstanceId()`, or one
    * on which a state query such as `getParties()` has attached) throws

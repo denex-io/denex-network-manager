@@ -643,43 +643,6 @@ Deno.test('state - a missing expected container makes the instance partial, not 
   });
 });
 
-Deno.test('start repair - nginx crash-looping (restarting) is stopped and started, with health checks', async () => {
-  await withFakeNet(async (net, fake) => {
-    fake.seedExisting(ALL_NAMES, 'exited');
-    fake.containers.get(`${ID}-nginx`)!.state = 'restarting';
-    await net.start({ skipInitialization: true });
-    for (const n of ALL_NAMES) assertEquals(fake.containers.get(n)?.state, 'running', n);
-    assert(fake.mutations.includes(`stopContainer:old-${ID}-nginx`));
-    assertEquals(net.currentState, 'running');
-  });
-});
-
-Deno.test('start rollback - a 409 leaves the network and volume this call created', async () => {
-  await withFakeNet(async (net, fake) => {
-    fake.conflictCreate.add(`${ID}-postgres`);
-    await assertRejects(() => net.start(START), Error, 'starting in another process');
-    assert(fake.mutations.some((m) => m.startsWith('createNetwork:')));
-    assertEquals(fake.mutations.filter((m) => m.startsWith('removeNetwork')), []);
-    assertEquals(fake.mutations.filter((m) => m.startsWith('removeVolume')), []);
-    assert(fake.networkExists && fake.volumeExists);
-  });
-});
-
-Deno.test('start rollback - a transient inspect error is not mistaken for a 409', async () => {
-  await withFakeNet(async (net, fake) => {
-    fake.seedExisting(ALL_NAMES, 'exited');
-    // The container exists, so a create would 409; the inspect error must abort first.
-    fake.inspectError.set(`${ID}-splice`, new Error('socket hang up'));
-    fake.conflictCreate.add(`${ID}-splice`);
-    await assertRejects(() => net.start(START), Error, 'socket hang up');
-    // Not a conflict: everything this call started is stopped again.
-    for (const n of [...LAYER_1, ...LAYER_2]) {
-      assertEquals(fake.containers.get(n)?.state, 'exited', n);
-    }
-    assertEquals(net.currentState, 'stopped');
-  });
-});
-
 // --- detectConfigMismatch compares through the stored-label (silent, lenient) parse ---
 
 Deno.test('detectConfigMismatch - a label carrying parties[].validator matches the YAML without it', async () => {
@@ -859,4 +822,41 @@ Deno.test('packages - upload failure and missing DAR warn and the next package i
     "Uploading package 'b' to validator-1...",
     "Uploaded package 'b': pkg-id-b",
   ]);
+});
+
+Deno.test('start repair - nginx crash-looping (restarting) is stopped and started, with health checks', async () => {
+  await withFakeNet(async (net, fake) => {
+    fake.seedExisting(ALL_NAMES, 'exited');
+    fake.containers.get(`${ID}-nginx`)!.state = 'restarting';
+    await net.start({ skipInitialization: true });
+    for (const n of ALL_NAMES) assertEquals(fake.containers.get(n)?.state, 'running', n);
+    assert(fake.mutations.includes(`stopContainer:old-${ID}-nginx`));
+    assertEquals(net.currentState, 'running');
+  });
+});
+
+Deno.test('start rollback - a 409 leaves the network and volume this call created', async () => {
+  await withFakeNet(async (net, fake) => {
+    fake.conflictCreate.add(`${ID}-postgres`);
+    await assertRejects(() => net.start(START), Error, 'starting in another process');
+    assert(fake.mutations.some((m) => m.startsWith('createNetwork:')));
+    assertEquals(fake.mutations.filter((m) => m.startsWith('removeNetwork')), []);
+    assertEquals(fake.mutations.filter((m) => m.startsWith('removeVolume')), []);
+    assert(fake.networkExists && fake.volumeExists);
+  });
+});
+
+Deno.test('start rollback - a transient inspect error is not mistaken for a 409', async () => {
+  await withFakeNet(async (net, fake) => {
+    fake.seedExisting(ALL_NAMES, 'exited');
+    // The container exists, so a create would 409; the inspect error must abort first.
+    fake.inspectError.set(`${ID}-splice`, new Error('socket hang up'));
+    fake.conflictCreate.add(`${ID}-splice`);
+    await assertRejects(() => net.start(START), Error, 'socket hang up');
+    // Not a conflict: everything this call started is stopped again.
+    for (const n of [...LAYER_1, ...LAYER_2]) {
+      assertEquals(fake.containers.get(n)?.state, 'exited', n);
+    }
+    assertEquals(net.currentState, 'stopped');
+  });
 });
