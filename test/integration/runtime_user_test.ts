@@ -271,11 +271,11 @@ Deno.test('runtime createUser: same hint on two validators gives two distinct pa
   try {
     await localnet.start({ timeout: 300000 });
 
-    await localnet.createUser('u1', 'validator-1', { primaryParty: 'shared' });
-    await localnet.createUser('u2', 'validator-2', { primaryParty: 'shared' });
+    await localnet.createUser('user-one', 'validator-1', { primaryParty: 'shared' });
+    await localnet.createUser('user-two', 'validator-2', { primaryParty: 'shared' });
 
-    const u1 = (await localnet.getUsers('validator-1')).find((u) => u.id === 'u1');
-    const u2 = (await localnet.getUsers('validator-2')).find((u) => u.id === 'u2');
+    const u1 = (await localnet.getUsers('validator-1')).find((u) => u.id === 'user-one');
+    const u2 = (await localnet.getUsers('validator-2')).find((u) => u.id === 'user-two');
     assertExists(u1?.primaryParty);
     assertExists(u2?.primaryParty);
 
