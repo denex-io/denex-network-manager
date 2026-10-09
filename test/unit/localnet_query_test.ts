@@ -3,6 +3,7 @@ import { mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { LocalNet } from '../../src/localnet.ts';
+import { CantonApiError } from '../../src/api/canton.ts';
 import type { CantonClient, PartyDetails, UserDetails } from '../../src/api/canton.ts';
 import type { ApiUserRight } from '../../src/api/canton.ts';
 import type { ApiValidatorState } from '../../src/api/state-types.ts';
@@ -15,6 +16,8 @@ interface FakeClientSpec {
   users?: UserDetails[];
   rights?: Record<string, ApiUserRight[] | Error>;
   packages?: string[];
+  /** When set, uploadDar rejects with this error. */
+  uploadError?: Error;
   /** When set, every query rejects with this error. */
   down?: string;
 }
@@ -48,6 +51,10 @@ class FakeCantonClient {
   listPackages(): Promise<string[]> {
     this.guard('listPackages');
     return Promise.resolve(this.spec.packages ?? []);
+  }
+  uploadDar(): Promise<void> {
+    this.calls.push('uploadDar');
+    return this.spec.uploadError ? Promise.reject(this.spec.uploadError) : Promise.resolve();
   }
   allocateParty(hint: string): Promise<PartyDetails> {
     this.allocated.push(hint);
@@ -342,16 +349,36 @@ Deno.test('createUser - a failing hosted-party query fails the call and allocate
   assertEquals(fakes['validator-1'].allocated, []);
 });
 
-Deno.test('uploadDar - rejects an empty or unknown target list and an invalid DAR without any request', async () => {
+Deno.test('uploadDar - rejects an empty or unknown target list without any request', async () => {
   const { net, fakes } = harness(threeNodes());
   const dir = await mkdtemp(join(tmpdir(), 'dar-test-'));
-  const path = join(dir, 'bad.dar');
-  await writeFile(path, 'not a dar');
+  const path = join(dir, 'any.dar');
+  await writeFile(path, 'dar bytes');
 
   await assertRejects(() => net.uploadDar(path, []), Error, 'no target validators');
   await assertRejects(() => net.uploadDar(path, ['nope']), Error, 'Unknown validator: nope');
-  await assertRejects(() => net.uploadDar(path, ['sv']), Error, 'Invalid DAR:');
   assertEquals(fakes['sv'].calls, []);
+});
+
+Deno.test('uploadDar - reports a Canton rejection, still tries the other targets and invalidates only those uploaded', async () => {
+  const { net, fakes } = harness(
+    threeNodes({ sv: { uploadError: new CantonApiError(400, 'DAR upload failed: bad') } }),
+  );
+  const dir = await mkdtemp(join(tmpdir(), 'dar-test-'));
+  const path = join(dir, 'any.dar');
+  await writeFile(path, 'dar bytes');
+  const cache = (net as unknown as { apiCache: Map<string, unknown> }).apiCache;
+  cache.set('packages:sv', []);
+  cache.set('packages:validator-1', []);
+
+  await assertRejects(
+    () => net.uploadDar(path, ['sv', 'validator-1']),
+    Error,
+    'DAR upload failed for 1 validator(s): sv: DAR upload failed: bad',
+  );
+  assertEquals(fakes['validator-1'].calls, ['uploadDar']);
+  assert(cache.has('packages:sv'));
+  assert(!cache.has('packages:validator-1'));
 });
 
 Deno.test('createUser - prefers the party in the participant own namespace', async () => {

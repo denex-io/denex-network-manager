@@ -21,7 +21,6 @@ All notable changes to this project will be documented in this file. The format 
   `NetworkManager.ensure()` (returns `{ id, created }`).
 - `LocalNet.listPartiesWithFailures()` and `LocalNet.listPackagesWithFailures()` return the
   reachable results together with per-validator failures instead of calling `onWarning`.
-- `readDarMainPackageId()` is exported from the API barrel.
 - Discovery `GET /instances/:id/packages` returns 503 when no participant responds and a `failures`
   list alongside the reachable packages on partial results.
 - `parseLocalNetConfigWithWarnings()`, `parseStoredLocalNetConfig()`, `ConfigWarning`,
@@ -75,6 +74,8 @@ All notable changes to this project will be documented in this file. The format 
 - **Breaking:** `getUsersWithRights(name)` throws on an unknown name (previously `[]`); unnamed, it
   warns per failed validator and throws if none responds. A failed rights query warns and lists the
   user with `rights: []`.
+- **Breaking:** `uploadDar()` (and `CantonClient.uploadDar()` / `uploadDarFromFile()`) now returns
+  `Promise<void>`; the package id was never populated before. Use `getPackages()` to see the result.
 - `PartyDetails.isLocal` is optional (absent on the wire means not hosted here).
 - Discovery `GET /instances/:id/parties` returns 503 when no participant responds and a `failures`
   list alongside the reachable parties on partial results.
@@ -137,8 +138,8 @@ All notable changes to this project will be documented in this file. The format 
 - `getUsersWithRights()` and `getSnapshot()` silently omitted validators that failed to respond;
   they now return the reachable results and warn for each failed validator.
 - `uploadDar()` sent a multipart body Canton rejects, returned an empty package id, and silently
-  skipped unknown validators; it now sends a raw octet-stream body, returns the main package id
-  computed from the DAR, and throws on an unknown validator, an empty target list or an invalid DAR.
+  skipped unknown validators; it now sends a raw octet-stream body and throws on an unknown
+  validator or an empty target list; Canton's error for a rejected DAR is surfaced.
 - `getPackages()` and `listPackages()` always returned an empty list.
 - `LocalNet.logs()` no longer throws for `follow: false` (the default), and both `logs()` and
   `exec()` no longer return Docker's 8-byte stream frame headers mixed into the text. Output is now

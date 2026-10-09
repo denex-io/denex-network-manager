@@ -18,8 +18,6 @@ initialization, user creation, and DAR uploads.
 ## Main modules
 
 - `src/api/canton.ts`: `CantonClient`, right helpers, package upload, Canton errors.
-- `src/api/dar.ts`: `readDarMainPackageId()`, a cross-runtime DAR reader (`node:zlib`,
-  `node:crypto`).
 - `src/api/parties.ts`: `mergeHostedParties()`, the pure per-host merge behind `getParties()`.
 - `src/api/validator.ts`: `ValidatorAdminClient`, wallet and validator state operations.
 - `src/api/keycloak-admin.ts`: runtime Keycloak user provisioning.
@@ -43,10 +41,9 @@ initialization, user creation, and DAR uploads.
 - `uploadDarFromFile()` reads a DAR and delegates to `uploadDar()`; `LocalNet.uploadDar()` handles
   multi-validator upload and cache invalidation.
 - `POST /v2/dars` takes a raw `application/octet-stream` body (the whole DAR is buffered; the
-  maximum size is an open item) and answers with an empty body. `uploadDar()` therefore computes the
-  main package id client-side with `readDarMainPackageId()` and throws `Invalid DAR: ...` before
-  sending anything when the DAR is unreadable (ZIP64, encrypted and non-stored/deflate entries are
-  rejected explicitly).
+  maximum size is an open item) and answers with an empty body, so `uploadDar()` returns nothing.
+  The client does not parse the DAR: Canton rejects an invalid one and the error is surfaced as
+  `CantonApiError('DAR upload failed: ...')`. Check `getPackages()` to see the result.
 - `GET /v2/packages` returns ids only (`{ packageIds }`); `listPackages()` returns `string[]`,
   built-in Splice/Daml packages included.
 - `GET /v2/parties` lists every party in the participant's topology view, not only hosted ones.

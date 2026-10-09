@@ -112,9 +112,9 @@ initialization, and runtime operations.
   the lifecycle code only.
 - `initializeResources()` carries `@internal` JSDoc and should not be called by application code —
   use `start()`. It remains public because the CLI `init` command depends on it.
-- `uploadDar()` validates its arguments first (empty target list, `Unknown validator: <name>`,
-  `Invalid DAR: ...` all throw before any upload), then throws an aggregate error listing all
-  validators whose upload failed. It returns the main package id computed from the DAR.
+- `uploadDar()` validates its arguments first (empty target list, `Unknown validator: <name>` both
+  throw before any upload), then throws an aggregate error listing all validators whose upload
+  failed, including Canton's message for a rejected DAR. It returns nothing.
 - `getParties()` lists each hosted party once, under the validator whose participant hosts it (first
   host in SV-then-config order if several do). `getParties(name)` returns only parties hosted on
   `name`. Hosted lists are cached per validator (`parties:<name>`, successes only). `createUser`

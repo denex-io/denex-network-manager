@@ -339,7 +339,7 @@ await net.createUser('alice', 'users-val', {
   parties: [{ hint: 'bob', rights: ['CanReadAs'] }],
 });
 
-const packageId = await net.uploadDar('./my-app.dar'); // main package id, computed from the DAR
+await net.uploadDar('./my-app.dar'); // all validators; Canton rejects invalid DARs
 await net.uploadDar('./my-app.dar', ['app', 'users-val']);
 
 const packages = await net.getPackages(); // [{ packageId, validators: ['sv', 'app', ...] }]

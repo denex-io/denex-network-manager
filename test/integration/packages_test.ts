@@ -4,10 +4,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { LocalNet } from '../../src/localnet.ts';
 import { DEFAULT_IMAGES } from '../../src/docker/containers.ts';
-import { readDarMainPackageId } from '../../src/api/dar.ts';
 import type { LocalNetConfig } from '../../src/types/config.ts';
 import type { LocalNetWarning } from '../../src/types/state.ts';
-import { generateTestInstanceId, isDockerAvailable } from './helpers.ts';
+import { generateTestInstanceId, isDockerAvailable, newestDar } from './helpers.ts';
 
 const CONFIG: LocalNetConfig = {
   basePort: 22000,
@@ -57,7 +56,7 @@ async function extractImageDarsBeforeStart(instanceId: string): Promise<string> 
 }
 
 Deno.test({
-  name: 'Packages: getPackages lists built-ins and uploadDar returns an id visible on the target',
+  name: 'Packages: getPackages lists built-ins and an uploaded DAR shows up on the target only',
   ignore: !(await isDockerAvailable()),
   sanitizeOps: false,
   sanitizeResources: false,
@@ -73,32 +72,23 @@ Deno.test({
       assert(before.every((p) => p.validators.length === 1 && p.validators[0] === 'validator-1'));
       const known = new Set((await localnet.getPackages()).map((p) => p.packageId));
 
-      // Pick a shipped DAR whose main package the participants do not know yet.
+      // Upload one DAR that a default LocalNet does not ship to validator-1 only. Uploading all
+      // ~180 shipped DARs takes over half an hour and many exceed Canton's request timeout.
       const dir = await copyImageDars(instanceId);
-      const dars = (await readdir(dir)).filter((f) => f.endsWith('.dar'));
-      let probe: { path: string; packageId: string } | undefined;
-      for (const name of dars) {
-        const path = join(dir, name);
-        const packageId = readDarMainPackageId(new Uint8Array(await Deno.readFile(path)));
-        if (!known.has(packageId)) {
-          probe = { path, packageId };
-          break;
-        }
-      }
-      assert(probe, 'expected a shipped DAR that is not yet uploaded on any participant');
-
-      const id = await localnet.uploadDar(probe.path, ['validator-1']);
-      assertEquals(id, probe.packageId);
-      assert(/^[0-9a-f]{64}$/.test(id));
+      const shipped = (await readdir(dir)).filter((f) => f.endsWith('.dar'));
+      const dar = newestDar(shipped, /^splitwell-\d[\d.]*\.dar$/);
+      assert(dar !== undefined, 'the splice image should ship a splitwell DAR');
+      await localnet.uploadDar(join(dir, dar), ['validator-1']);
 
       const rows = await localnet.getPackages();
-      const row = rows.find((p) => p.packageId === id);
-      assert(row, 'uploaded package should be listed');
-      assert(row.validators.includes('validator-1'));
-      assert(!row.validators.includes('sv'), 'package should be absent on sv');
+      const added = rows.filter((p) => !known.has(p.packageId));
+      assert(added.length > 0, 'uploaded packages should be listed');
+      for (const row of added) {
+        assertEquals(row.validators, ['validator-1']);
+      }
 
       await assertRejects(
-        () => localnet.uploadDar(probe.path, ['nope']),
+        () => localnet.uploadDar(join(dir, dar), ['nope']),
         Error,
         'Unknown validator: nope',
       );
@@ -119,13 +109,9 @@ Deno.test({
     // Uploading all ~180 shipped DARs takes over half an hour and many exceed Canton's request
     // timeout, so use the newest of two apps that a default LocalNet does not upload.
     const shipped = (await readdir(dir)).filter((f) => f.endsWith('.dar'));
-    const newest = (prefix: RegExp) =>
-      shipped.filter((f) => prefix.test(f)).sort((a, b) =>
-        a.localeCompare(b, undefined, { numeric: true })
-      ).at(-1);
     const dars = [
-      newest(/^splitwell-\d[\d.]*\.dar$/),
-      newest(/^splice-token-test-trading-app-.*\.dar$/),
+      newestDar(shipped, /^splitwell-\d[\d.]*\.dar$/),
+      newestDar(shipped, /^splice-token-test-trading-app-.*\.dar$/),
     ]
       .filter((f): f is string => f !== undefined);
     assert(dars.length > 0, 'the splice image should ship splitwell or token-test DARs');
@@ -147,16 +133,22 @@ Deno.test({
       const packageWarnings = () => warnings.filter((w) => w.source === 'packages');
       assertEquals(packageWarnings(), [], 'first start should upload without warnings');
 
-      const ids = new Set<string>();
-      for (const f of dars) {
-        ids.add(readDarMainPackageId(new Uint8Array(await Deno.readFile(join(dir, f)))));
-      }
+      // Built-in packages live on every participant, so any package on validator-1 and absent on
+      // sv might be a built-in one. Uploading the same DARs to sv must make some of them appear
+      // there, which proves they came from the configured upload.
       const rows = await localnet.getPackages();
       const onlyV1 = rows.filter((r) =>
-        ids.has(r.packageId) && r.validators.includes('validator-1') &&
-        !r.validators.includes('sv')
+        r.validators.includes('validator-1') && !r.validators.includes('sv')
       );
       assert(onlyV1.length > 0, 'expected a package on validator-1 and absent on sv');
+      for (const f of dars) await localnet.uploadDar(join(dir, f), ['sv']);
+      const afterSv = new Map(
+        (await localnet.getPackages()).map((r) => [r.packageId, r.validators]),
+      );
+      assert(
+        onlyV1.some((r) => afterSv.get(r.packageId)?.includes('sv')),
+        'the configured DARs should be what landed on validator-1',
+      );
 
       // A second run re-uploads the same DARs; Canton treats that as a no-op.
       await localnet.initializeResources();

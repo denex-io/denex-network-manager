@@ -19,8 +19,6 @@ export {
   type UserDetails,
 } from './canton.ts';
 
-export { readDarMainPackageId } from './dar.ts';
-
 export {
   ValidatorAdminClient,
   type ValidatorAdminClientOptions,

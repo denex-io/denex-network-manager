@@ -801,9 +801,7 @@ Deno.test('packages - upload failure and missing DAR warn and the next package i
   await withFakeNet(async (net) => {
     Reflect.set(net, 'uploadDar', (path: string, targets: string[]) => {
       uploads.push(`${path.split('/').pop()}->${targets.join(',')}`);
-      return path.endsWith('a.dar')
-        ? Promise.reject(new Error('boom'))
-        : Promise.resolve('pkg-id-b');
+      return path.endsWith('a.dar') ? Promise.reject(new Error('boom')) : Promise.resolve();
     });
     await Reflect.get(net, 'uploadConfiguredPackages').call(net, (m: string) => progress.push(m));
   }, (c) => {
@@ -820,7 +818,7 @@ Deno.test('packages - upload failure and missing DAR warn and the next package i
   assertEquals(progress, [
     "Uploading package 'a' to sv, validator-1...",
     "Uploading package 'b' to validator-1...",
-    "Uploaded package 'b': pkg-id-b",
+    "Uploaded package 'b' to validator-1",
   ]);
 });
 

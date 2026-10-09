@@ -1,5 +1,4 @@
 import { readFile } from 'node:fs/promises';
-import { readDarMainPackageId } from './dar.ts';
 import { createAuthHeader, TokenManager } from './auth.ts';
 
 const MAX_PARTY_PAGES = 1000;
@@ -296,13 +295,12 @@ export class CantonClient {
   /**
    * Uploads a DAR as a raw `application/octet-stream` body.
    *
-   * Canton answers with an empty body, so the returned main package ID is computed
-   * from the DAR itself.
+   * Canton answers with an empty body and validates the DAR itself.
    *
-   * @throws `Invalid DAR: ...` before any request when the bytes are not a readable DAR.
+   * @throws {CantonApiError} `DAR upload failed: ...` carrying Canton's error when it
+   *   rejects the DAR.
    */
-  async uploadDar(darContent: Uint8Array): Promise<string> {
-    const mainPackageId = readDarMainPackageId(darContent);
+  async uploadDar(darContent: Uint8Array): Promise<void> {
     const authHeaders = await this.getAuthHeaders();
     const response = await fetch(`${this.baseUrl}/v2/dars`, {
       method: 'POST',
@@ -319,12 +317,11 @@ export class CantonClient {
       throw new CantonApiError(response.status, `DAR upload failed: ${errorText}`);
     }
     await response.arrayBuffer();
-    return mainPackageId;
   }
 
-  async uploadDarFromFile(filePath: string): Promise<string> {
+  async uploadDarFromFile(filePath: string): Promise<void> {
     const darContent = await readFile(filePath);
-    return this.uploadDar(darContent);
+    await this.uploadDar(darContent);
   }
 
   async healthCheck(): Promise<boolean> {

@@ -140,7 +140,7 @@ await net.createUser('alice', 'users-val', {
   parties: [{ hint: 'bob', rights: ['CanReadAs'] }],
 });
 
-const packageId = await net.uploadDar('./my-app.dar');
+await net.uploadDar('./my-app.dar');
 await net.uploadDar('./my-app.dar', ['app', 'users-val']);
 ```
 
@@ -150,10 +150,11 @@ resolve against the parties hosted on the user's own validator. A hint that is n
 allocated on that validator, which gives a different party ID than the same hint on another one.
 User IDs must be lowercase.
 
-`net.uploadDar()` uploads to `sv` and every validator unless you name the targets, and returns the main
-package ID, computed from the DAR. It throws for an unknown validator name, an empty target list, or
-a file that is not a valid DAR, before it uploads anything. If the upload fails on some
-participants, it still tries the rest, then throws one error naming the failed ones.
+`net.uploadDar()` uploads to `sv` and every validator unless you name the targets, and returns
+nothing. It throws for an unknown validator name or an empty target list before it uploads anything.
+Canton rejects a file that is not a valid DAR, and the error includes Canton's message. If the
+upload fails on some participants, it still tries the rest, then throws one error naming the failed
+ones.
 
 :::note
 DAR packages listed in the `packages` config field are uploaded for you at the end of

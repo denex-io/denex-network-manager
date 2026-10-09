@@ -57,7 +57,6 @@ import {
   type UserDetails,
 } from './api/canton.ts';
 import { ValidatorAdminClient, ValidatorApiError } from './api/validator.ts';
-import { readDarMainPackageId } from './api/dar.ts';
 import { type HostedParties, mergeHostedParties } from './api/parties.ts';
 import { KeycloakAdminClient } from './api/keycloak-admin.ts';
 import type {
@@ -1656,19 +1655,19 @@ export class LocalNet {
   }
 
   /**
-   * Uploads a DAR file to the given validators (default: `sv` and every validator) and
-   * returns its main package ID, computed from the DAR itself.
+   * Uploads a DAR file to the given validators (default: `sv` and every validator).
+   * Canton validates the DAR; use {@link LocalNet.getPackages} to see the result.
    *
-   * Arguments are checked before anything is uploaded: an empty `validatorNames` list,
-   * an unknown validator name (`Unknown validator: <name>`) or an unreadable DAR
-   * (`Invalid DAR: ...`) throws without sending a request. If an upload fails on some
-   * validators, the rest are still attempted and one error naming the failed validators
-   * is thrown.
+   * Arguments are checked before anything is uploaded: an empty `validatorNames` list
+   * or an unknown validator name (`Unknown validator: <name>`) throws without sending a
+   * request. If an upload fails on some validators (including Canton rejecting the DAR),
+   * the rest are still attempted and one error naming the failed validators and Canton's
+   * message is thrown.
    *
    * @param filePath - Path to the `.dar` file.
    * @param validatorNames - Target participants (`'sv'` or validator names).
    */
-  async uploadDar(filePath: string, validatorNames?: string[]): Promise<string> {
+  async uploadDar(filePath: string, validatorNames?: string[]): Promise<void> {
     const targets = validatorNames ?? this.hostNames();
     if (targets.length === 0) {
       throw new Error('uploadDar: no target validators given');
@@ -1678,7 +1677,6 @@ export class LocalNet {
     }
 
     const darContent = new Uint8Array(await readFile(filePath));
-    const mainPackageId = readDarMainPackageId(darContent);
 
     await this.requireRunning('uploadDar');
 
@@ -1697,8 +1695,6 @@ export class LocalNet {
       const details = [...errors.entries()].map(([n, e]) => `${n}: ${e.message}`).join('; ');
       throw new Error(`DAR upload failed for ${errors.size} validator(s): ${details}`);
     }
-
-    return mainPackageId;
   }
 
   /**
@@ -2403,8 +2399,8 @@ export class LocalNet {
       try {
         await assertPackageFilesExist([pkg]);
         onProgress?.(`Uploading package '${pkg.name}' to ${pkg.targets.join(', ')}...`);
-        const packageId = await this.uploadDar(pkg.dar, pkg.targets);
-        onProgress?.(`Uploaded package '${pkg.name}': ${packageId}`);
+        await this.uploadDar(pkg.dar, pkg.targets);
+        onProgress?.(`Uploaded package '${pkg.name}' to ${pkg.targets.join(', ')}`);
       } catch (error) {
         const reason = error instanceof Error ? error.message : String(error);
         this.warn({

@@ -25,6 +25,16 @@ export function generateTestInstanceId(): string {
   return `${INTEGRATION_TEST_PREFIX}-${timestamp}-${random}`;
 }
 
+/**
+ * Picks the newest file whose name matches `pattern` (version-aware ordering), or undefined.
+ * Used to upload one or two shipped DARs instead of all ~180, which takes over half an hour.
+ */
+export function newestDar(files: string[], pattern: RegExp): string | undefined {
+  return files.filter((f) => pattern.test(f)).sort((a, b) =>
+    a.localeCompare(b, undefined, { numeric: true })
+  ).at(-1);
+}
+
 export function createTestDockerClient(): DockerClient {
   return new DockerClient();
 }
