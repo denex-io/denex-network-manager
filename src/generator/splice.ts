@@ -4,6 +4,7 @@ import {
   getRealmName,
   getServiceAccountUserId,
   getValidatorClientId,
+  getWalletAdminUserId,
   normalizeValidators,
 } from '../types/config.ts';
 import { getSvInternalPorts, getSvPorts, getValidatorPorts } from '../utils/ports.ts';
@@ -290,7 +291,7 @@ export function generateValidatorSpliceConfig(
   const participantName = name.replace(/-/g, '_');
   const validatorClientId = getValidatorClientId(name);
   const validatorUser = getServiceAccountUserId(validatorClientId);
-  const walletUser = `${participantName}-wallet-admin`;
+  const walletUser = getWalletAdminUserId(name);
 
   const validatorRealmName = getRealmName(name);
   const ledgerApiAuth = generateRealmLedgerApiAuthConfig(

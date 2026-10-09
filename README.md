@@ -158,19 +158,24 @@ dnm credentials --json
 
 Default ports use base port `5000`:
 
-| URL                            | Service                       | Default login                 |
-| ------------------------------ | ----------------------------- | ----------------------------- |
-| `http://sv.localhost:5080`     | Super Validator management UI | `sv` / `sv`                   |
-| `http://scan.localhost:5080`   | Scan explorer                 | `sv` / `sv` if prompted       |
-| `http://wallet.localhost:5080` | SV wallet                     | `sv` / `sv`                   |
-| `http://wallet.localhost:5180` | Validator 1 wallet            | `validator-1` / `validator-1` |
-| `http://wallet.localhost:5280` | Validator 2 wallet            | `validator-2` / `validator-2` |
+| URL                            | Service                       | Default login                                           |
+| ------------------------------ | ----------------------------- | ------------------------------------------------------- |
+| `http://sv.localhost:5080`     | Super Validator management UI | `sv` / `sv`                                             |
+| `http://scan.localhost:5080`   | Scan explorer                 | `sv` / `sv` if prompted                                 |
+| `http://wallet.localhost:5080` | SV wallet                     | `sv` / `sv`                                             |
+| `http://wallet.localhost:5180` | Validator 1 wallet            | `validator_1-wallet-admin` / `validator_1-wallet-admin` |
+| `http://wallet.localhost:5280` | Validator 2 wallet            | `validator_2-wallet-admin` / `validator_2-wallet-admin` |
 
-For custom validators, the default wallet user is the validator name with the same value as the
-password. YAML-defined users also use `id` as the default password.
+For validator wallets the password equals the username. For custom validators, the wallet login is
+the validator name with `-` replaced by `_`, plus `-wallet-admin` (`app` gives `app-wallet-admin`,
+`my-val` gives `my_val-wallet-admin`). The plain validator name (`validator-1`) is a Keycloak user
+but is not onboarded to the wallet. YAML-defined users also use `id` as the default password, but
+are wallet-onboarded only if they set `primaryParty`; otherwise the wallet UI's self-onboarding
+creates a new party, and `dnm credentials` marks them "not onboarded".
 
 The `auth.keycloak.admin` and `auth.keycloak.password` values configure the persistent Keycloak
-master realm admin. They are not validator wallet credentials.
+master realm admin. They are not validator wallet credentials. `dnm credentials` prints the
+configured login (text footer, and a `master` entry in `--json` output).
 
 ## Configuration
 

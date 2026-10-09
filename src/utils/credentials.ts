@@ -1,4 +1,9 @@
-import { getRealmName, normalizeValidators, type ValidatorConfig } from '../types/config.ts';
+import {
+  getRealmName,
+  getWalletAdminUserId,
+  normalizeValidators,
+  type ValidatorConfig,
+} from '../types/config.ts';
 import { DEFAULT_BASE_PORT, getSvPorts, getValidatorPorts } from './ports.ts';
 
 export interface CredentialInfo {
@@ -9,6 +14,15 @@ export interface CredentialInfo {
   purpose: string;
 }
 
+/**
+ * Logins for the web UIs of a LocalNet: the SV, then each validator.
+ *
+ * Per validator, the first row is the wallet-admin login (`<name with - as _>-wallet-admin`),
+ * the only user Splice onboards by default, so it is the one that can use the wallet. It is
+ * followed by one row per YAML user. A YAML user can use the wallet only if it has a
+ * `primaryParty`; otherwise its purpose says "not onboarded". A user whose id repeats an
+ * earlier login in the same realm is skipped. Username equals password for every row.
+ */
 export function getCredentials(
   validatorsConfig: number | ValidatorConfig[],
   basePort: number = DEFAULT_BASE_PORT,
@@ -40,23 +54,31 @@ export function getCredentials(
     const realmName = getRealmName(validator.name);
 
     const uiPort = getValidatorPorts(i, basePort).webUi;
+    const walletAdminId = getWalletAdminUserId(validator.name);
 
     credentials.push({
       realm: realmName,
       url: `http://wallet.localhost:${uiPort}`,
-      username: validator.name,
-      password: validator.name,
+      username: walletAdminId,
+      password: walletAdminId,
       purpose: `${validator.name} wallet`,
     });
 
     if (validator.users) {
+      const seen = new Set<string>([walletAdminId.toLowerCase()]);
       for (const user of validator.users) {
+        // Keycloak lowercases usernames, so ids differing only by case are one user.
+        const key = user.id.toLowerCase();
+        if (seen.has(key)) continue;
+        seen.add(key);
         credentials.push({
           realm: realmName,
           url: `http://wallet.localhost:${uiPort}`,
           username: user.id,
           password: user.id,
-          purpose: `${user.id} (custom user)`,
+          purpose: user.primaryParty
+            ? `${user.id} (custom user)`
+            : `${user.id} (custom user, not onboarded — wallet UI self-onboarding creates a new party)`,
         });
       }
     }

@@ -112,9 +112,12 @@ Deno.test('getCredentials utility - returns 4 entries for 2 validators', () => {
   assertEquals(creds[1].purpose, 'SV wallet');
 
   // Validator entries
-  assertEquals(creds[2].username, 'validator-1');
+  // The wallet login is the wallet-admin user Splice onboards, not the validator name.
+  assertEquals(creds[2].username, 'validator_1-wallet-admin');
+  assertEquals(creds[2].password, 'validator_1-wallet-admin');
   assertEquals(creds[2].purpose, 'validator-1 wallet');
-  assertEquals(creds[3].username, 'validator-2');
+  assertEquals(creds[3].username, 'validator_2-wallet-admin');
+  assertEquals(creds[3].password, 'validator_2-wallet-admin');
   assertEquals(creds[3].purpose, 'validator-2 wallet');
 });
 
