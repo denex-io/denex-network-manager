@@ -139,7 +139,7 @@ function eventually(cond: () => boolean, ms = 3000): Promise<void> {
 const opts = { sanitizeOps: false, sanitizeResources: false };
 
 Deno.test({
-  name: 'fake engine - logs follow:false returns clean text from framed output (#22)',
+  name: 'fake engine - logs follow:false returns clean text from framed output',
   ...opts,
   async fn() {
     const { client, close } = await startEngine({
@@ -237,7 +237,7 @@ Deno.test({
 });
 
 Deno.test({
-  name: 'fake engine - exec over a 101 upgrade returns clean stdout, stderr and exit code (#23)',
+  name: 'fake engine - exec over a 101 upgrade returns clean stdout, stderr and exit code',
   ...opts,
   async fn() {
     const { client, close, engine } = await startEngine({

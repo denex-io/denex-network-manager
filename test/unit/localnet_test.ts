@@ -11,9 +11,8 @@ import {
   resolvePackages,
 } from '../../src/localnet.ts';
 import { createMinimalConfig } from '../../src/utils/yaml.ts';
-import type { LocalNetConfig, PerPartyRight, UserRight } from '../../src/types/config.ts';
 import { parseLocalNetConfig } from '../../src/schemas/mod.ts';
-import type { PerPartyRight, UserRight } from '../../src/types/config.ts';
+import type { LocalNetConfig, PerPartyRight, UserRight } from '../../src/types/config.ts';
 
 Deno.test('LocalNet.fromConfig accepts a config object', async () => {
   const config = createMinimalConfig(2);
@@ -369,7 +368,10 @@ Deno.test('LocalNet.fromInstanceId - reads configDir from the config-dir label',
     }
   } finally {
     DockerClient.prototype.listContainers = original;
-// --- logs() / exec() container resolution (#22, #23) ---
+  }
+});
+
+// --- logs() / exec() container resolution ---
 
 interface FakeLogsExecClient {
   listContainers(
