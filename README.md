@@ -131,7 +131,7 @@ Commands:
 | `packages`     | List packages known to each participant (built-ins too)  |
 | `env`          | Show API URLs, auth config, and DSO party ID             |
 | `credentials`  | Show web UI login credentials                            |
-| `instances`    | List running LocalNet instances                          |
+| `instances`    | List LocalNet instances (running, mixed or stopped)      |
 | `entitlements` | List users with their rights                             |
 | `discovery`    | Run the multi-instance discovery HTTP server             |
 
