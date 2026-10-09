@@ -44,7 +44,7 @@ user-facing schema, fills defaults, and feeds the generator and lifecycle layers
 
 - Input (YAML, objects given to `fromConfig()`/the `LocalNet` constructor, builder output) goes
   through `parseLocalNetConfig()`, `validateLocalNetConfig()` or `withDefaults()`: strip parse plus
-  unknown-key warnings plus `checkConfigInvariants()` (port limit, unique names case-insensitively,
+  unknown-key warnings plus `checkConfigInvariants()` (port limit, lowercase and unique names,
   reserved `sv`, Keycloak realm collisions via `getRealmName`). These invariants are not in the
   exported Zod schema, so the schema type is unchanged.
 - Stored labels (`fromInstanceId()`, `discover()`, `reconstructConfigFromLabels()`,

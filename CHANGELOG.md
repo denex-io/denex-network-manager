@@ -89,9 +89,11 @@ All notable changes to this project will be documented in this file. The format 
 - **Breaking:** the validator count no longer has a cap of 10 (config, `dnm config` prompt,
   `withValidators`); instead a config whose highest derived port exceeds 65535 is rejected, for
   example 55 validators at `basePort: 60000`.
-- **Breaking:** validator names must be unique (case-insensitive), must not be `sv`, and must not
-  map to the same Keycloak realm as another validator (`alice-val` and `aliceVal`). Checked on input
-  only. `withValidators(count)` throws `RangeError` for a non-integer or `< 1` count.
+- **Breaking:** validator names must be lowercase (Keycloak lowercases usernames, so a name such as
+  `App` left the validator backend retrying `PERMISSION_DENIED` forever), unique, must not be `sv`,
+  and must not map to the same Keycloak realm as another validator (`alice-val` and `aliceVal`).
+  Checked on input only. `withValidators(count)` throws `RangeError` for a non-integer or `< 1`
+  count.
 - **Breaking:** the `LocalNet` constructor (and so `createLocalNet`) validates its config and throws
   `ZodError`, applies schema defaults and reports warnings; `getConfig()` returns the normalized
   copy, not the object passed in. Existing instances remain discoverable, stoppable and destroyable;
