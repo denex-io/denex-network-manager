@@ -70,9 +70,10 @@ Empty or historical directories exist in the repo. `src/canton-client/`, `src/di
 populated. `docs/` now holds only `splice-version-support-plan.md`, which is a proposal rather than
 a spec — the features it describes are not implemented.
 
-The npm release pipeline lives in `scripts/build_npm.ts` (SDK + CLI binaries via `dnt`) and
-`.github/workflows/publish.yml` (tag-triggered, compiles five platform binaries). These are not
-covered by a dedicated `agents/*.md` file; read those files directly when doing release work.
+The npm release pipeline lives in `scripts/build_npm.ts` (SDK-only npm package via `dnt`) and
+`.github/workflows/publish.yml` (tag-triggered; `deno compile` builds the five platform CLI
+binaries). These are not covered by a dedicated `agents/*.md` file; read those files directly when
+doing release work.
 
 ## Subject-specific context
 

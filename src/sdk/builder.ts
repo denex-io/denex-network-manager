@@ -101,7 +101,8 @@ export class LocalNetBuilder {
    * with no parties or users (add those with {@link LocalNetBuilder.addValidator} instead).
    *
    * @param names - One or more validator names: lowercase, at most 12 characters, starting with a
-   *   letter, containing only letters, digits, and hyphens, unique, and not `sv`. Checked by
+   *   letter, containing only letters, digits, and hyphens, unique, not `sv`, and not mapping to the same Keycloak realm as another validator (for example
+   *   `ab` and `ab-`). Checked by
    *   {@link LocalNetBuilder.build}.
    *
    * @example

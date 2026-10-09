@@ -86,9 +86,9 @@ export interface FullEnvironmentInfo {
    */
   auth: EnvironmentAuthConfig;
   /**
-   * Web UI logins, as returned by {@link getCredentials}: the wallet-admin login per validator,
-   * then one entry per configured user (users without a `primaryParty` are labelled as not
-   * onboarded).
+   * Web UI logins, as returned by {@link getCredentials}: the SV logins, then for each validator its
+   * wallet-admin login followed by its configured users (users without a `primaryParty` are
+   * labelled as not onboarded).
    */
   credentials: CredentialEntry[];
   /**

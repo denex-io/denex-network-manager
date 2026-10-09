@@ -66,7 +66,7 @@ exclusion exists — do not remove it.
 
   ```sh
   grep -c 'registry.npmjs.org' site/package-lock.json   # should equal the package count
-  grep -c 'artifactory\|drwholdings' site/package-lock.json  # must be 0
+  grep -v 'registry.npmjs.org' site/package-lock.json | grep -c '"resolved"'  # must be 0
   ```
 
   If the mirror leaked in, rewrite the prefix to `https://registry.npmjs.org/` — `integrity` hashes

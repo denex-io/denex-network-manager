@@ -26,8 +26,8 @@ built-ins and are intended to work on Deno, Node.js, and Bun.
 **Bun caveat:** Bun does not support Docker Unix sockets reliably through `node:http`. If you use
 the SDK from Bun, configure Docker to listen on a TCP socket.
 
-> This release targets Splice/Canton version **0.6.6**. To use a different version, pass `images` to
-> `LocalNetOptions` or `LocalNetBuilder`.
+> This release targets Splice/Canton version **0.6.6**. To use different images, pass `images` in
+> `LocalNetOptions` (one entry per image). `LocalNetBuilder` and the CLI have no image setting.
 
 ## Installation
 
@@ -111,10 +111,10 @@ dnm stop
 dnm destroy --force
 ```
 
-`stop` keeps the containers and the PostgreSQL volume, so a later `start` resumes in seconds.
-`destroy` removes containers, networks, and volumes; without `--force`, it asks for confirmation.
-Nothing is written to your host filesystem during a run, so there is no generated directory left
-behind.
+`stop` keeps the containers and the PostgreSQL volume, so a later `start` resumes in about a minute,
+instead of the several minutes a cold start takes. `destroy` removes containers, networks, and
+volumes; without `--force`, it asks for confirmation. Nothing is written to your host filesystem
+during a run, so there is no generated directory left behind.
 
 ## CLI
 
@@ -130,23 +130,24 @@ Commands:
 | `start`        | Start LocalNet containers                                          |
 | `stop`         | Stop all containers gracefully                                     |
 | `status`       | Show container state and health                                    |
-| `destroy`      | Remove containers, networks, volumes, and generated data           |
+| `destroy`      | Remove containers, networks, and data                              |
 | `init`         | Create parties and users, upload `packages:` on a running LocalNet |
 | `config`       | Generate `localnet.yaml` interactively                             |
-| `parties`      | List parties across validators                                     |
+| `parties`      | List parties and the validator that hosts each                     |
 | `packages`     | List packages known to each participant (built-ins too)            |
 | `env`          | Show API URLs, auth config, and DSO party ID                       |
 | `credentials`  | Show web UI login credentials                                      |
 | `instances`    | List LocalNet instances (running, mixed or stopped)                |
 | `entitlements` | List users with their rights                                       |
-| `discovery`    | Run the multi-instance discovery HTTP server                       |
+| `discovery`    | Run the multi-instance discovery HTTP server (`discovery serve`)   |
 
 Only `start` accepts `--config <path>`. State commands attach to Docker containers through labels.
 Without `--instance <id>` they pick the one running instance, else the one mixed (partly running)
 instance (not for `init`, which needs a running one), else (for `status`, `env`, `credentials`) the
 one stopped instance, and print a stderr notice when they fall back or ignore other instances; pass
-`--instance <id>` when a tier holds several. `dnm config -y` overwrites an existing file after
-saving it as `<file>.bak`.
+`--instance <id>` when a tier holds several. `destroy` instead picks the only instance in any state
+(instances with an unsupported label schema are skipped). `dnm config -y` overwrites an existing
+file after saving it as `<file>.bak`.
 
 Note that `--timeout` units differ per command: `start --timeout` is in **milliseconds** (default
 `300000`), while `stop --timeout` and `destroy --timeout` are in **seconds** (default `30`). The
@@ -180,9 +181,9 @@ Default ports use base port `5000`:
 For validator wallets the password equals the username. For custom validators, the wallet login is
 the validator name with `-` replaced by `_`, plus `-wallet-admin` (`app` gives `app-wallet-admin`,
 `my-val` gives `my_val-wallet-admin`). The plain validator name (`validator-1`) is a Keycloak user
-but is not onboarded to the wallet. YAML-defined users also use `id` as the default password, but
-are wallet-onboarded only if they set `primaryParty`; otherwise the wallet UI's self-onboarding
-creates a new party, and `dnm credentials` marks them "not onboarded".
+but is not onboarded to the wallet. YAML-defined users use `id` as their password, but are
+wallet-onboarded only if they set `primaryParty`; otherwise the wallet UI's self-onboarding creates
+a new party, and `dnm credentials` marks them "not onboarded".
 
 The `auth.keycloak.admin` and `auth.keycloak.password` values configure the persistent Keycloak
 master realm admin. They are not validator wallet credentials. `dnm credentials` prints the
@@ -256,23 +257,25 @@ is no cap on the validator count, but the highest port derived from `basePort` m
 a misspelt `basport`) are ignored with a warning, on stderr in the CLI; the value they would have
 set falls back to its default.
 
-Party hints supplied by users are normalized for Canton when needed. Validator operator party hints
-are generated separately from validator names.
+Party hints you configure are passed to Canton unchanged. Each validator's operator party hint is
+generated from the validator name and position (for example `localnet-app-1`), separately from your
+parties.
 
 ## Port Allocation
 
-Ports use `basePort` with `+100` increments per validator:
+Ports use `basePort` with `+100` increments per validator. These are published to the host:
 
 | Service             | SV   | Validator 1 | Validator 2 |
 | ------------------- | ---- | ----------- | ----------- |
-| HTTP health         | 5000 | 5100        | 5200        |
-| Ledger API          | 5001 | 5101        | 5201        |
+| Ledger API (gRPC)   | 5001 | 5101        | 5201        |
 | Admin API           | 5002 | 5102        | 5202        |
 | Validator Admin API | 5003 | 5103        | 5203        |
-| gRPC                | 5061 | 5161        | 5261        |
-| JSON API            | 5075 | 5175        | 5275        |
+| JSON API (HTTP)     | 5075 | 5175        | 5275        |
 | Web UI              | 5080 | 5180        | 5280        |
 | Keycloak            | 5082 | -           | -           |
+
+Each participant also has an HTTP health port at `+0` and a gRPC health port at `+61` (`5000` and
+`5061` for the SV). They are used inside the containers for health checks and are not published.
 
 SV-only internal ports also follow `basePort`: mediator admin +7, sequencer public +8, sequencer
 admin +9, Scan admin +12, splice Prometheus +13, SV admin +14, sequencer gRPC health +62, mediator
@@ -351,16 +354,17 @@ hint passed to `createUser` resolves only against parties hosted on that user's 
 hosted only elsewhere is allocated afresh there, with the same hint but a different party id.
 
 > **Note:** DAR packages listed in the `packages:` config field are uploaded at the end of
-> initialization, so `dnm start` uploads them and `dnm init` uploads them again (re-uploading an
-> existing DAR succeeds). A relative `dar` resolves against the config file's directory, then the
-> current directory; with the SDK pass `configDir` in the options when you give `LocalNet` a config
-> object. `uploadTo` lists `sv` and/or validator names and defaults to all of them. A missing DAR
-> stops a fresh start before anything is created; on resume, and for any failed upload, you get a
-> warning and the start continues. `--skip-init` / `skipInitialization` skip the upload. Call
-> `net.uploadDar(path)` to upload at any other time.
+> initialization, so `dnm start` uploads them when it starts or repairs the instance (not when it is
+> already fully running), and `dnm init` uploads them again (re-uploading an existing DAR succeeds).
+> A relative `dar` resolves against the config file's directory, then the current directory; with
+> the SDK pass `configDir` in the options when you give `LocalNet` a config object. `uploadTo` lists
+> `sv` and/or validator names and defaults to all of them. A missing DAR stops a fresh start before
+> anything is created; on resume or repair, and for any failed upload, you get a warning and the
+> start continues. `--skip-init` / `skipInitialization` skip the upload. Call `net.uploadDar(path)`
+> to upload at any other time.
 
-`createUser` provisions the ledger user, Keycloak user, and wallet onboarding. It is idempotent per
-side, so retries converge after partial failures.
+`createUser` provisions the ledger user and the Keycloak user, and onboards the user to the wallet
+when `primaryParty` is set. It is idempotent per side, so retries converge after partial failures.
 
 Advanced users can import the full API from `@denex/network-manager`, including `CantonClient`,
 `ValidatorAdminClient`, generators, schemas, Docker helpers, and discovery utilities.
@@ -392,8 +396,8 @@ await net.destroy();
 
 ## Discovery Server
 
-The discovery server is a separate foreground process for querying running instances over HTTP. It
-is not started from `localnet.yaml`; the `discovery` config field is deprecated.
+The discovery server is a separate foreground process for querying instances over HTTP. It is not
+started from `localnet.yaml`; the `discovery` config field is deprecated.
 
 ```bash
 dnm discovery serve --port 3100 --host 127.0.0.1
@@ -420,8 +424,8 @@ curl http://127.0.0.1:3100/instances/demo/env
 
 ## Troubleshooting
 
-Container names are prefixed with the instance ID (default: `default`). Use `dnm status` to list
-running container names.
+Container names are prefixed with the instance ID (default: `default`). Use `dnm status` to list the
+instance's container names and states.
 
 **502 Bad Gateway on API routes:** the `splice` container is likely crash-looping. Check
 `docker logs default-splice` for fatal errors. A bad validator config can take all Splice APIs

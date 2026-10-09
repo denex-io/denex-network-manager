@@ -76,11 +76,9 @@ initialization, and runtime operations.
 - The API cache TTL is 30 seconds; mutation methods invalidate relevant keys.
 - `createUser()` is not atomic but is intentionally convergent: ledger user, Keycloak user, and
   wallet onboarding may partially succeed and retry cleanly.
-- `destroy()` unconditionally removes named volumes (postgres data) and `.localnet/<instance>`
-  config data. The `StopOptions` parameter is forwarded to the internal `stop()` call (for timeout
-  control) but does not gate volume removal.
-- `destroy()` uses the cwd captured at construction time (`instanceCwd`), not `process.cwd()` at
-  call time — safe to call after a directory change.
+- `destroy()` stops the instance, then removes every container, the network and every volume
+  labelled `<labelPrefix>.instance=<id>` (including `<id>-postgres-data`). No host files exist to
+  remove. `StopOptions` is forwarded to `stop()` only.
 - `validatePortAvailability()` checks Docker-published ports, not all host processes.
 - `waitForApisReady()` retries before resource initialization.
 - `StartOptions.timeout` and `StopOptions.timeout` are both in **milliseconds** at the public API.
@@ -91,9 +89,11 @@ initialization, and runtime operations.
   `rollbackStart()` force-removes only the created containers, stops the pre-existing ones it
   started (one layer at a time in reverse layer order, 30 s grace), and removes the network and
   `<id>-postgres-data` only if this call created them. A failed resume therefore keeps containers,
-  network and data; a failed fresh start leaves nothing. State always returns to `'stopped'` (never
-  `'error'`; only a failed `stop()` sets `'error'`). `restart()` whose start step fails leaves the
-  instance stopped, except after a 409 (see above), which leaves the containers it started running.
+  network and data; a failed fresh start leaves nothing. `currentState` always returns to
+  `'stopped'` (never `'error'`; only a failed `stop()` sets `'error'`), unrelated to
+  `status().state`, which reports `'error'` whenever a container has exited, including after a clean
+  stop. `restart()` whose start step fails leaves the instance stopped, except after a 409 (see
+  above), which leaves the containers it started running.
 - Each startup layer runs `ensureStarted` for all specs via `Promise.allSettled`, throws the first
   rejection, and only then runs `waitHealthy` for the layer, so rollback never races a sibling that
   is still mutating Docker. Network and volume absence is decided by 404-aware

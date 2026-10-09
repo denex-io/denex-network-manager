@@ -531,8 +531,8 @@ export class LocalNet {
    *
    * Throws before changing anything if the instance already has containers whose stored
    * config differs from this handle's config or cannot be read. After the guards below, it
-   * throws if another Docker container already publishes a required host port (ports held
-   * by processes outside Docker are not checked).
+   * throws if another LocalNet instance already publishes a required host port (ports held
+   * by other Docker containers or by processes outside Docker are not checked).
    *
    * Failure is non-destructive: if `start()` fails, it removes only the
    * containers, network and volume that this call created, starts back any
@@ -574,8 +574,8 @@ export class LocalNet {
    *
    * Initialization ({@link LocalNet.initializeResources}) waits for every validator's APIs and
    * for Scan to become ready, allocates the configured parties, creates the configured users
-   * and uploads the configured `packages`. A party or user that fails is reported as a
-   * warning through `onProgress` and a package that fails through `onWarning`; neither fails
+   * and uploads the configured `packages`. A party or user that fails is reported
+   * through `onProgress` and a package that fails through `onWarning`; neither fails
    * `start()`, but a readiness wait that times out does.
    *
    * @param options - `timeout` (milliseconds, default 300000) is checked before each layer of
@@ -585,7 +585,9 @@ export class LocalNet {
    *   `skipInitialization` skips initialization, including the readiness waits and the package
    *   upload. `onProgress` receives progress and warning messages.
    * @throws If this object is already running or starting, on a config mismatch or port conflict,
-   *   if Docker is unavailable, a container exits or does not become healthy, the timeout check
+   *   if a container is paused, if another process appears to be starting the instance (including a
+   *   name conflict on create), if a configured `packages` DAR is missing on a fresh start,
+   *   if initialization cannot read a validator's hosted parties, if Docker is unavailable, a container exits or does not become healthy, the timeout check
    *   fails, or the APIs or Scan do not become ready.
    *
    * @example
