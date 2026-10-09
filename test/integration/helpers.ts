@@ -4,12 +4,13 @@
  */
 
 import { DockerClient } from '../../src/docker/client.ts';
-import { LABEL_INSTANCE } from '../../src/api/discovery-utils.ts';
+import { LABEL_INSTANCE, LABEL_PREFIX } from '../../src/api/discovery-utils.ts';
 
-// Resources created by LocalNet use the 'denex.localnet' prefix; tests that drive DockerClient /
-// NetworkManager directly with default options use the legacy 'localnet' prefix. Clean up both.
+// Resources created by LocalNet or DockerClient with default options use the 'denex.localnet'
+// prefix. Tests that label resources with 'localnet.instance' by hand, or use NetworkManager's
+// default 'localnet' prefix, need the legacy prefix too. Clean up both.
 const INSTANCE_LABEL_KEYS = [LABEL_INSTANCE, 'localnet.instance'];
-const NETWORK_PREFIXES = ['denex.localnet', 'localnet'];
+const NETWORK_PREFIXES = [LABEL_PREFIX, 'localnet'];
 
 const INTEGRATION_TEST_PREFIX = 'localnet-integration-test';
 
