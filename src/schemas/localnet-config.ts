@@ -225,8 +225,9 @@ function unknownKeyWarnings(input: unknown): ConfigWarning[] {
 
 /**
  * Input-only rules that are not part of the schema, so stored labels keep parsing: the
- * port limit for the validator count, and unique validator names (case-insensitive) that
- * neither equal the reserved `sv` nor derive a Keycloak realm name already in use.
+ * port limit for the validator count, lowercase and unique validator names that neither
+ * equal the reserved `sv` nor derive a Keycloak realm name already in use, and user ids that
+ * are unique case-insensitively within a validator (Keycloak lowercases usernames).
  */
 function checkConfigInvariants(parsed: ParsedLocalNetConfig): z.ZodIssue[] {
   const issues: z.ZodIssue[] = [];
@@ -292,6 +293,22 @@ function checkConfigInvariants(parsed: ParsedLocalNetConfig): z.ZodIssue[] {
       }
       realms.set(realm, v.name);
     });
+    parsed.validators.forEach((v: ValidatorConfig, i: number) => {
+      const ids = new Map<string, string>();
+      (v.users ?? []).forEach((u, j) => {
+        const key = u.id.toLowerCase();
+        const previous = ids.get(key);
+        if (previous !== undefined && previous !== u.id) {
+          issues.push({
+            code: z.ZodIssueCode.custom,
+            path: ['validators', i, 'users', j, 'id'],
+            message: `User id '${u.id}' in validator '${v.name}' differs from '${previous}' only ` +
+              `by case; Keycloak lowercases usernames, so they would be one user`,
+          });
+        }
+        ids.set(key, previous ?? u.id);
+      });
+    });
   }
   return issues;
 }
@@ -330,8 +347,8 @@ export function parseLocalNetConfigWithWarnings(
  * `onWarning` (default `console.warn`), also when the config is then rejected.
  *
  * Besides the schema it enforces the input-only rules: unique validator names
- * (case-insensitive, not `sv`, no Keycloak realm collisions) and a highest derived port of
- * at most 65535. Stored labels are parsed with {@link parseStoredLocalNetConfig} instead.
+ * (lowercase, not `sv`, no Keycloak realm collisions), case-insensitively unique user ids
+ * and a highest derived port of at most 65535. Stored labels are parsed with {@link parseStoredLocalNetConfig} instead.
  *
  * @throws {z.ZodError} If the config is invalid.
  */

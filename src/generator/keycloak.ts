@@ -371,12 +371,14 @@ export function generateValidatorRealm(
   // A config user whose id matches an auto-generated user (the validator default
   // user or wallet admin) is intentional — it attaches config-defined rights to
   // that user at runtime. Emit the Keycloak realm user only once so realm import
-  // does not reject a duplicate username. Duplicate config user ids are rejected
-  // earlier by ValidatorConfigSchema validation.
+  // does not reject a duplicate username. Duplicate config user ids (also by case, on
+  // input) are rejected earlier by config validation.
   const seenUsernames = new Set<string>();
   const addUser = (username: string) => {
-    if (seenUsernames.has(username)) return;
-    seenUsernames.add(username);
+    // Keycloak lowercases usernames, so ids differing only by case are one user.
+    const key = username.toLowerCase();
+    if (seenUsernames.has(key)) return;
+    seenUsernames.add(key);
     users.push(createUser(username));
   };
 
