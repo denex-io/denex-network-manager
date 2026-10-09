@@ -9,6 +9,7 @@ import {
 import type {
   ContainerInfo,
   ContainerSpec,
+  ExecResult,
   LocalNetState,
   LocalNetStatus,
   StartOptions,
@@ -1577,25 +1578,63 @@ export class LocalNet {
     return endpoints;
   }
 
+  /**
+   * Reads the logs of one of this instance's containers.
+   *
+   * `containerName` is the full runtime container name, prefixed with the
+   * instance ID (for example `default-splice`). It is looked up through the
+   * instance label on every call, so it works on any handle for a running
+   * instance, however it was attached.
+   *
+   * stdout and stderr are merged, with Docker's stream framing removed. The
+   * stream yields the last `tail` lines (default 100) and closes; with
+   * `follow: true` it stays open until the container stops or the stream is
+   * cancelled.
+   *
+   * @throws If the instance is not running, or the instance has no container
+   *   with that name (the message lists the names it does have).
+   */
   async logs(
     containerName: string,
     options?: { tail?: number; follow?: boolean },
   ): Promise<ReadableStream<Uint8Array>> {
     await this.requireRunning('logs');
-    const containerId = this.containerIds.get(containerName);
-    if (!containerId) {
-      throw new Error(`Container ${containerName} not found`);
-    }
+    const containerId = await this.resolveContainerId(containerName);
     return this.client.getContainerLogs(containerId, options);
   }
 
-  async exec(containerName: string, cmd: string[]): Promise<{ exitCode: number; output: string }> {
+  /**
+   * Runs a command in one of this instance's containers and waits for it to
+   * finish.
+   *
+   * `containerName` is the full runtime container name, prefixed with the
+   * instance ID (for example `default-postgres`); see {@link LocalNet.logs}
+   * for how it is resolved.
+   *
+   * @returns The exit code (`-1` if Docker never reported one), `output` (stdout and stderr merged
+   *   in arrival order) and the separate `stdout` and `stderr` text.
+   * @throws If the instance is not running, or the instance has no container
+   *   with that name.
+   */
+  async exec(containerName: string, cmd: string[]): Promise<ExecResult> {
     await this.requireRunning('exec');
-    const containerId = this.containerIds.get(containerName);
-    if (!containerId) {
-      throw new Error(`Container ${containerName} not found`);
-    }
+    const containerId = await this.resolveContainerId(containerName);
     return this.client.execInContainer(containerId, cmd);
+  }
+
+  /** Finds a container of this instance by runtime name, via the instance label. */
+  private async resolveContainerId(containerName: string): Promise<string> {
+    const containers = await this.client.listContainers({
+      [`${this.options.labelPrefix}.instance`]: this.options.instanceId,
+    });
+    const found = containers.find((c) => c.name === containerName);
+    if (!found) {
+      const known = containers.map((c) => c.name).sort().join(', ') || '(none)';
+      throw new Error(
+        `Container ${containerName} not found; this instance has: ${known}`,
+      );
+    }
+    return found.id;
   }
 
   private markAttachedToRunning(): void {
