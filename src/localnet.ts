@@ -2,6 +2,7 @@ import { DockerClient } from './docker/client.ts';
 import { NetworkManager } from './docker/network.ts';
 import {
   buildAllContainers,
+  buildSpliceImages,
   type ContainerBuilderOptions,
   type GeneratedConfigs,
   getStartupOrder,
@@ -315,7 +316,13 @@ export class LocalNet {
     this.options = {
       instanceId,
       labelPrefix,
-      images: options?.images ?? {},
+      // Images derived from `spliceVersion` apply on every path (fromConfig, fromInstanceId and
+      // the constructor), so a repair recreates containers at the same version; explicit
+      // `options.images` win.
+      images: {
+        ...(this.config.spliceVersion ? buildSpliceImages(this.config.spliceVersion) : {}),
+        ...options?.images,
+      },
       dbUser: options?.dbUser ?? 'cnadmin',
       dbPassword: options?.dbPassword ?? 'supersafe',
       onWarning,

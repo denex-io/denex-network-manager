@@ -165,4 +165,11 @@ export interface LocalNetBuilderConfig {
     /** Keycloak admin password. */
     password: string;
   };
+
+  /**
+   * Splice release tag for the Splice-family images. Unset uses the bundled default.
+   *
+   * Maps to `LocalNetConfig.spliceVersion`.
+   */
+  spliceVersion?: string;
 }

@@ -44,6 +44,66 @@ auth:
   assertEquals(net.getConfig().validators, 2);
 });
 
+const SPLICE_REPO = 'ghcr.io/digital-asset/decentralized-canton-sync/docker';
+
+Deno.test('LocalNet - spliceVersion sets the Splice-family images', () => {
+  const net = new LocalNet({ ...createMinimalConfig(1), spliceVersion: '0.9.0' });
+  const images = net['options'].images;
+  assertEquals(images.canton, `${SPLICE_REPO}/canton:0.9.0`);
+  assertEquals(images.splice, `${SPLICE_REPO}/splice-app:0.9.0`);
+  assertEquals(images.walletWebUi, `${SPLICE_REPO}/wallet-web-ui:0.9.0`);
+  assertEquals(images.ansWebUi, `${SPLICE_REPO}/ans-web-ui:0.9.0`);
+  assertEquals(images.svWebUi, `${SPLICE_REPO}/sv-web-ui:0.9.0`);
+  assertEquals(images.scanWebUi, `${SPLICE_REPO}/scan-web-ui:0.9.0`);
+  assertEquals(images.postgres, undefined);
+});
+
+Deno.test('LocalNet - explicit options.images win over spliceVersion', () => {
+  const net = new LocalNet({ ...createMinimalConfig(1), spliceVersion: '0.9.0' }, {
+    images: { canton: 'my/canton:dev' },
+  });
+  const images = net['options'].images;
+  assertEquals(images.canton, 'my/canton:dev');
+  assertEquals(images.splice, `${SPLICE_REPO}/splice-app:0.9.0`);
+});
+
+Deno.test('LocalNet - no spliceVersion leaves the image overrides empty', () => {
+  const net = new LocalNet(createMinimalConfig(1));
+  assertEquals(net['options'].images, {});
+});
+
+Deno.test('LocalNet.fromConfig applies spliceVersion from a YAML file', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'localnet-test-'));
+  const path = join(dir, 'localnet.yaml');
+  await writeFile(
+    path,
+    `spliceVersion: "0.8.3"
+validators: 1
+auth:
+  keycloak:
+    admin: admin
+    password: admin
+`,
+    'utf-8',
+  );
+  const warnings: string[] = [];
+  const net = await LocalNet.fromConfig(path, { onWarning: (w) => warnings.push(w.message) });
+  assertEquals(warnings, []);
+  assertEquals(net.getConfig().spliceVersion, '0.8.3');
+  assertEquals(net['options'].images.canton, `${SPLICE_REPO}/canton:0.8.3`);
+});
+
+Deno.test('parseLocalNetConfig - rejects a spliceVersion that is not a Docker tag', () => {
+  assertThrows(
+    () => parseLocalNetConfig({ ...createMinimalConfig(1), spliceVersion: '0.9.0 beta' }),
+    ZodError,
+  );
+  assertThrows(
+    () => parseLocalNetConfig({ ...createMinimalConfig(1), spliceVersion: '' }),
+    ZodError,
+  );
+});
+
 Deno.test('LocalNet - tier 1: getConfig() and instanceId work without running instance', () => {
   const config = createMinimalConfig(2);
   const id = 't-tier1-' + Date.now();

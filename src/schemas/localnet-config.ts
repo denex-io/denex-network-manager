@@ -122,6 +122,10 @@ function makeSchemas<M extends 'strict' | 'strip'>(mode: M) {
     // @deprecated — kept for backward compatibility. Use `dnm discovery serve` (CLI) or `MultiInstanceDiscoveryServer` (SDK) instead.
     discovery: DiscoveryConfigSchema.optional(),
     basePort: z.number().int().min(1024).max(60000).default(5000),
+    spliceVersion: z.string().regex(
+      /^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$/,
+      'spliceVersion must be a valid Docker image tag (for example "0.9.0")',
+    ).optional(),
   });
 
   return {
@@ -463,5 +467,6 @@ export function withDefaults(
     packages: config.packages,
     discovery: config.discovery,
     basePort,
+    ...(config.spliceVersion === undefined ? {} : { spliceVersion: config.spliceVersion }),
   }, options);
 }

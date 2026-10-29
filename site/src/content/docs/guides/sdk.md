@@ -89,6 +89,9 @@ const net = await LocalNet.fromConfig(config);
 await net.start();
 ```
 
+`.withSpliceVersion('0.9.0')` sets
+[`spliceVersion`](/denex-network-manager/reference/configuration/#splice-version).
+
 ## Attach to a running instance
 
 ```typescript

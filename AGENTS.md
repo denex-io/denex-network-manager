@@ -68,7 +68,7 @@ is excluded from `deno fmt` and `deno lint`; read `agents/docs-site.md` before t
 Empty or historical directories exist in the repo. `src/canton-client/`, `src/discovery-server/`,
 `src/orchestrator/`, and `src/state/` may exist as empty or legacy stubs; ignore them unless
 populated. `docs/` now holds only `splice-version-support-plan.md`, which is a proposal rather than
-a spec — the features it describes are not implemented.
+a spec — only the `spliceVersion` config field is implemented; the rest is not.
 
 The npm release pipeline lives in `scripts/build_npm.ts` (SDK-only npm package via `dnt`) and
 `.github/workflows/publish.yml` (tag-triggered; `deno compile` builds the five platform CLI

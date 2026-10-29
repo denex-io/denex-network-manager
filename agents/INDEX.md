@@ -35,4 +35,4 @@ These files are agent-facing. User-facing documentation lives on the docs site u
 | `../deno.json`                                          | Checking tasks, exports, imports, or compiler options | Source of truth for Deno tasks and package entry points                                       |
 | `../site/src/content/docs/how-it-works/architecture.md` | Needing diagrams or broader architecture orientation  | Architecture reference; verify image tags and ports against source code                       |
 | `../examples/`                                          | Needing a runnable consumer-style example             | Type-checked by `deno task check`; see `../examples/README.md`                                |
-| `../docs/splice-version-support-plan.md`                | Understanding planned Splice version selection        | Proposal only — `spliceVersion` is **not** implemented. Phase 3 scope, keep internal          |
+| `../docs/splice-version-support-plan.md`                | Understanding planned Splice version selection        | Proposal; only the `spliceVersion` config field exists (`config-schema.md`). Keep internal    |
