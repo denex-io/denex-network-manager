@@ -12,9 +12,7 @@ The authoritative changelog lives in the repository so it ships with the source 
 
 This page summarizes what each release means for you. It is not a copy of the changelog.
 
-## Unreleased
-
-Changes on `main` since 0.1.0-beta.1. They are not in a published release yet.
+## 0.1.0-beta.2 — 2026-10-29
 
 Behavior you can now rely on:
 
