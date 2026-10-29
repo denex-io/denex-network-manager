@@ -310,7 +310,7 @@ Expect a concurrent start to take several minutes and a good number of readiness
 
 Behavior above was checked against the SDK source in this repository and against live instances on
 macOS. Repair on `start()`, the non-destructive failed resume, and parties listed once per host are
-newer than `0.1.0-beta.1`; see the [changelog](/denex-network-manager/help/changelog/). Linux
+new in `0.1.0-beta.2`; see the [changelog](/denex-network-manager/help/changelog/). Linux
 behavior is per the platform table; confirm it for your own environment if you depend on it.
 
 [rfc6265]: https://datatracker.ietf.org/doc/html/rfc6265#section-8.5
