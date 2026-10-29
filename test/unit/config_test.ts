@@ -102,6 +102,11 @@ Deno.test('validateLocalNetConfig - allows config user id matching validator nam
   assertEquals(result.success, true);
 });
 
+Deno.test('withDefaults - keeps spliceVersion', () => {
+  assertEquals(withDefaults({ validators: 1, spliceVersion: '0.9.0' }).spliceVersion, '0.9.0');
+  assertEquals('spliceVersion' in withDefaults({ validators: 1 }), false);
+});
+
 Deno.test('withDefaults - creates config with defaults', () => {
   const config = withDefaults({ validators: 3 });
 

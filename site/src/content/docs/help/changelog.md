@@ -37,6 +37,10 @@ Behavior you can now rely on:
   instance that is not fully running when you omit `--instance`.
 - The sequencer, mediator, Scan admin and SV admin ports inside the containers follow `basePort`,
   which removes port collisions at some `basePort` values.
+- `spliceVersion` in the config runs a different Splice release than the bundled one. See
+  [Splice version](/denex-network-manager/reference/configuration/#splice-version).
+- Web UI containers from newer Splice images (Alpine 3.21+) become healthy; their health check no
+  longer goes to `localhost`, which resolved to IPv6.
 
 Breaking changes to check before upgrading:
 

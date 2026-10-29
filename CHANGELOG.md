@@ -27,6 +27,10 @@ All notable changes to this project will be documented in this file. The format 
   `LocalNet.warnings`, and an optional `{ onWarning }` argument on `parseLocalNetConfig`,
   `validateLocalNetConfig`, `withDefaults`, `loadConfigFile`, `loadConfigFromDir` and
   `loadConfigFromString`.
+- `spliceVersion` config field: runs the six Splice-family images (`canton`, `splice-app` and the
+  four web UIs) at the given release tag instead of the bundled default. Explicit
+  `LocalNetOptions.images` win. `LocalNetBuilder.withSpliceVersion()` sets it, and
+  `buildSpliceImages(version)` returns the same image map.
 
 ### Changed
 
@@ -117,6 +121,9 @@ All notable changes to this project will be documented in this file. The format 
 
 ### Fixed
 
+- The web UI health checks target `127.0.0.1` instead of `localhost`. Alpine 3.21+ images resolve
+  `localhost` to `::1` first while their nginx listens only on IPv4, so newer Splice web UI images
+  never became healthy.
 - `initializeResources()` (and so `dnm init` and a repairing `start()`) skips configured parties
   whose hint is already hosted on the validator, instead of re-allocating them and logging failures;
   its docstring no longer claims re-running creates duplicate users.

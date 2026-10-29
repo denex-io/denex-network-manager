@@ -193,6 +193,18 @@ export class LocalNetBuilder {
   }
 
   /**
+   * Run the Splice-family images (Canton, Splice and the web UIs) at this release tag instead of
+   * the bundled default. Sets `spliceVersion`; explicit `LocalNetOptions.images` still win.
+   *
+   * @param version - A Splice release tag, for example `'0.9.0'`.
+   * @returns This builder for chaining.
+   */
+  withSpliceVersion(version: string): LocalNetBuilder {
+    this.config.spliceVersion = version;
+    return this;
+  }
+
+  /**
    * Set the Keycloak admin username and password (`auth.keycloak.admin` and
    * `auth.keycloak.password`). Defaults to `admin`/`admin`.
    */
@@ -234,6 +246,7 @@ export class LocalNetBuilder {
       validators,
       basePort: this.config.basePort,
       auth: { keycloak: this.config.auth },
+      spliceVersion: this.config.spliceVersion,
     });
   }
 

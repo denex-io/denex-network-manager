@@ -74,8 +74,9 @@ function spliceImage(name: string): string {
 }
 
 /**
- * Build image overrides for all Splice-family containers at a given version.
- * Pass the result to `LocalNetOptions.images` to override the defaults.
+ * Build image overrides for all Splice-family containers at a given version. `LocalNet` applies
+ * these itself when the config sets `spliceVersion`; callers can also pass the result to
+ * `LocalNetOptions.images`.
  */
 export function buildSpliceImages(version: string): Partial<ContainerImages> {
   const img = (name: string) => `${DEFAULT_SPLICE_IMAGE_REPO}/${name}:${version}`;

@@ -63,14 +63,15 @@ auth:
 
 ## Top-level fields
 
-| Field        | Type                | Default  | Description                                                |
-| ------------ | ------------------- | -------- | ---------------------------------------------------------- |
-| `version`    | string              | `'1.0'`  | Config schema version                                      |
-| `validators` | number or array     | required | Validator count (at least 1) or explicit definitions       |
-| `auth`       | object              | required | Keycloak master realm admin credentials                    |
-| `basePort`   | number (1024–60000) | `5000`   | Base of the port block                                     |
-| `packages`   | array               | —        | DARs uploaded to participants at the end of initialization |
-| `discovery`  | object              | —        | Deprecated. Does not start a server.                       |
+| Field           | Type                | Default  | Description                                                |
+| --------------- | ------------------- | -------- | ---------------------------------------------------------- |
+| `version`       | string              | `'1.0'`  | Config schema version                                      |
+| `validators`    | number or array     | required | Validator count (at least 1) or explicit definitions       |
+| `auth`          | object              | required | Keycloak master realm admin credentials                    |
+| `basePort`      | number (1024–60000) | `5000`   | Base of the port block                                     |
+| `spliceVersion` | string              | —        | Splice release tag for Canton, Splice and the web UIs      |
+| `packages`      | array               | —        | DARs uploaded to participants at the end of initialization |
+| `discovery`     | object              | —        | Deprecated. Does not start a server.                       |
 
 `validators: 2` is shorthand for two validators named `validator-1` and `validator-2`. The field is
 required in YAML, and a file without it fails to load. In the SDK, `LocalNetBuilder` and
@@ -192,6 +193,25 @@ directory. `dnm start --config` still uses the config file's directory.
 A missing DAR on a fresh start fails before anything is created. On a resume, a repair, or on `dnm init`, a
 missing DAR or a failed upload is a warning and the rest of startup continues. `--skip-init` skips
 the upload.
+
+## Splice version
+
+```yaml
+spliceVersion: '0.9.0'
+```
+
+By default every LocalNet runs the Splice release bundled with this version of
+`denex-network-manager`. `spliceVersion` runs another release instead: the `canton`, `splice-app`,
+`wallet-web-ui`, `ans-web-ui`, `sv-web-ui` and `scan-web-ui` images from
+`ghcr.io/digital-asset/decentralized-canton-sync/docker` are all pulled at that tag. PostgreSQL,
+Keycloak and Nginx are unaffected. The value must be a valid Docker tag.
+
+The version is stored with the instance, so a `dnm start` that repairs it recreates containers at
+the same release. In the SDK, `LocalNetOptions.images` overrides individual images and wins over
+`spliceVersion`.
+
+Only the bundled release is tested. Generated Canton and Splice configs are not versioned, so a
+release that changed its config format can fail to start.
 
 ## Environment variable interpolation
 

@@ -23,6 +23,7 @@ export {
   buildPostgresContainer,
   buildScanWebUiContainer,
   buildSpliceContainer,
+  buildSpliceImages,
   buildSvWebUiContainer,
   buildWalletWebUiContainers,
   type ContainerBuilderOptions,

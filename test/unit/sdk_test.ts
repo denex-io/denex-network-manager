@@ -67,6 +67,16 @@ Deno.test('LocalNetBuilder - withBasePort sets custom base port', () => {
   assertEquals(config.basePort, 6000);
 });
 
+Deno.test('LocalNetBuilder - withSpliceVersion sets spliceVersion', () => {
+  const config = LocalNetBuilder.create().withSpliceVersion('0.9.0').withValidators(1).build();
+  assertEquals(config.spliceVersion, '0.9.0');
+});
+
+Deno.test('LocalNetBuilder - spliceVersion is absent by default', () => {
+  const config = LocalNetBuilder.create().withValidators(1).build();
+  assertEquals('spliceVersion' in config, false);
+});
+
 Deno.test('LocalNetBuilder - withAuth sets custom credentials', () => {
   const config = LocalNetBuilder.create()
     .withAuth('myadmin', 'secret')

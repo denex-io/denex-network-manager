@@ -31,6 +31,10 @@ user-facing schema, fills defaults, and feeds the generator and lifecycle layers
   (`getHighestPort(basePort, n)`) is at most `MAX_PORT` (65535).
 - `parties[].validator` and `users[].validator` no longer exist; on input they warn and are dropped.
 - `basePort` defaults to `5000` and must be between `1024` and `60000`.
+- `spliceVersion` is optional and must be a Docker tag. The `LocalNet` constructor turns it into
+  image overrides for the six Splice-family images (`buildSpliceImages()` in
+  `src/docker/containers.ts`), with `LocalNetOptions.images` merged on top. It is applied in the
+  constructor rather than `fromConfig()` so `fromInstanceId()` and repairs use it too.
 - OAuth2 with Keycloak is the only auth mode; config stores `auth.keycloak.admin` and
   `auth.keycloak.password`.
 - `discovery` is deprecated; kept only for backward compatibility. The field is accepted and
