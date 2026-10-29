@@ -1,15 +1,28 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright Cumberland Applications LLC 2026
-/** @module sdk */
+/**
+ * The curated SDK surface, imported as `@denex/network-manager/sdk`.
+ *
+ * Start with {@link LocalNet.fromConfig} for a config file or object, {@link LocalNetBuilder} to
+ * build a config in code, or {@link LocalNet.fromInstanceId} to attach to an existing instance.
+ *
+ * @module sdk
+ */
 
 export { createLocalNet, LocalNet, type LocalNetOptions } from '../localnet.ts';
 export { LocalNetBuilder } from './builder.ts';
 export type { LocalNetBuilderConfig, UserSpec, ValidatorSpec } from './types.ts';
 export type { DiscoveredInstance } from '../api/discovery-utils.ts';
 
-export type { CredentialEntry, FullEnvironmentInfo, ValidatorEndpoints } from '../types/state.ts';
+export type {
+  ConfigWarning,
+  CredentialEntry,
+  FullEnvironmentInfo,
+  LocalNetWarning,
+  ValidatorEndpoints,
+} from '../types/state.ts';
 export type { LocalNetConfig, ValidatorConfig } from '../types/config.ts';
-export type { ParsedLocalNetConfig } from '../schemas/mod.ts';
+export type { ParseConfigOptions, ParsedLocalNetConfig } from '../schemas/mod.ts';
 export type { CredentialInfo } from '../utils/credentials.ts';
 
 export { buildConfigEnvironmentInfo } from '../utils/env-info.ts';

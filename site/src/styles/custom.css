@@ -1,0 +1,47 @@
+/* Diagrams render at natural size (useMaxWidth: false in astro.config.mjs); wide ones scroll. */
+/* astro-mermaid makes the <pre> a flex container and caps the SVG at max-width: 100%, both of
+   which shrink wide diagrams down to ~4px labels on mobile. Block layout plus auto margins
+   centres narrow diagrams and scrolls wide ones. */
+.sl-markdown-content pre.mermaid {
+  display: block;
+  overflow-x: auto;
+  background: transparent;
+}
+
+.sl-markdown-content pre.mermaid svg {
+  max-width: none;
+  margin-inline: auto;
+  /* Natural size is 16px text; 75% keeps labels readable (12px) while fewer diagrams scroll. */
+  zoom: 0.75;
+}
+
+/* Flags, credentials, and identifiers in tables and aside titles must not break at hyphens:
+   `validator-` / `1` reads as a different password. Prose code still wraps. */
+.sl-markdown-content :is(td, th, .starlight-aside__title) code {
+  white-space: nowrap;
+}
+
+/* Code in headings renders much heavier than heading text, and a long error identifier
+   (NO_SYNCHRONIZER_ON_WHICH_ALL_SUBMITTERS_CAN_SUBMIT) overflows. Shrink it to fit one desktop
+   line; on narrow screens let it wrap rather than overflow. */
+.sl-markdown-content :is(h2, h3, h4) code {
+  font-size: 0.68em;
+  overflow-wrap: anywhere;
+}
+
+/* Starlight scrolls wide tables inside their own box, with no hint that columns are hidden.
+   Edge shadows appear only while there is more to scroll (background-attachment trick). */
+.sl-markdown-content table {
+  background:
+    linear-gradient(to right, var(--sl-color-bg), var(--sl-color-bg)) left / 1.5rem 100% no-repeat local,
+    linear-gradient(to left, var(--sl-color-bg), var(--sl-color-bg)) right / 1.5rem 100% no-repeat local,
+    radial-gradient(farthest-side at 0 50%, rgb(0 0 0 / 0.18), transparent) left / 0.75rem 100% no-repeat scroll,
+    radial-gradient(farthest-side at 100% 50%, rgb(0 0 0 / 0.18), transparent) right / 0.75rem 100% no-repeat scroll;
+}
+
+/* The project name is one hyphenated word; at the default hero size it breaks after
+   "network-". Keep it on one line and scale it to fit instead. */
+.hero h1 {
+  white-space: nowrap;
+  font-size: clamp(1.75rem, 3.4vw, 3rem);
+}

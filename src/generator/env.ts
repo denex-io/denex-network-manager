@@ -6,14 +6,13 @@
  */
 
 import type { LocalNetConfig, ValidatorConfig } from '../types/config.ts';
-import { DEFAULT_AUDIENCE, normalizeValidators } from '../types/config.ts';
+import { DEFAULT_AUDIENCE, getWalletAdminUserId, normalizeValidators } from '../types/config.ts';
 import {
   DEFAULT_BASE_PORT,
   getSvInternalPorts,
   getSvPorts,
   getValidatorPorts,
   PORT_SUFFIXES,
-  SV_INTERNAL_PORTS,
 } from '../utils/ports.ts';
 
 export interface EnvGeneratorConfig {
@@ -206,7 +205,7 @@ export function generateValidatorAuthEnv(
 ${envPrefix}_PARTY_HINT=${partyHint}
 AUTH_${envPrefix}_AUDIENCE=${DEFAULT_AUDIENCE}
 AUTH_${envPrefix}_VALIDATOR_USER_NAME=ledger-api-user
-AUTH_${envPrefix}_WALLET_ADMIN_USER_NAME=${validator.name}
+AUTH_${envPrefix}_WALLET_ADMIN_USER_NAME=${getWalletAdminUserId(validator.name)}
 SPLICE_APP_UI_AUTH_AUDIENCE=\${AUTH_${envPrefix}_AUDIENCE}
 SPLICE_APP_VALIDATOR_LEDGER_API_AUTH_AUDIENCE=\${AUTH_${envPrefix}_AUDIENCE}
 `;
@@ -260,10 +259,10 @@ export function generatePortMappingEnv(
     `SV_HTTP_HEALTH_PORT=${svPorts.httpHealth}`,
     `SV_GRPC_HEALTH_PORT=${svPorts.grpcHealth}`,
     '',
-    '# SV Internal ports (host-published; container-to-container ports are fixed)',
-    `SV_SEQUENCER_PUBLIC_PORT=${SV_INTERNAL_PORTS.sequencerPublic}`,
-    `SV_SEQUENCER_ADMIN_PORT=${SV_INTERNAL_PORTS.sequencerAdmin}`,
-    `SV_MEDIATOR_ADMIN_PORT=${SV_INTERNAL_PORTS.mediatorAdmin}`,
+    '# SV Internal ports (all basePort-relative; only Scan and SV admin are host-published)',
+    `SV_SEQUENCER_PUBLIC_PORT=${svInternalPorts.sequencerPublic}`,
+    `SV_SEQUENCER_ADMIN_PORT=${svInternalPorts.sequencerAdmin}`,
+    `SV_MEDIATOR_ADMIN_PORT=${svInternalPorts.mediatorAdmin}`,
     `SV_SCAN_ADMIN_PORT=${svInternalPorts.scanAdmin}`,
     `SV_SV_ADMIN_PORT=${svInternalPorts.svAdmin}`,
   ];

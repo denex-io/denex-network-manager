@@ -1,3 +1,4 @@
+import { LABEL_INSTANCE } from '../../src/api/discovery-utils.ts';
 import { assertEquals } from '@std/assert';
 import { chromium } from 'npm:playwright@1.57.0';
 import { LocalNet } from '../../src/localnet.ts';
@@ -56,15 +57,15 @@ const WEB_UIS: WebUIConfig[] = [
   {
     name: 'Validator-1 Wallet',
     url: `http://wallet.localhost:${getValidatorPorts(0).webUi}`,
-    username: 'validator-1',
-    password: 'validator-1',
+    username: 'validator_1-wallet-admin',
+    password: 'validator_1-wallet-admin',
     screenshotName: 'e2e-validator-1-wallet.png',
   },
   {
     name: 'Validator-2 Wallet',
     url: `http://wallet.localhost:${getValidatorPorts(1).webUi}`,
-    username: 'validator-2',
-    password: 'validator-2',
+    username: 'validator_2-wallet-admin',
+    password: 'validator_2-wallet-admin',
     screenshotName: 'e2e-validator-2-wallet.png',
   },
 ];
@@ -257,7 +258,7 @@ Deno.test({
       await localnet.destroy({ removeVolumes: true });
 
       const containersAfterDestroy = await client.listContainers({
-        'localnet.instance': instanceId,
+        [LABEL_INSTANCE]: instanceId,
       });
       assertEquals(
         containersAfterDestroy.length,

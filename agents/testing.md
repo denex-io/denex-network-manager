@@ -30,19 +30,26 @@ deno task playwright:install
 
 ## Unit tests
 
+See `test/unit/` for the full list. Notable files:
+
 - `test/unit/api_test.ts`
 - `test/unit/cli_test.ts`
 - `test/unit/config_test.ts`
 - `test/unit/discovery_integration_test.ts`
 - `test/unit/discovery_test.ts`
 - `test/unit/discovery_utils_test.ts`
+- `test/unit/docker_fake_engine_test.ts`
+- `test/unit/docker_stream_test.ts`
 - `test/unit/docker_test.ts`
 - `test/unit/generator_test.ts`
 - `test/unit/keycloak_admin_test.ts`
+- `test/unit/localnet_start_test.ts` (start-rollback with a fake Docker client)
 - `test/unit/localnet_test.ts`
 - `test/unit/sdk_test.ts`
 
 ## Integration tests
+
+See `test/integration/` for the full list. Notable files:
 
 - `test/integration/auth_confidence_test.ts`
 - `test/integration/cli_test.ts`
@@ -65,7 +72,7 @@ deno task playwright:install
 
 - Integration tests call `isDockerAvailable()` and auto-skip when Docker is unavailable.
 - Use unique instance IDs from `generateTestInstanceId()`.
-- Always clean up containers, networks, volumes, and `.localnet` data.
+- Always clean up containers, networks and volumes (use `cleanupTestResources`).
 - Use `localnetFetch()` for `*.localhost` URLs in Deno tests when DNS or Host header behavior
   matters.
 - Browser tests require Playwright Chromium; install with `deno task playwright:install`.
@@ -96,3 +103,15 @@ deno task playwright:install
 - `test/integration/helpers.ts`
 - `src/utils/fetch.ts`
 - `deno.json`
+
+## Fake Docker client and basePort conventions
+
+- To unit-test `LocalNet.start()` without Docker, build a `FakeDockerClient` that records every
+  mutating call (see `test/unit/localnet_start_test.ts`) and inject it with
+  `Reflect.set(net, 'client', fake as unknown as DockerClient)` plus
+  `Reflect.set(net, 'networkManager', new NetworkManager(fake as unknown as DockerClient, { prefix }))`.
+  Stub `globalThis.fetch` too, otherwise `deleteBootstrapAdmin` could reach a real Keycloak.
+- basePort convention: fake-Docker unit tests use 41000; new integration tests use a dedicated
+  basePort of 21000, 22000 or 23000 with `generateTestInstanceId()`. Avoid 5000, 5500-5700,
+  7000-7999 (often used for manual validation; `auth_confidence_test` already uses 7000), 8000, 8100
+  and 17000-19000.

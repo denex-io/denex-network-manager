@@ -5,12 +5,14 @@
 - Covers: generated Canton HOCON, Splice app.conf, Keycloak realm JSON, env files, and nginx config.
 - Read when: changing generated config strings or troubleshooting generated runtime configuration.
 - Excludes: Docker API mechanics after container specs are built.
-- Supporting docs: `docs/localnet-architecture.md` for diagrams; verify details against source.
+- Supporting docs: `site/src/content/docs/how-it-works/architecture.md` for diagrams; verify details
+  against source.
 
 ## What this subsystem is
 
-The generator layer converts `LocalNetConfig` into files mounted into containers. A small config can
-produce the complete Canton, Splice, Keycloak, environment, and Nginx setup needed by the LocalNet.
+The generator layer converts `LocalNetConfig` into config strings delivered to containers through
+environment variables. A small config can produce the complete Canton, Splice, Keycloak,
+environment, and Nginx setup needed by the LocalNet.
 
 ## Main modules
 
@@ -19,7 +21,7 @@ produce the complete Canton, Splice, Keycloak, environment, and Nginx setup need
 - `src/generator/keycloak.ts`: Keycloak realm imports and clients.
 - `src/generator/env.ts`: merged environment values.
 - `src/docker/nginx.ts`: Nginx reverse proxy config string.
-- `src/localnet.ts`: writes generated files to the instance config directory.
+- `src/localnet.ts`: `buildGeneratedConfigs()` assembles the generated configs in memory.
 
 ## Working rules
 
@@ -32,11 +34,9 @@ produce the complete Canton, Splice, Keycloak, environment, and Nginx setup need
 ## Critical gotchas
 
 - Nginx API location blocks include `rewrite ^/(.*) /$1 break;`; preserve it when editing routes.
-- Nginx `proxy_pass` targets for SV admin (`5014`) and Scan (`5012`) are hardcoded in
-  `src/docker/nginx.ts` and intentionally so — these are container-to-container references. Nginx
-  proxies to `splice:5014` and `splice:5012` within the instance's isolated Docker network; the
-  splice container always listens on those fixed internal ports regardless of `basePort`. Concurrent
-  instances don't collide because each has its own Docker network.
+- Nginx `proxy_pass` targets for SV admin and Scan come from `getSvInternalPorts(basePort)` in
+  `src/docker/nginx.ts`, the same values the splice app.conf binds and the container publishes
+  (`splice:basePort+14` and `splice:basePort+12`). Never hardcode them.
 - Splice `target-throughput = 0` is intentional for LocalNet: it avoids reserved traffic
   preconditions and lets local operations proceed without amulets.
 - `canton.features.enable-testing-commands = yes` is intentionally enabled for local/test behavior.

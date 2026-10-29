@@ -5,6 +5,8 @@ export {
   OAuth2ConfigSchema,
   PackageConfigSchema,
   parseLocalNetConfig,
+  parseLocalNetConfigWithWarnings,
+  parseStoredLocalNetConfig,
   PartyConfigSchema,
   UserConfigSchema,
   UserRightSchema,
@@ -14,4 +16,4 @@ export {
   withDefaults,
 } from './localnet-config.ts';
 
-export type { ParsedLocalNetConfig } from './localnet-config.ts';
+export type { ParseConfigOptions, ParsedLocalNetConfig } from './localnet-config.ts';

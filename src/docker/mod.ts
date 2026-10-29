@@ -1,4 +1,5 @@
 export { DockerClient } from './client.ts';
+export type { ExecResult } from './types.ts';
 
 export {
   checkHealth,

@@ -1,3 +1,4 @@
+import { LABEL_INSTANCE } from '../../src/api/discovery-utils.ts';
 import { assertEquals } from '@std/assert';
 import {
   cleanupTestResources,
@@ -125,12 +126,12 @@ Deno.test({
       );
 
       const containersAfter = await client.listContainers({
-        'localnet.instance': instanceId,
+        [LABEL_INSTANCE]: instanceId,
       });
       assertEquals(containersAfter.length, 0, 'All containers should be removed after dnm destroy');
 
       const volumesAfter = await client.listVolumes({
-        'localnet.instance': instanceId,
+        [LABEL_INSTANCE]: instanceId,
       });
       assertEquals(volumesAfter.length, 0, 'All volumes should be removed after dnm destroy');
     } finally {

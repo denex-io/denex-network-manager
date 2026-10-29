@@ -3,7 +3,9 @@ import { getRunningLocalNet, printError, printSuccess, progress } from '../utils
 
 export const initCommand = new Command()
   .name('init')
-  .description('Initialize resources on a running LocalNet (create users, link parties)')
+  .description(
+    'Initialize resources on a running LocalNet (create parties and users, upload packages)',
+  )
   .option('--instance <id:string>', 'Instance ID (auto-resolves if only one running)')
   .action(async (options) => {
     const spin = progress('Initializing resources...');
@@ -14,7 +16,7 @@ export const initCommand = new Command()
       const status = await localnet.status();
       if (status.state !== 'running') {
         throw new Error(
-          `LocalNet is not running (state: ${status.state}). Start it first with 'localnet start'.`,
+          `LocalNet is not running (state: ${status.state}). Run \`dnm start --instance ${localnet.instanceId}\` (from the config's directory or with --config) to start or repair it first.`,
         );
       }
 

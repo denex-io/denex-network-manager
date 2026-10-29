@@ -6,7 +6,7 @@ import type { DiscoveredInstance } from '../../api/discovery-utils.ts';
 
 export const instancesCommand = new Command()
   .name('instances')
-  .description('List running LocalNet instances')
+  .description('List LocalNet instances (running, mixed or stopped)')
   .option('--json', 'Output as JSON')
   .option('--ids-only', 'Show only instance IDs (one per line)')
   .action(async (options) => {
@@ -24,7 +24,7 @@ export const instancesCommand = new Command()
       }
 
       if (instances.length === 0) {
-        console.log(colors.gray('No running LocalNet instances'));
+        console.log(colors.gray('No LocalNet instances'));
         return;
       }
 

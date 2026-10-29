@@ -7,7 +7,7 @@
 - Read when: changing `src/docker/`, port allocation, lifecycle startup, or container
   troubleshooting.
 - Excludes: detailed Canton/Splice generated config syntax.
-- Supporting docs: `src/docker/types.ts` and `docs/localnet-architecture.md`.
+- Supporting docs: `src/docker/types.ts` and `site/src/content/docs/how-it-works/architecture.md`.
 
 ## What this subsystem is
 
@@ -18,6 +18,8 @@ health, and labels resources for discovery and cleanup.
 ## Main modules
 
 - `src/docker/client.ts`: Dockerode wrapper for containers, networks, volumes, logs, and exec.
+- `src/docker/stream.ts`: internal Docker stream demultiplexer (`DockerStreamDemuxer`,
+  `demuxDockerOutput`, `concatBytes`); no runtime-specific APIs.
 - `src/docker/containers.ts`: container specs, image pins, dependency graph, health checks.
 - `src/docker/network.ts`: per-instance bridge network management.
 - `src/docker/health.ts`: health waiting helpers.
@@ -39,43 +41,59 @@ health, and labels resources for discovery and cleanup.
 - Suffixes: `httpHealth +0`, `ledgerApi +1`, `adminApi +2`, `validatorAdminApi +3`,
   `grpcHealth +61`, `jsonApi +75`, `webUi +80`, `keycloak +82`.
 - Regular validator ports are `basePort + ((index + 1) * 100) + suffix`.
-- **SV host-published ports** are basePort-relative via `getSvInternalPorts(basePort)` in
-  `src/utils/ports.ts`: `scanAdmin: basePort+12`, `svAdmin: basePort+14`. These must be distinct
-  across concurrent instances, which is what makes true concurrent multi-instance work.
-- **SV container-to-container ports** are fixed absolute values (never published to the host —
-  containers communicate within their isolated Docker network only): `mediatorAdmin: 5007`,
-  `sequencerPublic: 5008`, `sequencerAdmin: 5009`, `sequencerGrpcHealth: 5062`,
-  `mediatorGrpcHealth: 5063`.
+- **All SV-only ports are basePort-relative** via `getSvInternalPorts(basePort)` in
+  `src/utils/ports.ts` (offsets in `SV_INTERNAL_PORT_OFFSETS`): `mediatorAdmin +7`,
+  `sequencerPublic +8`, `sequencerAdmin +9`, `scanAdmin +12`, `splicePrometheus +13`, `svAdmin +14`,
+  `sequencerGrpcHealth +62`, `mediatorGrpcHealth +63`, `cantonPrometheus +64`. Sequencer and
+  mediator ports and `cantonPrometheus` are bound inside `canton`; Scan/SV admin and
+  `splicePrometheus` inside `splice`. Only Scan and SV admin are published to the host, and the
+  container port equals the host port.
+- All offsets are below 100 and distinct from `PORT_SUFFIXES`, so no SV-level port can equal a
+  validator port. `test/unit/ports_test.ts` brute-forces this.
+- `SV_INTERNAL_PORTS` no longer exists. The helpers are internal: they are not exported from
+  `src/mod.ts`.
 
 ## Volumes
 
 - Postgres data lives in the named Docker volume `<instanceId>-postgres-data`, created in
   `LocalNet.start()` before `buildContainerSpecs()` is called and labelled with
-  `denex.localnet.instance`. `destroy()` removes it via the existing instance-label volume query —
-  no special handling needed.
-- Config files (canton/splice app.conf, Keycloak realms, nginx.conf, postgres entrypoint script)
-  remain as host bind mounts written to `configDir` by `generateConfigs()`.
+  `denex.localnet.instance`. `destroy()` removes it via the existing instance-label volume query. A
+  failed `start()` removes it only if that call created it (`findVolume` returned 404 first), so a
+  failed resume keeps the data.
+- Generated configs (Canton/Splice HOCON, Keycloak realms, nginx.conf, postgres init script) are
+  built in memory by `buildGeneratedConfigs()` and delivered through container environment
+  variables. There are no host bind mounts, which is why the SDK works over a remote Docker socket.
 - `ContainerBuilderOptions.instanceId` is used to derive the volume name in
   `buildPostgresContainer()`; falls back to `labelPrefix` if not provided.
 
 ## Critical gotchas
 
+- Containers run without a TTY, so logs and exec output are multiplexed with 8-byte frame headers.
+  `getContainerLogs` and `execInContainer` demultiplex them (`Config.Tty` is checked via inspect for
+  logs; exec is created with `Tty: false`). `getContainerLogs({ follow: false })` is a buffer, not a
+  stream, in dockerode; the client wraps it in a one-shot `ReadableStream`. Followed logs honour
+  backpressure and `cancel()` destroys the connection.
+- `execInContainer` settles on `end`, `error` and `close`, retries `exec.inspect()` briefly until an
+  exit code is recorded, and rejects on output cut mid-frame. If the `hijack: true` start ever hangs
+  on a real Unix-socket daemon, fall back to `exec.start({ hijack: false, stdin: false })`.
 - Port conflict detection checks other Docker containers' published ports, not arbitrary host
   processes.
 - Bun cannot reliably use Docker Unix sockets through `node:http`; configure Docker over TCP for
   Bun.
 - Keycloak 26 health uses management port `9000` inside the container and `/dev/tcp`, not `curl`.
-- Nginx uses `restart: 'always'`; most other containers use `unless-stopped`.
+- Nginx `dependsOn` splice and every web UI (wallet UIs, sv, scan), so it starts in its own layer
+  after them and is restarted when one of them is restarted by a repair (nginx resolves upstream
+  addresses once).
+- Nginx uses `restart: 'always'`; postgres, canton, splice and keycloak use `unless-stopped`; the
+  web UI containers have no restart policy.
 - `ansWebUi` exists in `ContainerImages` but no ANS web UI container is currently built.
-- `getSvInternalPorts()` is the right function for host-side port values (e.g. in
-  `waitForScanActive`, `env.ts`, container port bindings). Do not read `scanAdmin`/`svAdmin` from
-  `SV_INTERNAL_PORTS` directly in code that runs on the host. Container-internal config (HOCON,
-  app.conf, Nginx `proxy_pass`) may still use `SV_INTERNAL_PORTS` directly since those ports are
-  fixed inside the container regardless of basePort.
-- Nginx `proxy_pass http://splice:5012` and `http://splice:5014` are correct — these are
-  container-to-container references within the instance's isolated Docker network. The splice
-  container always listens on those fixed internal ports; concurrent instances are isolated by
-  separate Docker networks, so there is no collision.
+- Every bind (HOCON/app.conf), Docker port mapping, healthcheck, nginx `proxy_pass` and in-process
+  URL for an SV-only port must use the same `getSvInternalPorts(basePort)` value. A mismatch between
+  them was the 0.1.0-beta.1 bug (mapping pointed at a port nothing listened on).
+- The splice container's Prometheus reporter is generated at `basePort + 13` and canton's at
+  `basePort + 64` (`canton.monitoring.metrics.reporters`), overriding the image's fixed default
+  (10013). Without the override, both images bind their reporter on 10013 (observed in a running
+  instance), which can collide with a derived port at some basePorts. Neither is published.
 
 ## Editing guidance
 
@@ -94,6 +112,8 @@ health, and labels resources for discovery and cleanup.
 - `src/docker/types.ts`
 - `src/utils/ports.ts`
 - `test/unit/docker_test.ts`
+- `test/unit/docker_stream_test.ts`
+- `test/unit/docker_fake_engine_test.ts` (fake Engine API on loopback TCP)
 - `test/integration/docker_client_test.ts`
 - `test/integration/network_test.ts`
 - `test/integration/postgres_test.ts`

@@ -440,3 +440,89 @@ Deno.test('MultiInstanceDiscoveryServer - GET /instances includes unsupported en
   assertExists(unsupported);
   assertEquals(unsupported.status, 'unsupported');
 });
+
+async function serverWithLocalNet(
+  listPartiesWithFailures: () => Promise<unknown>,
+  listPackagesWithFailures: () => Promise<unknown> = () => Promise.resolve({}),
+) {
+  const server = new MultiInstanceDiscoveryServer(
+    createMockDockerClient(TEST_CONTAINERS) as unknown as DockerClient,
+    { cacheTtlMs: 60_000 },
+  );
+  // Warm the instance cache: a refresh clears the LocalNet cache the stub is injected into.
+  await server.honoApp.request('/instances');
+  const cache = (server as unknown as { localnetCache: Map<string, unknown> }).localnetCache;
+  cache.set('test-1', { listPartiesWithFailures, listPackagesWithFailures });
+  return server;
+}
+
+Deno.test('MultiInstanceDiscoveryServer - GET /instances/:id/parties returns 503 when no participant responds', async () => {
+  const server = await serverWithLocalNet(() =>
+    Promise.reject(new Error('Could not list parties: no participant responded (sv: down)'))
+  );
+
+  const res = await server.honoApp.request('/instances/test-1/parties');
+  assertEquals(res.status, 503);
+  const body = await res.json();
+  assertEquals(body.error, 'Could not list parties');
+  assertEquals(body.instanceId, 'test-1');
+  assertEquals(body.detail, 'Could not list parties: no participant responded (sv: down)');
+});
+
+Deno.test('MultiInstanceDiscoveryServer - GET /instances/:id/parties returns 200 with failures on partial results', async () => {
+  const party = {
+    partyId: 'alice::1',
+    hint: 'alice',
+    displayName: 'Alice',
+    validator: 'validator-1',
+    participantId: 'PAR::validator-1::1',
+  };
+  const server = await serverWithLocalNet(() =>
+    Promise.resolve({
+      parties: [party],
+      failures: [{ validator: 'validator-2', error: 'connection refused' }],
+    })
+  );
+
+  const res = await server.honoApp.request('/instances/test-1/parties');
+  assertEquals(res.status, 200);
+  const body = await res.json();
+  assertEquals(body.parties, [party]);
+  assertEquals(body.count, 1);
+  assertEquals(body.failures, [{ validator: 'validator-2', error: 'connection refused' }]);
+});
+
+Deno.test('MultiInstanceDiscoveryServer - GET /instances/:id/parties omits failures when every participant responded', async () => {
+  const server = await serverWithLocalNet(() => Promise.resolve({ parties: [], failures: [] }));
+
+  const res = await server.honoApp.request('/instances/test-1/parties');
+  assertEquals(res.status, 200);
+  const body = await res.json();
+  assertEquals(body, { parties: [], count: 0 });
+});
+
+Deno.test('MultiInstanceDiscoveryServer - GET /instances/:id/packages returns 503 when no participant responds', async () => {
+  const server = await serverWithLocalNet(
+    () => Promise.resolve({}),
+    () => Promise.reject(new Error('Could not list packages: no participant responded (sv: down)')),
+  );
+
+  const res = await server.honoApp.request('/instances/test-1/packages');
+  assertEquals(res.status, 503);
+  const body = await res.json();
+  assertEquals(body.error, 'Could not list packages');
+  assertEquals(body.instanceId, 'test-1');
+});
+
+Deno.test('MultiInstanceDiscoveryServer - GET /instances/:id/packages returns 200 with failures on partial results', async () => {
+  const packages = [{ packageId: 'p1', validators: ['sv'] }];
+  const failures = [{ validator: 'validator-1', error: 'connection refused' }];
+  const server = await serverWithLocalNet(
+    () => Promise.resolve({}),
+    () => Promise.resolve({ packages, failures }),
+  );
+
+  const res = await server.honoApp.request('/instances/test-1/packages');
+  assertEquals(res.status, 200);
+  assertEquals(await res.json(), { packages, count: 1, failures });
+});

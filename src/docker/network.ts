@@ -31,6 +31,25 @@ export class NetworkManager {
     });
   }
 
+  /**
+   * Return the instance network, creating it if absent. `created` is true only
+   * when this call created it, so callers can roll back exactly what they made.
+   * Absence is decided by a 404-aware lookup: any other inspect error rejects
+   * instead of being treated as "missing".
+   */
+  async ensure(instanceId: string): Promise<{ id: string; created: boolean }> {
+    const name = this.getNetworkName(instanceId);
+    const existing = await this.client.findNetwork(name);
+    if (existing) {
+      return { id: existing.id, created: false };
+    }
+
+    const id = await this.client.createNetwork(name, {
+      [`${this.prefix}.instance`]: instanceId,
+    });
+    return { id, created: true };
+  }
+
   async remove(instanceId: string): Promise<void> {
     const name = this.getNetworkName(instanceId);
     await this.client.removeNetwork(name);

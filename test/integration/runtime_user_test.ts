@@ -241,7 +241,7 @@ Deno.test('runtime createUser: performance bound (< 30s)', async () => {
   try {
     await localnet.start({ timeout: 300000 });
 
-    let timeoutId: number | undefined;
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
     try {
       const createUserPromise = localnet.createUser('perf-test', 'validator-1');
       const timeoutPromise = new Promise<never>((_, reject) => {
@@ -254,6 +254,45 @@ Deno.test('runtime createUser: performance bound (< 30s)', async () => {
         clearTimeout(timeoutId);
       }
     }
+  } finally {
+    await localnet.destroy({ removeVolumes: true });
+  }
+});
+
+Deno.test('runtime createUser: same hint on two validators gives two distinct parties', async () => {
+  if (!await isDockerAvailable()) {
+    console.log('Skipped: Docker unavailable');
+    return;
+  }
+
+  const config: LocalNetConfig = { ...makeConfig(['validator-1', 'validator-2']), basePort: 21000 };
+  const localnet = await LocalNet.fromConfig(config, { instanceId: uniqueInstanceId() });
+
+  try {
+    await localnet.start({ timeout: 300000 });
+
+    await localnet.createUser('user-one', 'validator-1', { primaryParty: 'shared' });
+    await localnet.createUser('user-two', 'validator-2', { primaryParty: 'shared' });
+
+    const u1 = (await localnet.getUsers('validator-1')).find((u) => u.id === 'user-one');
+    const u2 = (await localnet.getUsers('validator-2')).find((u) => u.id === 'user-two');
+    assertExists(u1?.primaryParty);
+    assertExists(u2?.primaryParty);
+
+    const v2Parties = await localnet.getParties('validator-2');
+    assertEquals(
+      v2Parties.some((p) => p.partyId === u2.primaryParty),
+      true,
+      "u2's primaryParty should be hosted on validator-2",
+    );
+    // Same hint, different namespace, so a different party id.
+    assertEquals(u1.primaryParty.startsWith('shared::'), true);
+    assertEquals(u2.primaryParty.startsWith('shared::'), true);
+    assertEquals(u1.primaryParty === u2.primaryParty, false);
+
+    const shared = (await localnet.getParties()).filter((p) => p.hint === 'shared');
+    assertEquals(shared.length, 2);
+    assertEquals(shared.map((p) => p.validator).sort(), ['validator-1', 'validator-2']);
   } finally {
     await localnet.destroy({ removeVolumes: true });
   }

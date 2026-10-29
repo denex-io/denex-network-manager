@@ -5,10 +5,9 @@
  * run concurrently without interfering with each other, and that destroying
  * one does not affect the other's containers, network, or postgres volume.
  *
- * This is possible because host-published SV ports (scanAdmin, svAdmin) are
- * now derived from basePort via getSvInternalPorts(). Container-to-container
- * ports (sequencer, mediator) remain fixed absolute values since they only
- * communicate within each instance's isolated Docker network.
+ * This is possible because every SV-only port (scanAdmin, svAdmin, sequencer,
+ * mediator and the Prometheus reporter) is derived from basePort via
+ * getSvInternalPorts(). Only scanAdmin and svAdmin are published to the host.
  */
 
 import { assertEquals, assertNotEquals } from '@std/assert';

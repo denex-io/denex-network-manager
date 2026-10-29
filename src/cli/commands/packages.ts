@@ -1,17 +1,34 @@
 import { Command } from '@cliffy/command';
 import { Table } from '@cliffy/table';
-import { colors, getRunningLocalNet, printError } from '../utils.ts';
+import {
+  ACCEPT_LIVE,
+  buildPackageMatrix,
+  colors,
+  getRunningLocalNet,
+  printError,
+  warnToStderr,
+} from '../utils.ts';
+import { normalizeValidators } from '../../types/config.ts';
 
 export const packagesCommand = new Command()
   .name('packages')
-  .description('List packages on the LocalNet')
-  .option('--instance <id:string>', 'Instance ID (auto-resolves if only one running)')
-  .option('-v, --validator <name:string>', 'Filter by validator')
-  .option('--verbose', 'Show verbose error logging')
+  .description('List packages known to each participant (built-ins included)')
+  .option(
+    '--instance <id:string>',
+    'Instance ID (auto-resolves to the one running or mixed instance)',
+  )
+  .option('-v, --validator <name:string>', 'Only show this validator')
+  .option('--verbose', 'Deprecated: has no effect', { hidden: true })
   .option('--json', 'Output as JSON')
   .action(async (options) => {
     try {
-      const localnet = await getRunningLocalNet(options.instance);
+      const unreachable = new Set<string>();
+      const localnet = await getRunningLocalNet(options.instance, {
+        onWarning: (warning) => {
+          if (warning.source === 'query' && warning.validator) unreachable.add(warning.validator);
+          warnToStderr(warning);
+        },
+      }, ACCEPT_LIVE);
       const packages = await localnet.getPackages(options.validator);
 
       if (options.json) {
@@ -24,19 +41,12 @@ export const packagesCommand = new Command()
         return;
       }
 
-      const table = new Table()
-        .header(['Package ID', 'Size', 'Known Since', 'Validator'])
-        .border(false);
+      const participants = options.validator
+        ? [options.validator]
+        : ['sv', ...normalizeValidators(localnet.getConfig().validators).map((v) => v.name)];
 
-      for (const pkg of packages) {
-        const sizeKb = Math.round(pkg.packageSize / 1024);
-        table.push([
-          pkg.packageId.length > 40 ? pkg.packageId.substring(0, 37) + '...' : pkg.packageId,
-          `${sizeKb} KB`,
-          pkg.knownSince,
-          pkg.validator,
-        ]);
-      }
+      const { header, rows } = buildPackageMatrix(participants, unreachable, packages);
+      const table = new Table().header(header).body(rows).border(false);
 
       console.log();
       console.log(colors.bold(`Packages (${packages.length})`));

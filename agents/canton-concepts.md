@@ -6,7 +6,7 @@
 - Read when: touching party hints, validator naming, user rights, auth audiences, realm naming, or
   SV-vs-validator behavior.
 - Excludes: generated config syntax, Docker container details, and API client implementation.
-- Supporting docs: `docs/research/canton-localnet-deep-analysis.md` for historical background.
+- Supporting docs: `../site/src/content/docs/how-it-works/architecture.md` for background.
 
 ## What this subsystem is
 
@@ -37,8 +37,9 @@ parties on participant nodes.
 
 ## Critical gotchas
 
-- Canton party hints must match `<organization>-<function>-<enumerator>` after normalization for
-  Splice allocation paths.
+- The validator operator party hint must match `<organization>-<function>-<enumerator>`;
+  `normalizePartyHint()` enforces this for the generated `localnet-<name>-<n>` hint only.
+  User-configured hints are passed to Canton unchanged.
 - `normalizePartyHint()` in `src/generator/splice.ts` is module-private, not public API.
 - User-visible party and validator names are schema-constrained to start with a letter and contain
   only letters, numbers, and hyphens.

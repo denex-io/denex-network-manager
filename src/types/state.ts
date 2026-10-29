@@ -64,11 +64,37 @@ export interface LocalNetState {
   networkName: string;
 }
 
+/**
+ * Everything a client needs to connect to an instance, as returned by
+ * {@link LocalNet.getEnvironment} and {@link buildConfigEnvironmentInfo}.
+ */
 export interface FullEnvironmentInfo {
+  /**
+   * Network-wide identifiers. `domainId` is always `null`; `dsoPartyId` is `null` until filled in
+   * from a running instance.
+   */
   network: NetworkEnvironment;
+  /**
+   * Per-node info keyed by `'sv'` and each validator name: role, `participantId` (`null` until
+   * filled in from a running instance), endpoint URLs, and the Keycloak realm, token URL,
+   * client IDs, client secret, and audience used to get tokens for that node.
+   */
   validators: Record<string, ValidatorEnvironmentInfo>;
+  /**
+   * Keycloak URL and admin credentials, and the ledger API token settings (RS256, audience, and
+   * the `sub` subject claim).
+   */
   auth: EnvironmentAuthConfig;
+  /**
+   * Web UI logins, as returned by {@link getCredentials}: the SV logins, then for each validator its
+   * wallet-admin login followed by its configured users (users without a `primaryParty` are
+   * labelled as not onboarded).
+   */
   credentials: CredentialEntry[];
+  /**
+   * Each party once, under its hosting validator, read from the running instance; empty when
+   * built from config alone or when no participant responds.
+   */
   parties: PartyEnvironmentInfo[];
 }
 
@@ -85,11 +111,20 @@ export interface ValidatorEnvironmentInfo {
   auth: ValidatorAuth;
 }
 
+/**
+ * Host URLs for one node, built from the port allocation. The API URLs use `localhost`; `webUi`
+ * uses `sv.localhost` for the SV and `wallet.localhost` for validators, served through Nginx.
+ */
 export interface ValidatorEndpoints {
+  /** Canton Ledger API (gRPC), written as an `http://` URL. */
   ledgerApi: string;
+  /** Canton JSON Ledger API. */
   jsonApi: string;
+  /** Canton Admin API (gRPC), written as an `http://` URL. */
   adminApi: string;
+  /** Splice validator app admin API. */
   validatorAdminApi: string;
+  /** Web UI: the SV UI for the SV, the wallet UI for validators. */
   webUi: string;
 }
 
@@ -121,6 +156,7 @@ export interface LedgerApiAuth {
   subjectClaim: string;
 }
 
+/** One web UI login, with the same shape as {@link CredentialInfo}. */
 export interface CredentialEntry {
   realm: string;
   url: string;
@@ -134,4 +170,27 @@ export interface PartyEnvironmentInfo {
   displayName: string;
   partyId: string | null;
   validator: string;
+}
+
+/**
+ * A non-fatal problem reported through `LocalNetOptions.onWarning`.
+ *
+ * - `config`: a configuration problem.
+ * - `query`: a per-validator query (parties, packages, users, rights) failed and its
+ *   results are omitted from a partial result.
+ * - `packages`: a package upload problem.
+ */
+export interface LocalNetWarning {
+  source: 'config' | 'query' | 'packages';
+  message: string;
+  /** The validator the warning is about, when it concerns a single one. */
+  validator?: string;
+  /** The config path the warning is about, when it concerns a config field. */
+  path?: string;
+}
+
+/** A {@link LocalNetWarning} about the configuration: `source` is `'config'` and `path` is set. */
+export interface ConfigWarning extends LocalNetWarning {
+  source: 'config';
+  path: string;
 }

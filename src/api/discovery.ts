@@ -30,11 +30,15 @@ export interface StatusResponse {
 export interface PartiesResponse {
   parties: ApiPartyInfo[];
   count: number;
+  /** Present when some participants did not respond; their parties are missing from `parties`. */
+  failures?: Array<{ validator: string; error: string }>;
 }
 
 export interface PackagesResponse {
   packages: ApiPackageInfo[];
   count: number;
+  /** Present when some participants did not respond; their packages are missing from `packages`. */
+  failures?: Array<{ validator: string; error: string }>;
 }
 
 interface CacheEntry<T> {
@@ -147,9 +151,21 @@ export class MultiInstanceDiscoveryServer {
         return c.json({ error: 'Instance not found', instanceId: id }, 404);
       }
 
-      const parties = await localnet.getParties();
-      const response: PartiesResponse = { parties, count: parties.length };
-      return c.json(response);
+      try {
+        const { parties, failures } = await localnet.listPartiesWithFailures();
+        const response: PartiesResponse = { parties, count: parties.length };
+        if (failures.length > 0) response.failures = failures;
+        return c.json(response);
+      } catch (error) {
+        return c.json(
+          {
+            error: 'Could not list parties',
+            detail: error instanceof Error ? error.message : String(error),
+            instanceId: id,
+          },
+          503,
+        );
+      }
     });
 
     app.get('/instances/:id/packages', async (c): Promise<Response> => {
@@ -175,9 +191,21 @@ export class MultiInstanceDiscoveryServer {
         return c.json({ error: 'Instance not found', instanceId: id }, 404);
       }
 
-      const packages = await localnet.getPackages();
-      const response: PackagesResponse = { packages, count: packages.length };
-      return c.json(response);
+      try {
+        const { packages, failures } = await localnet.listPackagesWithFailures();
+        const response: PackagesResponse = { packages, count: packages.length };
+        if (failures.length > 0) response.failures = failures;
+        return c.json(response);
+      } catch (error) {
+        return c.json(
+          {
+            error: 'Could not list packages',
+            detail: error instanceof Error ? error.message : String(error),
+            instanceId: id,
+          },
+          503,
+        );
+      }
     });
 
     app.get('/instances/:id/env', async (c): Promise<Response> => {

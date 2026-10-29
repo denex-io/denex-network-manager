@@ -15,7 +15,8 @@ Keycloak, PostgreSQL, Nginx, and web UIs using the Docker API directly, not Dock
 - Keep this file focused on durable repo-wide rules and orientation.
 - Put subsystem-specific implementation guidance in `agents/*.md`.
 - Before changing a subsystem, read `agents/INDEX.md` and then the relevant subject file.
-- User-facing docs belong in `README.md`; detailed agent implementation notes belong in `agents/`.
+- User-facing docs belong on the docs site in `site/src/content/docs/`; `README.md` keeps the
+  npm/GitHub landing overview. Detailed agent implementation notes belong in `agents/`.
 
 ### Cross-runtime split
 
@@ -56,17 +57,23 @@ test/
   unit/               fast tests that do not require Docker
   integration/        Docker-backed tests; auto-skip when Docker is unavailable
   smoke/              cross-runtime compatibility checks
+
+examples/             runnable consumer-style examples; type-checked by `deno task check`
+site/                 Astro/Starlight docs site published to GitHub Pages
 ```
 
-Empty or historical directories exist in the repo. Do not treat `examples/*` as current reference
-material until populated. `src/canton-client/`, `src/discovery-server/`, `src/orchestrator/`, and
-`src/state/` may exist as empty or legacy stubs; ignore them unless populated. Treat
-`docs/research/` and `docs/plans/` as historical/supporting context, not current implementation
-specs — they are not tracked in the public git repository.
+`site/` is the canonical home for user-facing documentation and has its own Node/npm toolchain. It
+is excluded from `deno fmt` and `deno lint`; read `agents/docs-site.md` before touching it.
 
-The npm release pipeline lives in `scripts/build_npm.ts` (SDK + CLI binaries via `dnt`) and
-`.github/workflows/publish.yml` (tag-triggered, compiles five platform binaries). These are not
-covered by a dedicated `agents/*.md` file; read those files directly when doing release work.
+Empty or historical directories exist in the repo. `src/canton-client/`, `src/discovery-server/`,
+`src/orchestrator/`, and `src/state/` may exist as empty or legacy stubs; ignore them unless
+populated. `docs/` now holds only `splice-version-support-plan.md`, which is a proposal rather than
+a spec — the features it describes are not implemented.
+
+The npm release pipeline lives in `scripts/build_npm.ts` (SDK-only npm package via `dnt`) and
+`.github/workflows/publish.yml` (tag-triggered; `deno compile` builds the five platform CLI
+binaries). These are not covered by a dedicated `agents/*.md` file; read those files directly when
+doing release work.
 
 ## Subject-specific context
 
@@ -109,6 +116,14 @@ deno task cli --help
 deno task cli <command> --help
 ```
 
+The docs site needs Node 22+ and its own dependency install:
+
+```bash
+deno task docs:install   # npm ci in site/
+deno task docs:dev       # local preview
+deno task docs:build     # production build; fails on broken internal links
+```
+
 ## Verification expectations
 
 - For code changes, run `lsp_diagnostics` on touched TypeScript files.
@@ -119,6 +134,11 @@ deno task cli <command> --help
 - Run `deno task test:smoke` when changing cross-runtime imports, exports, SDK entry points, or
   anything that might leak Deno-only APIs.
 - For CLI behavior, drive the CLI through `deno task cli ...` after tests.
+- Run `deno task docs:build` when changing anything under `site/`. The build fails on broken
+  internal links, so it is the verification step for documentation changes.
+- When changing CLI flags, config schema fields, or port allocation, update the matching reference
+  page under `site/src/content/docs/reference/` in the same change. Regenerate flag tables from
+  `deno task cli <command> --help`, not from memory.
 
 ## Operational gotchas
 
@@ -127,8 +147,12 @@ deno task cli <command> --help
   verified they exist.
 - The `splice` container runs all Splice backends in one process. A bad validator config can take
   SV, Scan, and every validator API offline.
-- `packages:` in YAML is parsed and validated, but startup does not currently auto-upload those
-  DARs. Use `LocalNet.uploadDar()` for runtime upload.
+- `packages:` in YAML are uploaded at the end of `initializeResources()` (so by `start()` unless
+  `skipInitialization`, and by `dnm init`). A relative `dar` resolves against the config file's
+  directory (`LocalNetOptions.configDir`, stored in the `config-dir` label), then the cwd;
+  `uploadTo` defaults to `sv` plus every validator at upload time. The parsed config is never
+  rewritten. A missing DAR fails a fresh `start()` before Docker is touched and only warns on resume
+  or repair; a failed upload warns (`source: 'packages'`) and continues.
 - The `discovery` YAML field is deprecated and does not start a discovery server. Run
   `deno task cli discovery serve` explicitly.
 - `reference/splice` is a local/external source reference, not a stable repo artifact. Prefer

@@ -1,9 +1,11 @@
 import Dockerode from 'dockerode';
 import type { Readable } from 'node:stream';
+import { concatBytes, demuxDockerOutput, DockerStreamDemuxer } from './stream.ts';
 import type {
   ContainerInfo,
   ContainerSpec,
   ContainerState,
+  ExecResult,
   NetworkInfo,
   PortBinding,
   VolumeInfo,
@@ -15,6 +17,8 @@ export interface DockerClientOptions {
 }
 
 const DEFAULT_LABEL_PREFIX = 'denex.localnet';
+const EXEC_INSPECT_RETRIES = 20;
+const EXEC_INSPECT_DELAY_MS = 100;
 
 export class DockerClient {
   private docker: Dockerode;
@@ -186,6 +190,21 @@ export class DockerClient {
     }
   }
 
+  /**
+   * Like {@link DockerClient.getContainerInfo}, but only a 404 means "absent":
+   * any other inspect error is rethrown instead of being mistaken for a missing
+   * container (like findNetwork and findVolume).
+   */
+  async findContainer(idOrName: string): Promise<ContainerInfo | null> {
+    try {
+      const data = await this.docker.getContainer(idOrName).inspect();
+      return this.parseContainerInfo(data);
+    } catch (err) {
+      if ((err as { statusCode?: number }).statusCode === 404) return null;
+      throw err;
+    }
+  }
+
   private parseContainerInfo(data: Dockerode.ContainerInspectInfo): ContainerInfo {
     const labels = data.Config?.Labels ?? {};
     const portBindings = data.HostConfig?.PortBindings ?? {};
@@ -256,15 +275,31 @@ export class DockerClient {
       })),
       health: 'none' as const,
       labels: c.Labels ?? {},
+      created: c.Created,
     }));
   }
 
+  /**
+   * Reads a container's logs as raw bytes with Docker's stream framing removed.
+   *
+   * stdout and stderr are merged in arrival order. Containers started without
+   * a TTY (all of this SDK's containers) multiplex both streams with 8-byte
+   * frame headers; those are stripped. Containers with a TTY are passed through
+   * unchanged.
+   *
+   * With `follow: false` (default) the stream yields the last `tail` lines
+   * (default 100) and closes. With `follow: true` it stays open until the
+   * container stops or the stream is cancelled; cancelling destroys the
+   * underlying connection.
+   */
   async getContainerLogs(
     idOrName: string,
     options?: { tail?: number; since?: number; follow?: boolean },
   ): Promise<ReadableStream<Uint8Array>> {
     const container = this.docker.getContainer(idOrName);
     const follow = options?.follow ?? false;
+    const info = await container.inspect();
+    const tty = info.Config?.Tty === true;
 
     const logOptions = {
       stdout: true,
@@ -273,23 +308,100 @@ export class DockerClient {
       since: options?.since,
     };
 
-    const logStream = follow
-      ? await container.logs({
-        ...logOptions,
-        follow: true as const,
-      }) as unknown as Readable
-      : await container.logs({
-        ...logOptions,
-        follow: false as const,
-      }) as unknown as Readable;
+    if (!follow) {
+      // Without `follow`, docker-modem resolves with the whole body: a Buffer,
+      // or the parsed value when the body happens to be valid JSON.
+      const result: unknown = await container.logs({ ...logOptions, follow: false as const });
+      const body = logsResultToBytes(result);
+      let bytes: Uint8Array = body;
+      if (!tty) {
+        const demuxed = demuxDockerOutput(body);
+        if (demuxed.leftoverBytes > 0) {
+          throw new Error(
+            `Log output was truncated: ${demuxed.leftoverBytes} trailing bytes ` +
+              `did not form a complete frame`,
+          );
+        }
+        for (const f of demuxed.frames) {
+          if (f.stream === 'system') throw daemonStreamError(f.data);
+        }
+        bytes = concatBytes(demuxed.frames.map((f) => f.data));
+      }
+      return new ReadableStream<Uint8Array>({
+        start(controller) {
+          if (bytes.length > 0) controller.enqueue(bytes);
+          controller.close();
+        },
+      });
+    }
 
-    return new ReadableStream({
+    // The runtime object is an http.IncomingMessage, which is a Readable.
+    const logStream = await container.logs({
+      ...logOptions,
+      follow: true as const,
+    }) as unknown as Readable;
+    const demuxer = tty ? null : new DockerStreamDemuxer();
+    let settled = false;
+    let ended = false;
+
+    return new ReadableStream<Uint8Array>({
       start(controller) {
         logStream.on('data', (chunk: Uint8Array) => {
-          controller.enqueue(new Uint8Array(chunk));
+          if (settled) return;
+          const bytes = new Uint8Array(chunk);
+          if (demuxer) {
+            for (const frame of demuxer.push(bytes)) {
+              if (frame.stream === 'system') {
+                settled = true;
+                controller.error(daemonStreamError(frame.data));
+                logStream.destroy();
+                return;
+              }
+              if (frame.data.length > 0) controller.enqueue(frame.data);
+            }
+          } else {
+            controller.enqueue(bytes);
+          }
+          if (controller.desiredSize !== null && controller.desiredSize <= 0) {
+            logStream.pause();
+          }
         });
-        logStream.on('end', () => controller.close());
-        logStream.on('error', (err: Error) => controller.error(err));
+        logStream.on('end', () => {
+          if (settled) return;
+          ended = true;
+          settled = true;
+          if (demuxer && demuxer.bufferedBytes > 0) {
+            controller.error(
+              new Error(
+                `Log stream truncated: ${demuxer.bufferedBytes} trailing bytes ` +
+                  `did not form a complete frame`,
+              ),
+            );
+            return;
+          }
+          controller.close();
+        });
+        logStream.on('error', (err: Error) => {
+          if (settled) return;
+          settled = true;
+          controller.error(err);
+        });
+        logStream.on('close', () => {
+          if (settled) return;
+          settled = true;
+          if (!ended) {
+            controller.error(new Error('Log stream truncated: connection closed before end'));
+            return;
+          }
+          controller.close();
+        });
+      },
+      pull() {
+        logStream.resume();
+      },
+      cancel() {
+        settled = true;
+        logStream.destroy();
       },
     });
   }
@@ -326,6 +438,27 @@ export class DockerClient {
       };
     } catch {
       return null;
+    }
+  }
+
+  /**
+   * Inspect a network, returning null only when Docker reports 404. Unlike
+   * {@link getNetworkInfo}, any other error (daemon down, permission denied)
+   * is rethrown so callers never mistake "could not tell" for "absent".
+   */
+  async findNetwork(idOrName: string): Promise<NetworkInfo | null> {
+    try {
+      const data = await this.docker.getNetwork(idOrName).inspect();
+      return {
+        id: data.Id ?? '',
+        name: data.Name ?? '',
+        driver: data.Driver ?? '',
+        scope: data.Scope ?? '',
+        containers: Object.keys(data.Containers ?? {}),
+      };
+    } catch (err) {
+      if ((err as { statusCode?: number }).statusCode === 404) return null;
+      throw err;
     }
   }
 
@@ -372,6 +505,24 @@ export class DockerClient {
     }
   }
 
+  /**
+   * Inspect a volume, returning null only when Docker reports 404. Any other
+   * error is rethrown (see {@link findNetwork}).
+   */
+  async findVolume(name: string): Promise<VolumeInfo | null> {
+    try {
+      const data = await this.docker.getVolume(name).inspect();
+      return {
+        name: data.Name,
+        driver: data.Driver,
+        mountpoint: data.Mountpoint,
+      };
+    } catch (err) {
+      if ((err as { statusCode?: number }).statusCode === 404) return null;
+      throw err;
+    }
+  }
+
   async listVolumes(labelFilter?: Record<string, string>): Promise<VolumeInfo[]> {
     const filters: Record<string, string[]> = { label: [`${this.labelPrefix}=true`] };
 
@@ -389,43 +540,110 @@ export class DockerClient {
     }));
   }
 
+  /**
+   * Runs a command in a running container and waits for it to finish.
+   *
+   * The exec is created without a TTY, so Docker multiplexes stdout and stderr;
+   * the framing is removed. `output` is stdout and stderr merged in arrival
+   * order. Rejects if the stream ends in the middle of a frame (truncated
+   * output) or the connection errors.
+   */
   async execInContainer(
     idOrName: string,
     cmd: string[],
     options?: { workingDir?: string; env?: string[] },
-  ): Promise<{ exitCode: number; output: string }> {
+  ): Promise<ExecResult> {
     const container = this.docker.getContainer(idOrName);
     const exec = await container.exec({
       Cmd: cmd,
       AttachStdout: true,
       AttachStderr: true,
+      Tty: false,
       WorkingDir: options?.workingDir,
       Env: options?.env,
     });
 
     const stream = await exec.start({ hijack: true, stdin: false });
-    const chunks: Uint8Array[] = [];
+    const demuxer = new DockerStreamDemuxer();
+    const combined: Uint8Array[] = [];
+    const stdout: Uint8Array[] = [];
+    const stderr: Uint8Array[] = [];
 
-    return new Promise((resolve, reject) => {
-      stream.on('data', (chunk: Uint8Array) => chunks.push(chunk));
-      stream.on('end', async () => {
+    return new Promise<ExecResult>((resolve, reject) => {
+      let settled = false;
+      const finish = async (streamError?: Error) => {
+        if (settled) return;
+        settled = true;
+        if (streamError) {
+          stream.destroy();
+          reject(streamError);
+          return;
+        }
         try {
-          const inspectData = await exec.inspect();
-          const combined = new Uint8Array(chunks.reduce((acc, c) => acc + c.length, 0));
-          let offset = 0;
-          for (const chunk of chunks) {
-            combined.set(chunk, offset);
-            offset += chunk.length;
+          if (demuxer.bufferedBytes > 0) {
+            throw new Error(
+              `Exec output was truncated: ${demuxer.bufferedBytes} trailing bytes ` +
+                `did not form a complete frame`,
+            );
           }
+          const exitCode = await this.waitForExecExit(exec);
+          const decoder = new TextDecoder();
           resolve({
-            exitCode: inspectData.ExitCode ?? -1,
-            output: new TextDecoder().decode(combined),
+            exitCode,
+            output: decoder.decode(concatBytes(combined)),
+            stdout: decoder.decode(concatBytes(stdout)),
+            stderr: decoder.decode(concatBytes(stderr)),
           });
         } catch (err) {
+          stream.destroy();
           reject(err);
         }
+      };
+
+      stream.on('data', (chunk: Uint8Array) => {
+        for (const frame of demuxer.push(new Uint8Array(chunk))) {
+          combined.push(frame.data);
+          (frame.stream === 'stderr' ? stderr : stdout).push(frame.data);
+        }
       });
-      stream.on('error', reject);
+      stream.on('end', () => void finish());
+      stream.on('close', () => void finish());
+      stream.on('error', (err: Error) => void finish(err));
     });
   }
+
+  /**
+   * Inspects an exec until it has finished. The stream can end a moment before
+   * the daemon records the exit code, so retry briefly while it is still
+   * running or the code is missing. Returns -1 if no exit code ever appears.
+   */
+  private async waitForExecExit(exec: Dockerode.Exec): Promise<number> {
+    let inspectData = await exec.inspect();
+    for (
+      let attempt = 0;
+      attempt < EXEC_INSPECT_RETRIES &&
+      (inspectData.Running === true || inspectData.ExitCode == null);
+      attempt++
+    ) {
+      await new Promise((r) => setTimeout(r, EXEC_INSPECT_DELAY_MS));
+      inspectData = await exec.inspect();
+    }
+    return inspectData.ExitCode ?? -1;
+  }
+}
+
+/** The error Docker's own `StdCopy` raises for a daemon-side (type 3) frame. */
+function daemonStreamError(payload: Uint8Array): Error {
+  return new Error(`error from daemon in stream: ${new TextDecoder().decode(payload).trim()}`);
+}
+
+/** Normalizes the non-streaming `logs()` result to bytes. */
+function logsResultToBytes(result: unknown): Uint8Array {
+  if (result instanceof Uint8Array) return new Uint8Array(result);
+  if (typeof result === 'string') return new TextEncoder().encode(result);
+  // docker-modem JSON-parses bodies that happen to be valid JSON (for example
+  // TTY output that is just a number). Such bodies are re-serialized, so
+  // quotes and whitespace of a JSON-looking TTY body can differ from the raw
+  // bytes. Only TTY containers are affected; the SDK starts none.
+  return new TextEncoder().encode(JSON.stringify(result));
 }

@@ -9,6 +9,7 @@ import {
   generateFullSpliceConfig,
   generateMasterRealm,
   generateMergedEnv,
+  generatePortMappingEnv,
   generatePostgresEnv,
   generateSvRealm,
   generateValidatorRealm,
@@ -471,4 +472,76 @@ Deno.test('generateFullSpliceConfig - handles hyphenated validator names in part
   const result = generateFullSpliceConfig(config.validators, config.auth);
   // Hyphens stripped from name, forms valid 3-segment pattern
   assertStringIncludes(result, 'validator-party-hint = "localnet-alicevalidator-1"');
+});
+
+Deno.test('generateFullCantonConfig - SV internal ports at default basePort', () => {
+  const config = generateFullCantonConfig(TEST_CONFIG);
+  for (const port of [5008, 5009, 5062, 5007, 5063]) {
+    assertStringIncludes(config, `port = ${port}`);
+  }
+});
+
+Deno.test('generateFullCantonConfig - SV internal ports follow basePort', () => {
+  const config = generateFullCantonConfig({ ...TEST_CONFIG, basePort: 7000 });
+  for (const port of [7008, 7009, 7062, 7007, 7063]) {
+    assertStringIncludes(config, `port = ${port}`);
+  }
+  for (const port of [5007, 5008, 5009, 5062, 5063]) {
+    assert(!config.includes(`port = ${port}`), `unexpected port ${port}`);
+  }
+});
+
+Deno.test('generateFullSpliceConfig - SV internal ports follow basePort', () => {
+  const config = generateFullSpliceConfig({ ...TEST_CONFIG, basePort: 7000 });
+  assertStringIncludes(config, 'port = 7012');
+  assertStringIncludes(config, 'port = 7014');
+  assertStringIncludes(config, 'url = "http://localhost:7012"');
+  assertStringIncludes(config, 'public-url = "http://localhost:7012"');
+  assertStringIncludes(config, 'internal-url = "http://localhost:7012"');
+  assertStringIncludes(config, 'external-public-api-url = "http://canton:7008"');
+  assertStringIncludes(config, 'port = 7009');
+  assertStringIncludes(config, 'port = 7007');
+  assertStringIncludes(config, 'seed-urls.0 = "http://localhost:7012"');
+  assertStringIncludes(config, 'url = "http://localhost:7014"');
+  for (const n of ['5012', '5014', '5008']) {
+    assert(!config.includes(n), `unexpected ${n}`);
+  }
+});
+
+Deno.test('generateFullSpliceConfig - default basePort keeps 5012/5014/5008', () => {
+  const config = generateFullSpliceConfig(TEST_CONFIG);
+  assertStringIncludes(config, 'port = 5012');
+  assertStringIncludes(config, 'port = 5014');
+  assertStringIncludes(config, 'external-public-api-url = "http://canton:5008"');
+});
+
+Deno.test('generateFullSpliceConfig - Prometheus reporter follows basePort', () => {
+  for (const [basePort, expected] of [[undefined, 5013], [7000, 7013], [7400, 7413]] as const) {
+    const config = generateFullSpliceConfig(
+      basePort === undefined ? TEST_CONFIG : { ...TEST_CONFIG, basePort },
+    );
+    assertEquals(config.match(/type = prometheus/g)?.length, 1);
+    assertStringIncludes(config, `canton.monitoring.metrics.reporters = [`);
+    assertStringIncludes(config, `    port = ${expected}\n`);
+  }
+});
+
+Deno.test('generateFullCantonConfig - Prometheus reporter follows basePort', () => {
+  for (const [basePort, expected] of [[undefined, 5064], [7000, 7064], [7400, 7464]] as const) {
+    const config = generateFullCantonConfig(
+      basePort === undefined ? TEST_CONFIG : { ...TEST_CONFIG, basePort },
+    );
+    assertEquals(config.match(/type = prometheus/g)?.length, 1);
+    assertStringIncludes(config, `canton.monitoring.metrics.reporters = [`);
+    assertStringIncludes(config, `    port = ${expected}\n`);
+  }
+});
+
+Deno.test('generatePortMappingEnv - SV internal ports follow basePort', () => {
+  const env = generatePortMappingEnv({ ...TEST_CONFIG, basePort: 7000 });
+  assertStringIncludes(env, 'SV_SEQUENCER_PUBLIC_PORT=7008');
+  assertStringIncludes(env, 'SV_SEQUENCER_ADMIN_PORT=7009');
+  assertStringIncludes(env, 'SV_MEDIATOR_ADMIN_PORT=7007');
+  assertStringIncludes(env, 'SV_SCAN_ADMIN_PORT=7012');
+  assertStringIncludes(env, 'SV_SV_ADMIN_PORT=7014');
 });
