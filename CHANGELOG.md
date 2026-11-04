@@ -5,6 +5,8 @@ All notable changes to this project will be documented in this file. The format 
 
 ## [Unreleased]
 
+## [0.1.0-beta.2] — 2026-10-29
+
 ### Added
 
 - `packages:` auto-upload: each configured DAR is uploaded to its `uploadTo` participants (default
