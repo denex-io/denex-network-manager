@@ -34,6 +34,8 @@ All notable changes to this project will be documented in this file. The format 
 
 ### Changed
 
+- The bundled Splice release is 0.9.4 (was 0.6.6), for all six Splice-family images. Set
+  `spliceVersion: '0.6.6'` to keep the previous release.
 - Existing configs with a `packages:` list now upload those DARs on `dnm start` (previously the
   field was parsed and ignored). The parsed config is unchanged (`dar` as written, no `uploadTo`
   default), so instances created by earlier versions still resume without a config mismatch;

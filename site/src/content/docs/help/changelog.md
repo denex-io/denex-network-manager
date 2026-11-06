@@ -44,6 +44,8 @@ Behavior you can now rely on:
 
 Breaking changes to check before upgrading:
 
+- The bundled Splice release is 0.9.4 instead of 0.6.6. Set `spliceVersion: '0.6.6'` in the config
+  to keep running the previous release.
 - Validator names and user IDs must be lowercase. Validator names must also be unique, must not be
   `sv`, and must not map to another validator's Keycloak realm.
 - The 10-validator cap is gone; a config is rejected instead when its highest port exceeds 65535.

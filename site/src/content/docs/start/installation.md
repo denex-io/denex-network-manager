@@ -18,10 +18,10 @@ configure Docker to listen on a TCP socket.
 :::
 
 :::note[Splice version]
-This release targets Splice/Canton version 0.6.6. From the SDK, pass `images` in the
+This release targets Splice/Canton version 0.9.4. To run another release, set `spliceVersion` in
+the config or call `LocalNetBuilder.withSpliceVersion()`. From the SDK, pass `images` in the
 `LocalNetOptions` given to `LocalNet.fromConfig()` to override individual images, keyed by component
-(for example `splice` or `canton`). `LocalNetBuilder`, the CLI, and the YAML config cannot
-override them.
+(for example `splice` or `canton`).
 :::
 
 ## CLI
