@@ -33,7 +33,7 @@ curl -fsSL https://raw.githubusercontent.com/denex-io/denex-network-manager/main
 ```
 
 This installs to `~/.dnm/bin` and verifies the download against the release checksums. Set
-`DNM_INSTALL_DIR` to install elsewhere, or `DNM_VERSION` (for example `v0.1.0-beta.1`) to pin a version.
+`DNM_INSTALL_DIR` to install elsewhere, or `DNM_VERSION` (for example `v0.1.0-beta.2`) to pin a version.
 
 Prefer not to pipe a script to your shell? Download the archive for your platform from the
 [latest release](https://github.com/denex-io/denex-network-manager/releases/latest), verify it

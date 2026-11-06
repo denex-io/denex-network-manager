@@ -139,6 +139,8 @@ jobs:
     permissions:
       # Needed to create the GitHub release and upload its assets.
       contents: write
+      # npm trusted publishing: npm exchanges this job's OIDC token for a publish token.
+      id-token: write
     steps:
       # @v7.0.0
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
@@ -153,7 +155,8 @@ jobs:
       - uses: actions/setup-node@60edb5dd545a775178f52524783378180af0d1f8
         name: Setup Node.js
         with:
-          node-version: '20'
+          # Trusted publishing needs npm >= 11.5.1 and Node >= 22.14; Node 24 bundles a new enough npm.
+          node-version: '24'
           registry-url: 'https://registry.npmjs.org'
 
       # @v6.1.0 (same cache action as ci.yml)
@@ -223,18 +226,24 @@ jobs:
 
       # ── Dry run: verify everything short of publishing ──────────────────────
 
-      - name: Verify npm auth (dry run)
-        if: needs.prepare.outputs.dry_run == 'true'
-        run: npm whoami
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_DENEX_PUBLISH_TOKEN }}
-
-      - name: npm publish --dry-run
+      # No NODE_AUTH_TOKEN here, on purpose: a token would let this step pass without OIDC.
+      # npm exchanges the workflow's OIDC token for a publish token *before* it checks
+      # --dry-run, so a successful exchange proves the trusted publisher on npmjs.com matches this
+      # repository and workflow file. npm swallows a failed exchange (it only logs it at verbose
+      # level), so the step looks for the success line instead of trusting the exit code.
+      - name: npm publish --dry-run (verifies trusted publishing)
         if: needs.prepare.outputs.dry_run == 'true'
         working-directory: npm
-        run: npm publish --access public --tag beta --dry-run
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_DENEX_PUBLISH_TOKEN }}
+        run: |
+          set -euo pipefail
+          npm --version
+          npm publish --access public --tag beta --dry-run --loglevel verbose 2>&1 \
+            | tee "$RUNNER_TEMP/npm-publish-dry-run.log"
+          if ! grep -q 'oidc Successfully retrieved and set token' "$RUNNER_TEMP/npm-publish-dry-run.log"; then
+            echo '::error::npm did not get a publish token through OIDC. Check the trusted publisher config for @denex/network-manager on npmjs.com (repository, workflow file name publish.yml, no environment).'
+            grep -i 'oidc' "$RUNNER_TEMP/npm-publish-dry-run.log" || echo '(no oidc lines logged)'
+            exit 1
+          fi
 
       # @v4.3.3
       - uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0abb4808
@@ -254,8 +263,8 @@ jobs:
             echo "Version: \`${{ needs.prepare.outputs.version }}\`"
             echo
             echo 'Verified: type check, lint, format, unit + smoke tests, all five'
-            echo 'binaries compiled and archived, checksums generated, npm token'
-            echo 'authenticated, and `npm publish --dry-run` succeeded.'
+            echo 'binaries compiled and archived, checksums generated, the npm trusted'
+            echo 'publishing token exchange succeeded, and `npm publish --dry-run` passed.'
             echo
             echo 'Skipped: GitHub release creation and the real `npm publish`.'
           } >> "$GITHUB_STEP_SUMMARY"
@@ -300,6 +309,5 @@ jobs:
       - name: Publish to npm
         if: needs.prepare.outputs.dry_run != 'true'
         working-directory: npm
+        # Authenticates through OIDC (trusted publishing); no token secret is used.
         run: npm publish --access public --tag beta
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_DENEX_PUBLISH_TOKEN }}
