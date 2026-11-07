@@ -33,14 +33,15 @@ the host, on the same number as inside the container. The rest are container-int
 | Sequencer public          | +8     | 5008    | No        |
 | Sequencer admin           | +9     | 5009    | No        |
 | Scan Admin                | +12    | 5012    | Yes       |
-| Splice Prometheus metrics | +13    | 5013    | No        |
+| Reserved (Splice metrics) | +13    | 5013    | No        |
 | SV Admin                  | +14    | 5014    | Yes       |
 | Sequencer gRPC health     | +62    | 5062    | No        |
 | Mediator gRPC health      | +63    | 5063    | No        |
-| Canton Prometheus metrics | +64    | 5064    | No        |
+| Reserved (Canton metrics) | +64    | 5064    | No        |
 
-Nothing else listens on the host by default. PostgreSQL is reachable only on the Docker network,
-and Nginx listens on the Web UI ports from the first table.
+The two reserved offsets are kept for the Splice and Canton Prometheus reporters. No reporter is
+configured, so nothing listens on them. Nothing else listens on the host by default. PostgreSQL is
+reachable only on the Docker network, and Nginx listens on the Web UI ports from the first table.
 
 ## Port limit
 

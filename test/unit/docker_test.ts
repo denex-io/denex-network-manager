@@ -17,6 +17,8 @@ import {
   DEFAULT_SPLICE_IMAGE_REPO,
   DEFAULT_SPLICE_VERSION,
   getStartupOrder,
+  JVM_MEMORY_OPTIONS,
+  KEYCLOAK_HEAP_OPTIONS,
 } from '../../src/docker/containers.ts';
 import { checkHealth } from '../../src/docker/health.ts';
 import { type ConfigMismatch, generateNginxConfigString } from '../../src/docker/mod.ts';
@@ -858,4 +860,45 @@ Deno.test('label injection - config label round-trips correctly', () => {
   assertEquals(parsed.basePort, 6000);
   assertEquals(parsed.auth.keycloak.admin, 'testadmin');
   assertEquals(parsed.auth.keycloak.password, 'testpass');
+});
+
+Deno.test('memory - canton and splice return unused heap via JAVA_TOOL_OPTIONS', () => {
+  for (
+    const spec of [
+      buildCantonContainer(TEST_CONFIG, TEST_OPTIONS),
+      buildSpliceContainer(TEST_CONFIG, TEST_OPTIONS),
+    ]
+  ) {
+    assertEquals(spec.environment?.JAVA_TOOL_OPTIONS, JVM_MEMORY_OPTIONS);
+  }
+  for (
+    const flag of ['-XX:+UseG1GC', '-XX:G1PeriodicGCInterval=30000', '-XX:MaxHeapFreeRatio=30']
+  ) {
+    assertStringIncludes(JVM_MEMORY_OPTIONS, flag);
+  }
+  // Uncommit flags only: no heap cap (Canton's heap grows with the DARs loaded).
+  assert(!JVM_MEMORY_OPTIONS.includes('-Xmx'));
+});
+
+Deno.test('memory - keycloak heap is capped through JAVA_OPTS_KC_HEAP', () => {
+  const keycloak = buildKeycloakContainer(TEST_CONFIG, TEST_OPTIONS);
+  assertEquals(keycloak.environment?.JAVA_OPTS_KC_HEAP, KEYCLOAK_HEAP_OPTIONS);
+  assertEquals(KEYCLOAK_HEAP_OPTIONS, '-Xms64m -Xmx512m');
+});
+
+Deno.test('buildPostgresContainer - new data volumes get data checksums', () => {
+  const postgres = buildPostgresContainer(TEST_CONFIG, TEST_OPTIONS);
+  assertEquals(postgres.environment?.POSTGRES_INITDB_ARGS, '--data-checksums');
+});
+
+Deno.test("logging - canton and splice log at INFO instead of the images' DEBUG default", () => {
+  for (
+    const spec of [
+      buildCantonContainer(TEST_CONFIG, TEST_OPTIONS),
+      buildSpliceContainer(TEST_CONFIG, TEST_OPTIONS),
+    ]
+  ) {
+    assertEquals(spec.environment?.LOG_LEVEL_CANTON, 'INFO');
+    assertEquals(spec.environment?.LOG_LEVEL_STDOUT, 'INFO');
+  }
 });

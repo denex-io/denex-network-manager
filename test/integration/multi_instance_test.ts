@@ -6,7 +6,7 @@
  * one does not affect the other's containers, network, or postgres volume.
  *
  * This is possible because every SV-only port (scanAdmin, svAdmin, sequencer,
- * mediator and the Prometheus reporter) is derived from basePort via
+ * mediator, and the reserved Prometheus offsets) is derived from basePort via
  * getSvInternalPorts(). Only scanAdmin and svAdmin are published to the host.
  */
 

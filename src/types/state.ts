@@ -22,6 +22,7 @@ export interface UserRightInfo {
     | 'CanExecuteAs'
     | 'CanReadAsAnyParty'
     | 'CanExecuteAsAnyParty'
+    | 'CanActAsAnyParty'
     | 'IdentityProviderAdmin';
   party?: string;
 }

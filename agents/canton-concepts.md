@@ -55,7 +55,7 @@ parties on participant nodes.
 
 - Per-party rights: `CanActAs`, `CanReadAs`, `CanExecuteAs`.
 - Participant-wide rights: `ParticipantAdmin`, `CanReadAsAnyParty`, `CanExecuteAsAnyParty`,
-  `IdentityProviderAdmin`.
+  `CanActAsAnyParty` (Ledger API 3.6+, so Splice 0.9.x and later), `IdentityProviderAdmin`.
 - `primaryParty` grants `CanActAs` on that party.
 - `users[].parties[].rights` defaults to `['CanActAs']` when omitted.
 - Backward compatibility allows per-party rights in `users[].rights`, but prefer `users[].parties[]`

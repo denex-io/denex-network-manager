@@ -515,25 +515,23 @@ Deno.test('generateFullSpliceConfig - default basePort keeps 5012/5014/5008', ()
   assertStringIncludes(config, 'external-public-api-url = "http://canton:5008"');
 });
 
-Deno.test('generateFullSpliceConfig - Prometheus reporter follows basePort', () => {
-  for (const [basePort, expected] of [[undefined, 5013], [7000, 7013], [7400, 7413]] as const) {
+Deno.test('generateFullSpliceConfig - replaces the image Prometheus reporter with none', () => {
+  for (const basePort of [undefined, 7000, 10000]) {
     const config = generateFullSpliceConfig(
       basePort === undefined ? TEST_CONFIG : { ...TEST_CONFIG, basePort },
     );
-    assertEquals(config.match(/type = prometheus/g)?.length, 1);
-    assertStringIncludes(config, `canton.monitoring.metrics.reporters = [`);
-    assertStringIncludes(config, `    port = ${expected}\n`);
+    assert(!config.includes('type = prometheus'));
+    assertEquals(config.match(/canton\.monitoring\.metrics\.reporters = \[\]\n/g)?.length, 1);
   }
 });
 
-Deno.test('generateFullCantonConfig - Prometheus reporter follows basePort', () => {
-  for (const [basePort, expected] of [[undefined, 5064], [7000, 7064], [7400, 7464]] as const) {
+Deno.test('generateFullCantonConfig - replaces the image Prometheus reporter with none', () => {
+  for (const basePort of [undefined, 7000, 10000]) {
     const config = generateFullCantonConfig(
       basePort === undefined ? TEST_CONFIG : { ...TEST_CONFIG, basePort },
     );
-    assertEquals(config.match(/type = prometheus/g)?.length, 1);
-    assertStringIncludes(config, `canton.monitoring.metrics.reporters = [`);
-    assertStringIncludes(config, `    port = ${expected}\n`);
+    assert(!config.includes('type = prometheus'));
+    assertEquals(config.match(/canton\.monitoring\.metrics\.reporters = \[\]\n/g)?.length, 1);
   }
 });
 
@@ -544,4 +542,87 @@ Deno.test('generatePortMappingEnv - SV internal ports follow basePort', () => {
   assertStringIncludes(env, 'SV_MEDIATOR_ADMIN_PORT=7007');
   assertStringIncludes(env, 'SV_SCAN_ADMIN_PORT=7012');
   assertStringIncludes(env, 'SV_SV_ADMIN_PORT=7014');
+});
+
+Deno.test('generateFullCantonConfig - storage pools are 8 connections', () => {
+  const config = generateFullCantonConfig(TEST_CONFIG);
+  assertStringIncludes(config, 'max-connections = 8\n');
+  assert(!config.includes('max-connections = 32'));
+});
+
+Deno.test('generateFullCantonConfig - no deprecated initial-protocol-version', () => {
+  assert(!generateFullCantonConfig(TEST_CONFIG).includes('initial-protocol-version'));
+});
+
+Deno.test('generateFullCantonConfig - Daml debug output logs at INFO', () => {
+  const config = generateFullCantonConfig(TEST_CONFIG);
+  assertEquals(config.match(/submission-phase-logging/g)?.length, 1);
+  // Inside the participant template's parameters block, which every participant inherits.
+  const template = config.slice(
+    config.indexOf('_participant {'),
+    config.indexOf('canton.participants.sv = '),
+  );
+  const parameters = template.slice(template.indexOf('\n  parameters {'));
+  assertStringIncludes(
+    parameters.slice(0, parameters.indexOf('\n  }')),
+    '    engine.submission-phase-logging.log-level = INFO',
+  );
+});
+
+Deno.test('generateFullCantonConfig - max-commands-in-flight only on the SV participant', () => {
+  const config = generateFullCantonConfig(TEST_CONFIG);
+  assertEquals(config.match(/max-commands-in-flight = 30/g)?.length, 1);
+  const svBlock = config.slice(
+    config.indexOf('canton.participants.sv = '),
+    config.indexOf('canton.sequencers.sequencer'),
+  );
+  // Under the SV participant's ledger-api block.
+  const ledgerApi = svBlock.slice(svBlock.indexOf('  ledger-api {'));
+  assertStringIncludes(
+    ledgerApi.slice(0, ledgerApi.indexOf('\n  }')),
+    '    command-service.max-commands-in-flight = 30',
+  );
+  const participantTemplate = config.slice(
+    config.indexOf('_participant {'),
+    config.indexOf('canton.participants.sv = '),
+  );
+  assert(!participantTemplate.includes('max-commands-in-flight'));
+});
+
+Deno.test('generateFullSpliceConfig - storage pools are 8 connections', () => {
+  const config = generateFullSpliceConfig(TEST_CONFIG);
+  assertStringIncludes(config, 'max-connections = 8\n');
+  assert(!config.includes('max-connections = 32'));
+});
+
+Deno.test('generateFullSpliceConfig - no removed domain-migration-id', () => {
+  assert(!generateFullSpliceConfig(TEST_CONFIG).includes('domain-migration-id'));
+});
+
+Deno.test('generateFullSpliceConfig - every validator supports embedded party signing keys', () => {
+  const config = generateFullSpliceConfig(TEST_CONFIG);
+  const template = config.slice(
+    config.indexOf('_validator_backend {'),
+    config.indexOf('canton.features'),
+  );
+  assertStringIncludes(template, 'support-embedded-party-signing-keys = true');
+  // The SV validator and both validators inherit the template.
+  assertEquals(config.match(/= \$\{_validator_backend\}/g)?.length, 3);
+});
+
+Deno.test('generateFullSpliceConfig - Scan and SV turn off the per-client-IP rate limit', () => {
+  const config = generateFullSpliceConfig(TEST_CONFIG);
+  const block = config.slice(
+    config.indexOf('_rate_limiting {'),
+    config.indexOf('_validator_backend {'),
+  );
+  assertStringIncludes(block, 'client-ip-headers = []');
+  // Splice 0.6.6 requires both whenever rate-limiting is set.
+  assertStringIncludes(block, 'default { enabled = true, rate-per-second = 200 }');
+  assertStringIncludes(block, 'rate-limiters {}');
+  assertEquals(config.match(/parameters\.rate-limiting = \$\{_rate_limiting\}/g)?.length, 2);
+  const scan = config.slice(config.indexOf('scan-apps.scan-app {'), config.indexOf('sv-apps.sv {'));
+  assertStringIncludes(scan, 'parameters.rate-limiting = ${_rate_limiting}');
+  const sv = config.slice(config.indexOf('sv-apps.sv {'));
+  assertStringIncludes(sv, 'parameters.rate-limiting = ${_rate_limiting}');
 });

@@ -242,6 +242,7 @@ auth:
 User rights are split into participant-wide rights and per-party rights:
 
 - Participant-wide: `ParticipantAdmin`, `CanReadAsAnyParty`, `CanExecuteAsAnyParty`,
+  `CanActAsAnyParty` (Splice 0.9.x and later; rejected when `spliceVersion` is older),
   `IdentityProviderAdmin`
 - Per-party: `CanActAs`, `CanReadAs`, `CanExecuteAs`
 
@@ -276,9 +277,9 @@ Ports use `basePort` with `+100` increments per validator:
 | Keycloak            | 5082 | -           | -           |
 
 SV-only internal ports also follow `basePort`: mediator admin +7, sequencer public +8, sequencer
-admin +9, Scan admin +12, splice Prometheus +13, SV admin +14, sequencer gRPC health +62, mediator
-gRPC health +63, canton Prometheus +64. Scan admin and SV admin are published on the same number;
-both Prometheus ports are container-internal and never published.
+admin +9, Scan admin +12, SV admin +14, sequencer gRPC health +62, mediator gRPC health +63. Scan
+admin and SV admin are published on the same number. +13 and +64 are reserved for the splice and
+canton Prometheus reporters; no reporter is configured, so nothing listens on them.
 
 With `basePort: 6000`, the same layout starts at `6000`, `6100`, `6200`, and so on.
 

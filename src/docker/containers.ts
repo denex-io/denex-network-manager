@@ -102,6 +102,29 @@ export const DEFAULT_IMAGES: ContainerImages = {
   keycloak: 'quay.io/keycloak/keycloak:26.1.0',
 };
 
+/**
+ * JVM options for the canton and splice containers, passed as `JAVA_TOOL_OPTIONS` (the image
+ * entrypoints keep a caller's value and add their own). The images set no heap options, so G1
+ * sizes the heap from the Docker VM and keeps its high-water mark committed. These make it return
+ * unused heap to the OS when idle; they cap nothing. `-XX:+UseG1GC` because the JVM picks another
+ * collector on a Docker VM with under 2 CPUs or 1792 MB, where the G1 flags would do nothing.
+ */
+export const JVM_MEMORY_OPTIONS = '-XX:+UseG1GC -XX:G1PeriodicGCInterval=30000 ' +
+  '-XX:MinHeapFreeRatio=10 -XX:MaxHeapFreeRatio=30';
+
+/**
+ * Keycloak heap (`JAVA_OPTS_KC_HEAP`). Without it, Keycloak's container default lets the heap grow
+ * to 70% of the Docker VM.
+ */
+export const KEYCLOAK_HEAP_OPTIONS = '-Xms64m -Xmx512m';
+
+/**
+ * Log level for the canton and splice containers. The images default to DEBUG, which writes a large
+ * JSON log volume that dnm never rotates; Splice's own validator compose deployment uses INFO. The
+ * Canton config raises Daml debug statements to INFO so they stay visible.
+ */
+const CONTAINER_LOG_ENV = { LOG_LEVEL_CANTON: 'INFO', LOG_LEVEL_STDOUT: 'INFO' } as const;
+
 export interface ContainerBuilderOptions {
   networkName: string;
   labelPrefix: string;
@@ -174,6 +197,8 @@ export function buildPostgresContainer(
       POSTGRES_USER: options.dbUser ?? DEFAULT_DB_USER,
       POSTGRES_PASSWORD: options.dbPassword ?? DEFAULT_DB_PASSWORD,
       POSTGRES_DB: 'postgres',
+      // Applies when the data volume is first initialized. Splice warns at startup without it.
+      POSTGRES_INITDB_ARGS: '--data-checksums',
       POSTGRES_INIT_SCRIPT: options.generatedConfigs.postgresInitScript,
       ...Object.fromEntries(
         databases.map((db, i) => [`CREATE_DATABASE_${String(i + 1).padStart(2, '0')}`, db]),
@@ -236,6 +261,8 @@ export function buildCantonContainer(
       DB_USER: options.dbUser ?? DEFAULT_DB_USER,
       DB_PASSWORD: options.dbPassword ?? DEFAULT_DB_PASSWORD,
       SPLICE_APP_VALIDATOR_AUTH_AUDIENCE: DEFAULT_AUDIENCE,
+      JAVA_TOOL_OPTIONS: JVM_MEMORY_OPTIONS,
+      ...CONTAINER_LOG_ENV,
       // The image entrypoint concatenates all ADDITIONAL_CONFIG* env vars into a
       // file it passes via --config, so no host bind mount is needed.
       ADDITIONAL_CONFIG_LOCALNET: options.generatedConfigs.cantonConfig,
@@ -312,6 +339,8 @@ export function buildSpliceContainer(
       SPLICE_APP_VALIDATOR_AUTH_AUDIENCE: DEFAULT_AUDIENCE,
       SPLICE_APP_VALIDATOR_LEDGER_API_AUTH_AUDIENCE: DEFAULT_AUDIENCE,
       SPLICE_SV_IS_DEVNET: 'true',
+      JAVA_TOOL_OPTIONS: JVM_MEMORY_OPTIONS,
+      ...CONTAINER_LOG_ENV,
       // The image entrypoint concatenates all ADDITIONAL_CONFIG* env vars into a
       // file it passes via --config, so no host bind mount is needed.
       ADDITIONAL_CONFIG_LOCALNET: options.generatedConfigs.spliceConfig,
@@ -354,6 +383,7 @@ export function buildKeycloakContainer(
     KC_HEALTH_ENABLED: 'true',
     KC_HTTP_ENABLED: 'true',
     KC_HOSTNAME_STRICT: 'false',
+    JAVA_OPTS_KC_HEAP: KEYCLOAK_HEAP_OPTIONS,
   };
 
   // Deliver each realm import file as an env var. The filename is preserved

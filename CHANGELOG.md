@@ -10,6 +10,42 @@ All notable changes to this project will be documented in this file. The format 
 - **Breaking:** the bundled Splice release is 0.9.4 (Canton 3.6.4), up from 0.6.6 (Canton 3.5.1),
   for all six Splice-family images. Set `spliceVersion: '0.6.6'` in a new instance's config to keep
   the previous release, which is no longer the tested one.
+- A LocalNet uses about 37% less memory: 3.2 GiB instead of 5.1 GiB for the SV and 2 validators at
+  idle (measured on Docker Desktop with a 7.75 GB VM).
+  - Canton and Splice storage pools are 8 connections instead of 32, so the SV and 2 validators open
+    175 Postgres connections instead of 475.
+  - The canton and splice containers run with `JAVA_TOOL_OPTIONS` that make G1 return unused heap to
+    the OS. They set no heap cap.
+  - Keycloak's heap is capped at 512 MB (`JAVA_OPTS_KC_HEAP`), down from 70% of the Docker VM.
+  - canton and splice run no Prometheus metrics reporter (nothing read them). `basePort + 13` and
+    `basePort + 64` stay reserved.
+- **Breaking:** canton and splice log at INFO instead of the images' DEBUG default, about a tenth of
+  the log output. Daml `debug` statements are raised to INFO, so they still appear.
+- Validator participants accept Canton's default of 256 in-flight commands instead of 30. The SV
+  participant keeps 30.
+- Every validator app runs wallet automation for external parties whose signing keys are embedded in
+  the party-to-participant mapping (`support-embedded-party-signing-keys = true`, the Splice 0.10
+  default). Splice 0.6.6 ignores the setting.
+- New Postgres data volumes are initialized with data checksums, which removes Splice's startup
+  warnings.
+
+### Added
+
+- `CanActAsAnyParty` user right (Ledger API 3.6, so Splice 0.9.0 and later). A config whose
+  `spliceVersion` is older and grants it is rejected: an older participant rejects the user's whole
+  rights grant.
+
+### Fixed
+
+- Scan and SV app requests through nginx (`scan.localhost`, `sv.localhost`) no longer get HTTP 429
+  beyond 10 requests/s. Splice's per-client-IP limit treated every request as one client, because
+  nginx sets `X-Real-IP`; it is now off for both apps (Splice 0.7.5 and later). The 200 requests/s
+  overall limit is unchanged.
+
+### Removed
+
+- The generated config no longer sets Canton's deprecated `initial-protocol-version` or Splice's
+  removed `domain-migration-id`. Neither had an effect.
 
 ### Upgrade notes
 
@@ -19,6 +55,9 @@ All notable changes to this project will be documented in this file. The format 
   instance to 0.9.4, destroy it (its ledger state is lost) and start again. From the SDK,
   `images: buildSpliceImages('0.6.6')` in `LocalNetOptions` keeps its repairs at 0.6.6, because
   options are not part of the compared config.
+- The memory, logging, rate-limit and validator settings above reach an existing instance only
+  through containers a repair recreates; starting it again keeps its containers as they are. They do
+  not cause a config mismatch. Destroy and recreate an instance to get all of them.
 
 ## [0.1.0-beta.2] — 2026-10-29
 

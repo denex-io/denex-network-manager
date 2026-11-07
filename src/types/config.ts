@@ -19,6 +19,7 @@ export type ParticipantWideRight =
   | 'ParticipantAdmin'
   | 'CanReadAsAnyParty'
   | 'CanExecuteAsAnyParty'
+  | 'CanActAsAnyParty'
   | 'IdentityProviderAdmin';
 
 /**

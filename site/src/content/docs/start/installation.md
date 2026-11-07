@@ -5,7 +5,8 @@ description: Install the dnm CLI or the @denex/network-manager SDK, and what eac
 
 ## Requirements
 
-- Docker running locally
+- Docker running locally. A LocalNet with the SV and 2 validators uses about 3.2 GB of Docker
+  memory at idle, and more as you upload DARs (measured with 7.75 GB given to Docker).
 - Nothing else for the pre-compiled `dnm` binary, or Deno 2.0+ to run the CLI from source
 - Deno 2.0+, Node.js 18+, or Bun for the SDK/API layer
 

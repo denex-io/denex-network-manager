@@ -4,6 +4,7 @@ import type { AuthConfig, LocalNetConfig } from '../../src/types/config.ts';
 import {
   CantonClient,
   createCanActAs,
+  createCanActAsAnyParty,
   createCanExecuteAs,
   createCanExecuteAsAnyParty,
   createCanReadAs,
@@ -75,6 +76,12 @@ Deno.test('createCanExecuteAsAnyParty - creates correct right structure', () => 
   const right = createCanExecuteAsAnyParty();
 
   assertEquals(right, { kind: { CanExecuteAsAnyParty: { value: {} } } });
+});
+
+Deno.test('createCanActAsAnyParty - creates correct right structure', () => {
+  const right = createCanActAsAnyParty();
+
+  assertEquals(right, { kind: { CanActAsAnyParty: { value: {} } } });
 });
 
 Deno.test('createIdentityProviderAdmin - creates correct right structure', () => {

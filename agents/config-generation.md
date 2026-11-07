@@ -42,6 +42,28 @@ environment, and Nginx setup needed by the LocalNet.
 - `canton.features.enable-testing-commands = yes` is intentionally enabled for local/test behavior.
 - `SPLICE_SV_IS_DEVNET=true` is set on the Splice container.
 - Onboarding secrets are deterministic: `validator-{i+1}-onboarding-secret`.
+- **One generated config serves every `spliceVersion`.** Canton fails startup on unknown config keys
+  (3.5.1 already did for most; 3.6 extended the check to all), so a key added for 3.6 can fail on
+  Canton 3.5.1 (Splice 0.6.6, the documented way to keep the previous release). Splice still ignores
+  unknown keys, but a known key it reads with a different shape fails: Splice 0.6.6's
+  `RateLimitersConfig` has no defaults, so `_rate_limiting` repeats `default` and `rate-limiters`.
+  Check each new key at both tags (`git -C <splice> show <tag>:<path>`) and start both versions
+  before merging. Splice 0.10.x needs `participant-client.admin-api.client-config` plus
+  `auth-config`, which the current shape lacks.
+- Storage pools are `max-connections = 8` for Canton and Splice. A participant opens
+  `1.5 × max-connections + 23` Postgres connections and the sequencer `2 × max-connections`; at 32,
+  SV + 2 validators opened 475.
+- Scan and the SV app share `_rate_limiting` (`client-ip-headers = []`). Without it every request
+  through dnm's nginx shares one 10 requests/s per-client-IP bucket (it sets `X-Real-IP`) and gets
+  429s. The validator app does not apply that limiter. `client-ip-headers` exists from Splice 0.7.5;
+  0.7.4 keys the limiter through other settings, so `spliceVersion: '0.7.4'` still limits.
+- `support-embedded-party-signing-keys = true` sits in `_validator_backend`, so every validator, the
+  SV's included, runs wallet automation for external parties onboarded with keys embedded in the
+  party-to-participant mapping. Splice 0.6.6 lacks the setting and ignores it.
+- `command-service.max-commands-in-flight = 30` is set on the SV participant only; validator
+  participants keep Canton's default (256).
+- Containers log at INFO, so `_participant` raises `engine.submission-phase-logging.log-level` to
+  INFO to keep Daml `debug` output visible.
 
 ## Editing guidance
 

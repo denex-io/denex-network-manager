@@ -35,6 +35,16 @@ health, and labels resources for discovery and cleanup.
 - The `canton` container runs all participant nodes in one process.
 - PostgreSQL is shared and creates multiple databases through a generated entrypoint script.
 - `DEFAULT_IMAGES` in `src/docker/containers.ts` is the source of truth for image tags.
+- Resource settings live in `src/docker/containers.ts`: canton and splice get
+  `JAVA_TOOL_OPTIONS =
+  JVM_MEMORY_OPTIONS` (G1 returns unused heap to the OS; no heap cap, since
+  Canton's heap grows with the DARs loaded) and `LOG_LEVEL_CANTON`/`LOG_LEVEL_STDOUT = INFO` (the
+  images default to DEBUG, and nothing rotates container logs). Keycloak gets
+  `JAVA_OPTS_KC_HEAP =
+  KEYCLOAK_HEAP_OPTIONS`; without it Keycloak may grow to 70% of the Docker
+  VM. Postgres gets `POSTGRES_INITDB_ARGS=--data-checksums`, which only applies when a data volume
+  is first created. All of these reach existing instances only through containers a repair
+  recreates.
 
 ## Ports
 
@@ -45,9 +55,9 @@ health, and labels resources for discovery and cleanup.
   `src/utils/ports.ts` (offsets in `SV_INTERNAL_PORT_OFFSETS`): `mediatorAdmin +7`,
   `sequencerPublic +8`, `sequencerAdmin +9`, `scanAdmin +12`, `splicePrometheus +13`, `svAdmin +14`,
   `sequencerGrpcHealth +62`, `mediatorGrpcHealth +63`, `cantonPrometheus +64`. Sequencer and
-  mediator ports and `cantonPrometheus` are bound inside `canton`; Scan/SV admin and
-  `splicePrometheus` inside `splice`. Only Scan and SV admin are published to the host, and the
-  container port equals the host port.
+  mediator ports are bound inside `canton`, Scan/SV admin inside `splice`. Only Scan and SV admin
+  are published to the host, and the container port equals the host port. The two Prometheus offsets
+  are reserved: the generated configs set no metrics reporter, so nothing binds them.
 - All offsets are below 100 and distinct from `PORT_SUFFIXES`, so no SV-level port can equal a
   validator port. `test/unit/ports_test.ts` brute-forces this.
 - `SV_INTERNAL_PORTS` no longer exists. The helpers are internal: they are not exported from
@@ -90,10 +100,11 @@ health, and labels resources for discovery and cleanup.
 - Every bind (HOCON/app.conf), Docker port mapping, healthcheck, nginx `proxy_pass` and in-process
   URL for an SV-only port must use the same `getSvInternalPorts(basePort)` value. A mismatch between
   them was the 0.1.0-beta.1 bug (mapping pointed at a port nothing listened on).
-- The splice container's Prometheus reporter is generated at `basePort + 13` and canton's at
-  `basePort + 64` (`canton.monitoring.metrics.reporters`), overriding the image's fixed default
-  (10013). Without the override, both images bind their reporter on 10013 (observed in a running
-  instance), which can collide with a derived port at some basePorts. Neither is published.
+- Both images' `monitoring.conf` bind a Prometheus reporter on a fixed port (10013), which can
+  collide with a derived port at some basePorts (observed in a running instance). The generated
+  configs set `canton.monitoring.metrics.reporters = []` (HOCON replaces arrays), so neither image
+  binds any reporter; nothing in dnm read the metrics, and it saves about 35 MB of native memory per
+  JVM. `basePort + 13` and `basePort + 64` stay reserved if a reporter is ever re-enabled.
 
 ## Editing guidance
 
