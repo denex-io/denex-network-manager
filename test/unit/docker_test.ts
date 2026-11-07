@@ -19,6 +19,7 @@ import {
   getStartupOrder,
   JVM_MEMORY_OPTIONS,
   KEYCLOAK_HEAP_OPTIONS,
+  postgresDataMount,
 } from '../../src/docker/containers.ts';
 import { checkHealth } from '../../src/docker/health.ts';
 import { type ConfigMismatch, generateNginxConfigString } from '../../src/docker/mod.ts';
@@ -901,4 +902,54 @@ Deno.test("logging - canton and splice log at INFO instead of the images' DEBUG 
     assertEquals(spec.environment?.LOG_LEVEL_CANTON, 'INFO');
     assertEquals(spec.environment?.LOG_LEVEL_STDOUT, 'INFO');
   }
+});
+
+Deno.test('postgresDataMount - 18 and later mount /var/lib/postgresql, earlier majors the data dir', () => {
+  for (
+    const image of [
+      'postgres:18',
+      'postgres:18.6-trixie',
+      'postgres:19-alpine',
+      'postgres',
+      'postgres:latest',
+      'postgres@sha256:abc',
+      'docker.io/library/postgres:18',
+      'localhost:5000/postgres',
+      'pgvector/pgvector:0.8.1-pg18',
+      'timescale/timescaledb:2.22.1-pg18',
+    ]
+  ) {
+    assertEquals(postgresDataMount(image), '/var/lib/postgresql', image);
+  }
+  for (
+    const image of [
+      'postgres:14',
+      'postgres:14.24-trixie',
+      'postgres:16-alpine',
+      'localhost:5000/postgres:14',
+      'postgres:17@sha256:abc',
+      'postgres:9.6',
+      'pgvector/pgvector:pg16',
+      'timescale/timescaledb:latest-pg16',
+      'postgis/postgis:16-3.4',
+    ]
+  ) {
+    assertEquals(postgresDataMount(image), '/var/lib/postgresql/data', image);
+  }
+});
+
+Deno.test('buildPostgresContainer - defaults to postgres:18 with the volume at /var/lib/postgresql', () => {
+  assertEquals(DEFAULT_IMAGES.postgres, 'postgres:18');
+  const postgres = buildPostgresContainer(TEST_CONFIG, TEST_OPTIONS);
+  assertEquals(postgres.image, 'postgres:18');
+  assertEquals(postgres.volumes?.[0].target, '/var/lib/postgresql');
+});
+
+Deno.test('buildPostgresContainer - an override below 18 keeps the old mount path', () => {
+  const postgres = buildPostgresContainer(TEST_CONFIG, {
+    ...TEST_OPTIONS,
+    images: { postgres: 'postgres:14' },
+  });
+  assertEquals(postgres.image, 'postgres:14');
+  assertEquals(postgres.volumes?.[0].target, '/var/lib/postgresql/data');
 });

@@ -149,7 +149,11 @@ Runtime container names carry the instance ID as a prefix, for example `default-
 
 **Purpose**: Shared database for all components.
 
-- **Image**: `postgres:14`
+- **Image**: `postgres:18`
+- **Data volume**: `<instanceId>-postgres-data`, mounted at `/var/lib/postgresql`. When
+  `LocalNetOptions.images.postgres` overrides the image with a tag naming a major below 18 (such as
+  `postgres:16-alpine` or `pgvector/pgvector:pg16`), it mounts at `/var/lib/postgresql/data`
+  instead. A digest or a tag without a version is treated as 18 or later.
 - **Role**: Stores all persistent state for Canton participants and Splice apps (Keycloak keeps its own state, see below)
 - **Databases Created**:
   - `participant-sv`, `validator-sv`, `sequencer`, `mediator`, `scan`, `sv` (for SV)
@@ -885,7 +889,7 @@ For production deployments, refer to the official Canton Network documentation.
 
 | Component     | Default Image                                                                |
 | ------------- | ---------------------------------------------------------------------------- |
-| PostgreSQL    | `postgres:14`                                                                |
+| PostgreSQL    | `postgres:18`                                                                |
 | Nginx         | `nginx:1.27.0`                                                               |
 | Canton        | `ghcr.io/digital-asset/decentralized-canton-sync/docker/canton:0.9.4`        |
 | Splice        | `ghcr.io/digital-asset/decentralized-canton-sync/docker/splice-app:0.9.4`    |

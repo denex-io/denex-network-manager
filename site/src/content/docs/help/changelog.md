@@ -32,6 +32,8 @@ Breaking changes to check before upgrading:
 
 - canton and splice log at INFO instead of DEBUG, so `dnm` logs carry about a tenth of the output.
   Daml `debug` statements still appear.
+- New LocalNets run PostgreSQL 18 instead of 14 (14 reaches end of life on November 12, 2026).
+  With `spliceVersion: '0.6.6'` the nodes log that they expect Postgres 14 to 17; they still run.
 - Existing instances get these changes only by being destroyed and started again.
 
 - New LocalNets run Splice 0.9.4 (Canton 3.6.4) instead of 0.6.6. Set `spliceVersion: '0.6.6'` in

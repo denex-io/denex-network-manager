@@ -70,6 +70,16 @@ health, and labels resources for discovery and cleanup.
   `denex.localnet.instance`. `destroy()` removes it via the existing instance-label volume query. A
   failed `start()` removes it only if that call created it (`findVolume` returned 404 first), so a
   failed resume keeps the data.
+- The volume mount follows the Postgres image's major version (`postgresDataMount()` in
+  `src/docker/containers.ts`): `/var/lib/postgresql` for 18 and later (data lands in
+  `<major>/docker`), `/var/lib/postgresql/data` for earlier majors. The 18 image refuses to start
+  with a mount at `/var/lib/postgresql/data`, even an empty one, and an earlier image declares its
+  own volume there, so the wrong path either fails or puts the data in an anonymous volume, which a
+  container recreate discards (`removeContainer` removes anonymous volumes). The major comes from
+  the tag (a `pg<major>` token, else the leading number); a digest or a tag without a version is
+  treated as 18 or later. `test/integration/postgres_volume_test.ts` checks both layouts. A Postgres
+  14 volume from an older dnm cannot be opened by 18 without `pg_upgrade`; recreate such instances
+  instead.
 - Generated configs (Canton/Splice HOCON, Keycloak realms, nginx.conf, postgres init script) are
   built in memory by `buildGeneratedConfigs()` and delivered through container environment
   variables. There are no host bind mounts, which is why the SDK works over a remote Docker socket.
