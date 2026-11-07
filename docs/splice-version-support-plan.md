@@ -2,9 +2,11 @@
 
 ## Current Release Baseline
 
-The default Splice image bundle is `0.6.6`, taken from `reference/splice/LATEST_RELEASE`.
-`reference/splice/VERSION` may point at an unreleased development version, so release bumps should
-use `LATEST_RELEASE` or a published Git tag rather than the main-branch working version.
+The default Splice image bundle is `0.9.4` (Canton 3.6.4), a published release tag. It is not the
+newest release: `reference/splice/LATEST_RELEASE` was already `0.10.1` when it was chosen
+(2026-11-07). `reference/splice/VERSION` may point at an unreleased development version, so release
+bumps should use `LATEST_RELEASE` or a published Git tag rather than the main-branch working
+version.
 
 All Splice-owned LocalNet images use the same release tag:
 

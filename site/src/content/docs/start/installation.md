@@ -18,10 +18,11 @@ configure Docker to listen on a TCP socket.
 :::
 
 :::note[Splice version]
-This release targets Splice/Canton version 0.6.6. From the SDK, pass `images` in the
-`LocalNetOptions` given to `LocalNet.fromConfig()` to override individual images, keyed by component
-(for example `splice` or `canton`). `LocalNetBuilder`, the CLI, and the YAML config cannot
-override them.
+This release runs Splice 0.9.4 (Canton 3.6.4) by default. To run another release, set
+`spliceVersion` in the config or call `LocalNetBuilder.withSpliceVersion()`; see
+[Splice version](/denex-network-manager/reference/configuration/#splice-version). From the SDK,
+pass `images` in the `LocalNetOptions` given to `LocalNet.fromConfig()` to override individual
+images, keyed by component (for example `splice` or `canton`).
 :::
 
 ## CLI

@@ -408,13 +408,13 @@ Deno.test('DEFAULT_IMAGES - all images defined', () => {
 });
 
 Deno.test('DEFAULT_IMAGES - Splice bundle uses current release tag', () => {
-  assertEquals(DEFAULT_SPLICE_VERSION, '0.6.6');
-  assertEquals(DEFAULT_IMAGES.canton, `${DEFAULT_SPLICE_IMAGE_REPO}/canton:0.6.6`);
-  assertEquals(DEFAULT_IMAGES.splice, `${DEFAULT_SPLICE_IMAGE_REPO}/splice-app:0.6.6`);
-  assertEquals(DEFAULT_IMAGES.walletWebUi, `${DEFAULT_SPLICE_IMAGE_REPO}/wallet-web-ui:0.6.6`);
-  assertEquals(DEFAULT_IMAGES.ansWebUi, `${DEFAULT_SPLICE_IMAGE_REPO}/ans-web-ui:0.6.6`);
-  assertEquals(DEFAULT_IMAGES.svWebUi, `${DEFAULT_SPLICE_IMAGE_REPO}/sv-web-ui:0.6.6`);
-  assertEquals(DEFAULT_IMAGES.scanWebUi, `${DEFAULT_SPLICE_IMAGE_REPO}/scan-web-ui:0.6.6`);
+  assertEquals(DEFAULT_SPLICE_VERSION, '0.9.4');
+  assertEquals(DEFAULT_IMAGES.canton, `${DEFAULT_SPLICE_IMAGE_REPO}/canton:0.9.4`);
+  assertEquals(DEFAULT_IMAGES.splice, `${DEFAULT_SPLICE_IMAGE_REPO}/splice-app:0.9.4`);
+  assertEquals(DEFAULT_IMAGES.walletWebUi, `${DEFAULT_SPLICE_IMAGE_REPO}/wallet-web-ui:0.9.4`);
+  assertEquals(DEFAULT_IMAGES.ansWebUi, `${DEFAULT_SPLICE_IMAGE_REPO}/ans-web-ui:0.9.4`);
+  assertEquals(DEFAULT_IMAGES.svWebUi, `${DEFAULT_SPLICE_IMAGE_REPO}/sv-web-ui:0.9.4`);
+  assertEquals(DEFAULT_IMAGES.scanWebUi, `${DEFAULT_SPLICE_IMAGE_REPO}/scan-web-ui:0.9.4`);
 });
 
 Deno.test('buildSpliceImages - every Splice-family image at the given tag', () => {

@@ -66,7 +66,7 @@ export interface ContainerImages {
   keycloak: string;
 }
 
-export const DEFAULT_SPLICE_VERSION = '0.6.6';
+export const DEFAULT_SPLICE_VERSION = '0.9.4';
 export const DEFAULT_SPLICE_IMAGE_REPO = 'ghcr.io/digital-asset/decentralized-canton-sync/docker';
 
 function spliceImage(name: string): string {
