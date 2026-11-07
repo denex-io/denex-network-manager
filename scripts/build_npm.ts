@@ -56,6 +56,7 @@ await build({
   },
   postBuild() {
     Deno.copyFileSync('LICENSE', 'npm/LICENSE');
+    Deno.copyFileSync('NOTICE', 'npm/NOTICE');
     Deno.copyFileSync('README.md', 'npm/README.md');
   },
 });
