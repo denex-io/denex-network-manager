@@ -140,5 +140,5 @@ export async function waitFor(
 export const TEST_IMAGES = {
   alpine: 'alpine:3.19',
   nginx: 'nginx:alpine',
-  postgres: 'postgres:16-alpine',
+  postgres: 'postgres:18-alpine',
 };

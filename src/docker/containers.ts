@@ -91,7 +91,7 @@ export function buildSpliceImages(version: string): Partial<ContainerImages> {
 }
 
 export const DEFAULT_IMAGES: ContainerImages = {
-  postgres: 'postgres:14',
+  postgres: 'postgres:18',
   nginx: 'nginx:1.27.0',
   canton: spliceImage('canton'),
   splice: spliceImage('splice-app'),
@@ -101,6 +101,25 @@ export const DEFAULT_IMAGES: ContainerImages = {
   scanWebUi: spliceImage('scan-web-ui'),
   keycloak: 'quay.io/keycloak/keycloak:26.1.0',
 };
+
+/**
+ * Where the Postgres data volume mounts for an image. `postgres` 18 and later keep data under
+ * `/var/lib/postgresql/<major>/docker` and refuse to start with a mount at
+ * `/var/lib/postgresql/data`, even an empty one; earlier images declare and use
+ * `/var/lib/postgresql/data`.
+ *
+ * The major version comes from the tag: a `pg<major>` token first (`pgvector/pgvector:0.8.1-pg18`,
+ * `timescale/timescaledb:latest-pg16`), else the tag's leading number (`postgres:16-alpine`). A tag
+ * with neither (a digest, `latest`, a custom name) is treated as 18 or later, matching the default.
+ */
+export function postgresDataMount(image: string): string {
+  const name = image.slice(image.lastIndexOf('/') + 1); // drop registry and repository path
+  const ref = name.split('@')[0];
+  const colon = ref.indexOf(':');
+  const tag = colon >= 0 ? ref.slice(colon + 1) : '';
+  const major = /(?:^|[-_.])pg(\d+)/.exec(tag) ?? /^(\d+)/.exec(tag);
+  return major && Number(major[1]) < 18 ? '/var/lib/postgresql/data' : '/var/lib/postgresql';
+}
 
 /**
  * JVM options for the canton and splice containers, passed as `JAVA_TOOL_OPTIONS` (the image
@@ -198,6 +217,7 @@ export function buildPostgresContainer(
       POSTGRES_PASSWORD: options.dbPassword ?? DEFAULT_DB_PASSWORD,
       POSTGRES_DB: 'postgres',
       // Applies when the data volume is first initialized. Splice warns at startup without it.
+      // Postgres 18's initdb enables checksums by default; this keeps them on for older images.
       POSTGRES_INITDB_ARGS: '--data-checksums',
       POSTGRES_INIT_SCRIPT: options.generatedConfigs.postgresInitScript,
       ...Object.fromEntries(
@@ -208,7 +228,7 @@ export function buildPostgresContainer(
     volumes: [
       {
         source: `${options.instanceId ?? options.labelPrefix}-postgres-data`,
-        target: '/var/lib/postgresql/data',
+        target: postgresDataMount(images.postgres),
       },
     ],
     networks: [options.networkName],

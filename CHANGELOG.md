@@ -28,6 +28,14 @@ All notable changes to this project will be documented in this file. The format 
   default). Splice 0.6.6 ignores the setting.
 - New Postgres data volumes are initialized with data checksums, which removes Splice's startup
   warnings.
+- **Breaking:** the default PostgreSQL image is `postgres:18` instead of `postgres:14`, which
+  reaches end of life on 2026-11-12. With 18 and later the data volume mounts at
+  `/var/lib/postgresql`, because the 18 image refuses to start with a mount at
+  `/var/lib/postgresql/data`. A `LocalNetOptions.images.postgres` tag naming a major below 18 keeps
+  the old path. Splice 0.9.4 supports it (its Canton accepts Postgres 14 to 18). Splice 0.6.6 runs
+  on it but logs that it expects 14 to 17, from Canton's version check and from Flyway; from the
+  SDK, `images.postgres: 'postgres:17'` avoids the warnings. Recreate instances created by earlier
+  versions (destroy, then start; their ledger state is lost).
 
 ### Added
 
