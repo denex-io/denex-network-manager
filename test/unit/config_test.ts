@@ -265,6 +265,7 @@ Deno.test('parseLocalNetConfig - new participant-wide rights accepted', () => {
               'ParticipantAdmin',
               'CanReadAsAnyParty',
               'CanExecuteAsAnyParty',
+              'CanActAsAnyParty',
               'IdentityProviderAdmin',
             ],
           },
@@ -280,6 +281,7 @@ Deno.test('parseLocalNetConfig - new participant-wide rights accepted', () => {
       'ParticipantAdmin',
       'CanReadAsAnyParty',
       'CanExecuteAsAnyParty',
+      'CanActAsAnyParty',
       'IdentityProviderAdmin',
     ]);
   }
@@ -761,4 +763,30 @@ Deno.test('validateLocalNetConfig - numeric validators accept sv and validator-1
   });
   assert(!bad.success);
   assert(bad.errors.message.includes('sv, validator-1, validator-2, validator-3'));
+});
+
+Deno.test('validateLocalNetConfig - CanActAsAnyParty needs Splice 0.9 or later', () => {
+  const withVersion = (spliceVersion?: string) => ({
+    validators: [{
+      name: 'v1',
+      users: [{ id: 'ops', rights: ['ParticipantAdmin', 'CanActAsAnyParty'] }],
+    }],
+    auth: AUTH,
+    ...(spliceVersion === undefined ? {} : { spliceVersion }),
+  });
+  const old = validateLocalNetConfig(withVersion('0.6.6'));
+  assert(!old.success);
+  assertEquals(old.errors.issues.length, 1);
+  assertEquals(old.errors.issues[0].path, ['validators', 0, 'users', 0, 'rights', 1]);
+  assertEquals(
+    old.errors.issues[0].message,
+    "CanActAsAnyParty needs Splice 0.9.0 or later (Canton 3.6); spliceVersion is '0.6.6'",
+  );
+  assert(!validateLocalNetConfig(withVersion('0.8.4')).success);
+  // The bundled default, newer releases, and tags that are not <major>.<minor> are accepted.
+  for (const ok of [undefined, '0.9.0', '0.9.4', '0.10.1', '1.0.0', 'dev-snapshot']) {
+    assert(validateLocalNetConfig(withVersion(ok)).success, `spliceVersion ${ok}`);
+  }
+  // Stored labels stay lenient.
+  parseStoredLocalNetConfig(withVersion('0.6.6'));
 });

@@ -16,7 +16,23 @@ This page summarizes what each release means for you. It is not a copy of the ch
 
 Changes on `main` since 0.1.0-beta.2. They are not in a published release yet.
 
+Behavior you can now rely on:
+
+- A LocalNet with the SV and 2 validators uses about 3.2 GB of Docker memory, down from about
+  5.1 GB, and opens 175 Postgres connections instead of 475.
+- Scan and SV app calls through `scan.localhost` and `sv.localhost` are no longer limited to 10
+  requests/s for all callers together; the 429s are gone.
+- Validator participants accept up to 256 in-flight commands, so parallel test suites are no longer
+  rejected past 30.
+- External parties onboarded with their keys in the party-to-participant mapping get validator
+  wallet automation.
+- The `CanActAsAnyParty` user right, on Splice 0.9.0 and later.
+
 Breaking changes to check before upgrading:
+
+- canton and splice log at INFO instead of DEBUG, so `dnm` logs carry about a tenth of the output.
+  Daml `debug` statements still appear.
+- Existing instances get these changes only by being destroyed and started again.
 
 - New LocalNets run Splice 0.9.4 (Canton 3.6.4) instead of 0.6.6. Set `spliceVersion: '0.6.6'` in
   a new instance's config to keep the previous release, which is no longer the tested one.

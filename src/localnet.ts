@@ -48,6 +48,7 @@ import {
   type ApiUserRight,
   CantonClient,
   createCanActAs,
+  createCanActAsAnyParty,
   createCanExecuteAs,
   createCanExecuteAsAnyParty,
   createCanReadAs,
@@ -1483,6 +1484,9 @@ export class LocalNet {
             break;
           case 'CanExecuteAsAnyParty':
             apiRights.push(createCanExecuteAsAnyParty());
+            break;
+          case 'CanActAsAnyParty':
+            apiRights.push(createCanActAsAnyParty());
             break;
           case 'IdentityProviderAdmin':
             apiRights.push(createIdentityProviderAdmin());

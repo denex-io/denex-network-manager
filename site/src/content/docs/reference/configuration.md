@@ -133,6 +133,7 @@ warning and is ignored.
 Rights split into two kinds:
 
 - Participant-wide: `ParticipantAdmin`, `CanReadAsAnyParty`, `CanExecuteAsAnyParty`,
+  `CanActAsAnyParty` (Splice 0.9.x and later; rejected when `spliceVersion` is older),
   `IdentityProviderAdmin`
 - Per-party: `CanActAs`, `CanReadAs`, `CanExecuteAs`
 

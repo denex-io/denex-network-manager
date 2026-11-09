@@ -66,11 +66,11 @@ Only Scan Admin and SV Admin are published to the host, on the same number as in
 | Sequencer public          | +8     | 5008                       | No        |
 | Sequencer admin           | +9     | 5009                       | No        |
 | Scan Admin                | +12    | 5012                       | Yes       |
-| Splice Prometheus metrics | +13    | 5013                       | No        |
+| Reserved (Splice metrics) | +13    | 5013                       | No        |
 | SV Admin                  | +14    | 5014                       | Yes       |
 | Sequencer gRPC health     | +62    | 5062                       | No        |
 | Mediator gRPC health      | +63    | 5063                       | No        |
-| Canton Prometheus metrics | +64    | 5064                       | No        |
+| Reserved (Canton metrics) | +64    | 5064                       | No        |
 
 The [port reference](/denex-network-manager/reference/ports/) has the same tables and the limit on
 the highest port.

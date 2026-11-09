@@ -72,15 +72,33 @@ export function generateSpliceBaseConfig(): string {
       tcpKeepAlive = true
     }
   }
+  # Each Splice app opens max-connections Postgres connections. 8 matches Splice's own
+  # integration tests and the Canton side (hocon.ts).
   parameters {
-    max-connections = 32
+    max-connections = 8
     migrate-and-start = true
   }
 }
 
+# Scan and the SV app limit each client IP to 10 requests/s by default, keyed on X-Forwarded-For /
+# X-Real-IP (client-ip-headers, Splice 0.7.5 and later; 0.7.4 keys the limiter through other
+# settings, so these releases still limit). dnm's nginx sets X-Real-IP, so every browser and app request
+# through it shares one bucket and gets 429s. An empty header list turns the per-IP limit off;
+# the 200 requests/s global limit stays. default and rate-limiters repeat the defaults because
+# Splice 0.6.6 requires them whenever rate-limiting is set; 0.6.6 ignores client-ip-headers.
+_rate_limiting {
+  default { enabled = true, rate-per-second = 200 }
+  rate-limiters {}
+  client-ip-headers = []
+}
+
 _validator_backend {
   latest-packages-only = true
-  domain-migration-id = 0
+  # Canton >= 3.5 onboards external parties with their keys in the party-to-participant mapping.
+  # Without this, the validator does not treat those parties as external and runs no wallet
+  # automation for them. Default false in Splice 0.9.x, true from 0.10.0; Splice 0.6.6 lacks the
+  # setting and ignores it.
+  support-embedded-party-signing-keys = true
   storage = \${_storage}
   admin-api = {
     address = "0.0.0.0"
@@ -174,7 +192,7 @@ canton {
 
   scan-apps.scan-app {
     is-first-sv = true
-    domain-migration-id = 0
+    parameters.rate-limiting = \${_rate_limiting}
     storage = \${_storage} {
       config.properties {
         databaseName = scan
@@ -205,7 +223,7 @@ canton {
 
   sv-apps.sv {
     latest-packages-only = true
-    domain-migration-id = 0
+    parameters.rate-limiting = \${_rate_limiting}
     expected-validator-onboardings = [
 ${expectedOnboardings}
     ]
@@ -400,16 +418,11 @@ export function generateFullSpliceConfig(
     );
   }
 
-  // The splice-app image binds a Prometheus reporter on a fixed in-container port (10013).
-  // HOCON replaces arrays, so this overrides that reporter instead of adding a second one.
+  // The splice-app image binds a Prometheus reporter on a fixed in-container port (10013). Nothing
+  // reads LocalNet metrics, so replace the array with an empty one (HOCON replaces arrays): no
+  // reporter, no port, and about 35 MB less native memory. basePort + 13 stays reserved for one.
   config += `
-canton.monitoring.metrics.reporters = [
-  {
-    type = prometheus
-    address = "0.0.0.0"
-    port = ${internal.splicePrometheus}
-  }
-]
+canton.monitoring.metrics.reporters = []
 `;
 
   return config;

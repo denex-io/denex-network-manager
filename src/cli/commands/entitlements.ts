@@ -23,6 +23,7 @@ function formatRight(right: ApiUserRight): string {
   if ('ParticipantAdmin' in kind) return 'Admin';
   if ('CanReadAsAnyParty' in kind) return 'ReadAs(*)';
   if ('CanExecuteAsAnyParty' in kind) return 'ExecAs(*)';
+  if ('CanActAsAnyParty' in kind) return 'ActAs(*)';
   if ('IdentityProviderAdmin' in kind) return 'IDPAdmin';
   return 'Unknown';
 }

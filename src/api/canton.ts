@@ -36,6 +36,7 @@ export interface ApiUserRight {
     | { ParticipantAdmin: { value: Record<string, never> } }
     | { CanReadAsAnyParty: { value: Record<string, never> } }
     | { CanExecuteAsAnyParty: { value: Record<string, never> } }
+    | { CanActAsAnyParty: { value: Record<string, never> } }
     | { IdentityProviderAdmin: { value: Record<string, never> } };
 }
 
@@ -377,6 +378,11 @@ export function createCanReadAsAnyParty(): ApiUserRight {
 
 export function createCanExecuteAsAnyParty(): ApiUserRight {
   return { kind: { CanExecuteAsAnyParty: { value: {} as Record<string, never> } } };
+}
+
+/** Act as any party on the participant. Ledger API 3.6+ (Splice 0.9.x); older participants reject it. */
+export function createCanActAsAnyParty(): ApiUserRight {
+  return { kind: { CanActAsAnyParty: { value: {} as Record<string, never> } } };
 }
 
 export function createIdentityProviderAdmin(): ApiUserRight {

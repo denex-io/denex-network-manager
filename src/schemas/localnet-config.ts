@@ -15,6 +15,7 @@ export const UserRightSchema = z.enum([
   'CanExecuteAs',
   'CanReadAsAnyParty',
   'CanExecuteAsAnyParty',
+  'CanActAsAnyParty',
   'IdentityProviderAdmin',
 ]);
 
@@ -22,6 +23,7 @@ export const ParticipantWideRightSchema = z.enum([
   'ParticipantAdmin',
   'CanReadAsAnyParty',
   'CanExecuteAsAnyParty',
+  'CanActAsAnyParty',
   'IdentityProviderAdmin',
 ]);
 export const PerPartyRightSchema = z.enum(['CanActAs', 'CanReadAs', 'CanExecuteAs']);
@@ -239,11 +241,23 @@ function unknownKeyWarnings(input: unknown): ConfigWarning[] {
 }
 
 /**
+ * Whether a `spliceVersion` tag names a release before `major.minor`. Tags that do not start
+ * with `<major>.<minor>` (custom builds) are never treated as older.
+ */
+function isSpliceReleaseBefore(version: string, major: number, minor: number): boolean {
+  const m = /^(\d+)\.(\d+)(?:\.|$|-)/.exec(version);
+  if (!m) return false;
+  const [vMajor, vMinor] = [Number(m[1]), Number(m[2])];
+  return vMajor < major || (vMajor === major && vMinor < minor);
+}
+
+/**
  * Input-only rules that are not part of the schema, so stored labels keep parsing: the
  * port limit for the validator count, lowercase and unique validator names that neither
  * equal the reserved `sv` nor derive a Keycloak realm name already in use, and lowercase user
- * ids (Keycloak lowercases usernames). Also `packages[].uploadTo`: when present it must be
- * non-empty and name only `sv` or configured validators.
+ * ids (Keycloak lowercases usernames), and no `CanActAsAnyParty` right when `spliceVersion` names a
+ * release before 0.9. Also `packages[].uploadTo`: when present it must be non-empty and name only
+ * `sv` or configured validators.
  */
 function checkConfigInvariants(parsed: ParsedLocalNetConfig): z.ZodIssue[] {
   const issues: z.ZodIssue[] = [];
@@ -309,6 +323,8 @@ function checkConfigInvariants(parsed: ParsedLocalNetConfig): z.ZodIssue[] {
       }
       realms.set(realm, v.name);
     });
+    const before09 = parsed.spliceVersion !== undefined &&
+      isSpliceReleaseBefore(parsed.spliceVersion, 0, 9);
     parsed.validators.forEach((v: ValidatorConfig, i: number) => {
       (v.users ?? []).forEach((u, j) => {
         const lower = u.id.toLowerCase();
@@ -318,6 +334,17 @@ function checkConfigInvariants(parsed: ParsedLocalNetConfig): z.ZodIssue[] {
             path: ['validators', i, 'users', j, 'id'],
             message: `User id '${u.id}' must be lowercase (Keycloak lowercases usernames); ` +
               `use '${lower}'`,
+          });
+        }
+        // Ledger API 3.6 (Splice 0.9.0) added the right. An older participant rejects the whole
+        // grant, so the user would get none of its rights and no wallet.
+        const k = u.rights?.indexOf('CanActAsAnyParty') ?? -1;
+        if (before09 && k >= 0) {
+          issues.push({
+            code: z.ZodIssueCode.custom,
+            path: ['validators', i, 'users', j, 'rights', k],
+            message: `CanActAsAnyParty needs Splice 0.9.0 or later (Canton 3.6); ` +
+              `spliceVersion is '${parsed.spliceVersion}'`,
           });
         }
       });

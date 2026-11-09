@@ -9,6 +9,7 @@ export {
   type CantonClientOptions,
   type ConnectedSynchronizer,
   createCanActAs,
+  createCanActAsAnyParty,
   createCanExecuteAs,
   createCanExecuteAsAnyParty,
   createCanReadAs,

@@ -35,8 +35,11 @@ export function generateCantonBaseConfig(): string {
       tcpKeepAlive = true
     }
   }
+  # A participant opens 1.5 x max-connections + 23 Postgres connections (node pools, Ledger API
+  # pool, indexer), the sequencer 2 x max-connections. 8 is what Splice's own integration tests
+  # use; 32 made 475 connections for SV + 2 validators and cost about 0.5 GB of Postgres memory.
   parameters {
-    max-connections = 32
+    max-connections = 8
     migrate-and-start = true
   }
 }
@@ -87,7 +90,9 @@ _participant {
   }
 
   parameters {
-    initial-protocol-version = 34
+    # The containers log at INFO. Daml debug statements log at DEBUG by default, so raise them
+    # to INFO to keep them visible.
+    engine.submission-phase-logging.log-level = INFO
     caching {
       contract-store {
         maximum-size = 1000
@@ -103,7 +108,6 @@ _participant {
       max-contract-key-state-cache-size = 1000
       max-transactions-in-memory-fan-out-buffer-size = 200
     }
-    command-service.max-commands-in-flight = 30
   }
 
   monitoring {
@@ -138,6 +142,9 @@ export function generateSvCantonConfig(basePort?: number): string {
   ledger-api {
     auth-services = ${generateLedgerApiAuthServices('SV')}
     user-management-service.additional-admin-user-id = "${adminUser}"
+    # Splice's LocalNet limit, meant for the SV participant. Validator participants keep Canton's
+    # default (256) so parallel test suites are not rejected past 30 in-flight commands.
+    command-service.max-commands-in-flight = 30
   }
 }
 
@@ -254,16 +261,12 @@ export function generateFullCantonConfig(
     config += generateValidatorCantonConfig(normalizedValidators[i].name, i, basePort);
   }
 
-  // The canton image also loads monitoring.conf and binds a Prometheus reporter on a fixed
-  // in-container port (10013). HOCON replaces arrays, so this overrides that reporter.
+  // The canton image also loads monitoring.conf, which binds a Prometheus reporter on a fixed
+  // in-container port (10013) that can collide with a derived port. Nothing reads LocalNet
+  // metrics, so replace the array with an empty one (HOCON replaces arrays): no reporter, no
+  // port, and about 35 MB less native memory. basePort + 64 stays reserved for one.
   config += `
-canton.monitoring.metrics.reporters = [
-  {
-    type = prometheus
-    address = "0.0.0.0"
-    port = ${getSvInternalPorts(basePort).cantonPrometheus}
-  }
-]
+canton.monitoring.metrics.reporters = []
 `;
 
   return config;

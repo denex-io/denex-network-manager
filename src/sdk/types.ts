@@ -97,9 +97,10 @@ export interface UserSpec {
   primaryParty?: string;
 
   /**
-   * Rights to grant. `'ParticipantAdmin'`, `'CanReadAsAnyParty'`, `'CanExecuteAsAnyParty'`, and
-   * `'IdentityProviderAdmin'` apply participant-wide. `'CanActAs'`, `'CanReadAs'`, and
-   * `'CanExecuteAs'` apply to the primary party and are ignored without one. Other values fail
+   * Rights to grant. `'ParticipantAdmin'`, `'CanReadAsAnyParty'`, `'CanExecuteAsAnyParty'`,
+   * `'CanActAsAnyParty'` (Splice 0.9.x and later) and `'IdentityProviderAdmin'` apply
+   * participant-wide. `'CanActAs'`, `'CanReadAs'`, and `'CanExecuteAs'` apply to the primary party
+   * and are ignored without one. Other values fail
    * validation in {@link LocalNetBuilder.build}.
    *
    * Maps to `UserConfig.rights`.
