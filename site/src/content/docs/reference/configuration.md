@@ -207,8 +207,10 @@ By default every LocalNet runs the Splice release bundled with this version of
 Keycloak and Nginx are unaffected. The value must be a valid Docker tag.
 
 The version is stored with the instance, so a `dnm start` that repairs it recreates containers at
-the same release. In the SDK, `LocalNetOptions.images` overrides individual images and wins over
-`spliceVersion`.
+the same release. Without `spliceVersion` no release is stored, and a repair uses the release
+bundled with the `denex-network-manager` version doing the repair, which after an upgrade can
+differ from the one the instance was created with. In the SDK, `LocalNetOptions.images` overrides
+individual images and wins over `spliceVersion`.
 
 Only the bundled release is tested. Generated Canton and Splice configs are not versioned, so a
 release that changed its config format can fail to start.

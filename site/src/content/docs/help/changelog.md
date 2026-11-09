@@ -12,6 +12,19 @@ The authoritative changelog lives in the repository so it ships with the source 
 
 This page summarizes what each release means for you. It is not a copy of the changelog.
 
+## Unreleased
+
+Changes on `main` since 0.1.0-beta.2. They are not in a published release yet.
+
+Breaking changes to check before upgrading:
+
+- New LocalNets run Splice 0.9.4 (Canton 3.6.4) instead of 0.6.6. Set `spliceVersion: '0.6.6'` in
+  a new instance's config to keep the previous release, which is no longer the tested one.
+- An instance created without `spliceVersion` keeps its containers when you start it again, but do
+  not add `spliceVersion` to its config, not even `'0.6.6'`: `dnm start` then reports a config
+  mismatch. A repair would create any missing container at 0.9.4 next to the old ones, so to move
+  the instance to 0.9.4, destroy it (its ledger state is lost) and start it again.
+
 ## 0.1.0-beta.2 — 2026-10-29
 
 Behavior you can now rely on:

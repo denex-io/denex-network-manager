@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file. The format 
 
 ## [Unreleased]
 
+### Changed
+
+- **Breaking:** the bundled Splice release is 0.9.4 (Canton 3.6.4), up from 0.6.6 (Canton 3.5.1),
+  for all six Splice-family images. Set `spliceVersion: '0.6.6'` in a new instance's config to keep
+  the previous release, which is no longer the tested one.
+
+### Upgrade notes
+
+- An instance created without `spliceVersion` keeps its containers when it is started again, but
+  adding `spliceVersion` to its config, even `'0.6.6'`, makes `start()` fail the config-mismatch
+  check, and a repair creates any missing container at 0.9.4 next to the old ones. To move such an
+  instance to 0.9.4, destroy it (its ledger state is lost) and start again. From the SDK,
+  `images: buildSpliceImages('0.6.6')` in `LocalNetOptions` keeps its repairs at 0.6.6, because
+  options are not part of the compared config.
+
 ## [0.1.0-beta.2] — 2026-10-29
 
 ### Added
