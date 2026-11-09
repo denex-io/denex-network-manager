@@ -267,6 +267,10 @@ jobs:
             echo 'publishing token exchange succeeded, and `npm publish --dry-run` passed.'
             echo
             echo 'Skipped: GitHub release creation and the real `npm publish`.'
+            echo
+            echo 'Not rehearsed: moving the npm `latest` dist-tag (the Tag npm latest job).'
+            echo '`npm dist-tag` has no dry run; it needs "Allow npm dist-tag" enabled on the'
+            echo 'trusted publisher for @denex/network-manager on npmjs.com.'
           } >> "$GITHUB_STEP_SUMMARY"
 
       # ── Real release ────────────────────────────────────────────────────────
@@ -311,3 +315,38 @@ jobs:
         working-directory: npm
         # Authenticates through OIDC (trusted publishing); no token secret is used.
         run: npm publish --access public --tag beta
+
+  # Every release so far is a beta, published with `--tag beta`. npm only sets `latest` on a
+  # package's first publish, so it stayed on 0.1.0-beta.1 and a plain `npm install` of the package
+  # got the oldest release. While every release is a beta, point `latest` at each one too. Revisit
+  # this once a non-beta release exists: prereleases should then move only `beta` (issue #30).
+  #
+  # A separate job so that, if it fails, "Re-run failed jobs" repeats only this step, not the
+  # publish. Through OIDC it needs "Allow npm dist-tag" enabled on the package's trusted publisher
+  # (npmjs.com package settings; off by default) and npm >= 11.21.0.
+  tag-latest:
+    name: Tag npm latest
+    runs-on: ubuntu-latest
+    needs: [prepare, publish]
+    if: needs.prepare.outputs.dry_run != 'true'
+    permissions:
+      # npm trusted publishing: npm exchanges this job's OIDC token for a dist-tag token.
+      id-token: write
+    steps:
+      # @v4.0.2
+      - uses: actions/setup-node@60edb5dd545a775178f52524783378180af0d1f8
+        name: Setup Node.js
+        with:
+          node-version: '24'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Point latest at this release
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          set -euo pipefail
+          # dist-tag over OIDC needs npm >= 11.21.0, newer than the one Node 24 bundles.
+          npm install -g npm@11.21.2
+          npm --version
+          npm dist-tag add "@denex/network-manager@${VERSION}" latest
+          npm dist-tag ls @denex/network-manager

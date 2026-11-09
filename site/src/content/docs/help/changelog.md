@@ -12,11 +12,11 @@ The authoritative changelog lives in the repository so it ships with the source 
 
 This page summarizes what each release means for you. It is not a copy of the changelog.
 
-## Unreleased
-
-Changes on `main` since 0.1.0-beta.2. They are not in a published release yet.
+## 0.1.0-beta.3 — 2026-11-09
 
 Behavior you can now rely on:
+
+- `npm install @denex/network-manager` without a tag installs the newest release, not 0.1.0-beta.1.
 
 - A LocalNet with the SV and 2 validators uses about 3.2 GB of Docker memory, down from about
   5.1 GB, and opens 175 Postgres connections instead of 475.
