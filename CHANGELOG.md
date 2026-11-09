@@ -5,8 +5,13 @@ All notable changes to this project will be documented in this file. The format 
 
 ## [Unreleased]
 
+## [0.1.0-beta.3] — 2026-11-09
+
 ### Changed
 
+- `npm install @denex/network-manager` without a tag installs the newest release: each release now
+  also moves npm's `latest` dist-tag, which had stayed on 0.1.0-beta.1. The `beta` tag moves as
+  before.
 - **Breaking:** the bundled Splice release is 0.9.4 (Canton 3.6.4), up from 0.6.6 (Canton 3.5.1),
   for all six Splice-family images. Set `spliceVersion: '0.6.6'` in a new instance's config to keep
   the previous release, which is no longer the tested one.
