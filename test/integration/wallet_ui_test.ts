@@ -1,7 +1,7 @@
 import { assertEquals } from '@std/assert';
 import { LocalNet } from '../../src/mod.ts';
 import type { LocalNetConfig } from '../../src/types/config.ts';
-import { isDockerAvailable } from './helpers.ts';
+import { isDockerAvailable, testConfig } from './helpers.ts';
 
 const EVIDENCE_DIR = '.sisyphus/evidence';
 const VALIDATOR_1_WALLET_URL = 'http://wallet.localhost:5180';
@@ -10,7 +10,7 @@ const PAGE_TIMEOUT_MS = 60_000;
 const NOT_ONBOARDED_REGEX =
   /not.{0,10}onboarded|onboarding.{0,10}(required|pending|in progress)|not yet provisioned|wallet.{0,10}not.{0,10}(installed|available)/i;
 
-const TEST_CONFIG: LocalNetConfig = {
+const TEST_CONFIG: LocalNetConfig = testConfig({
   validators: [
     {
       name: 'validator-1',
@@ -25,7 +25,7 @@ const TEST_CONFIG: LocalNetConfig = {
       password: 'admin',
     },
   },
-};
+});
 
 function uniqueInstanceId(): string {
   return `wallet-ui-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;

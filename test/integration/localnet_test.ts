@@ -5,6 +5,7 @@ import {
   createTestDockerClient,
   generateTestInstanceId,
   isDockerAvailable,
+  testConfig,
 } from './helpers.ts';
 import { LocalNet } from '../../src/localnet.ts';
 import { StartupTimeoutError } from '../../src/errors.ts';
@@ -18,7 +19,7 @@ import {
 } from '../../src/utils/ports.ts';
 
 // Config for fast lifecycle tests
-const LIFECYCLE_TEST_CONFIG: LocalNetConfig = {
+const LIFECYCLE_TEST_CONFIG: LocalNetConfig = testConfig({
   validators: 1,
   auth: {
     keycloak: {
@@ -26,10 +27,10 @@ const LIFECYCLE_TEST_CONFIG: LocalNetConfig = {
       password: 'admin',
     },
   },
-};
+});
 
 // Config for full end-to-end test
-const E2E_TEST_CONFIG: LocalNetConfig = {
+const E2E_TEST_CONFIG: LocalNetConfig = testConfig({
   validators: 1,
   auth: {
     keycloak: {
@@ -37,7 +38,7 @@ const E2E_TEST_CONFIG: LocalNetConfig = {
       password: 'admin',
     },
   },
-};
+});
 
 // ============================================================================
 // LIFECYCLE TESTS
@@ -335,7 +336,7 @@ Deno.test({
 // E2E Test: Two Validators with oauth2
 // ============================================================================
 
-const E2E_TWO_VALIDATORS_CONFIG: LocalNetConfig = {
+const E2E_TWO_VALIDATORS_CONFIG: LocalNetConfig = testConfig({
   validators: 2,
   auth: {
     keycloak: {
@@ -343,7 +344,7 @@ const E2E_TWO_VALIDATORS_CONFIG: LocalNetConfig = {
       password: 'admin',
     },
   },
-};
+});
 
 Deno.test({
   name: 'E2E: Two validators LocalNet starts and all APIs respond',

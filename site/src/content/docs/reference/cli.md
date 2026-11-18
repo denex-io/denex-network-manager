@@ -70,7 +70,7 @@ Start the Canton LocalNet.
 | `-t, --timeout <ms>`   | `600000`    | Wall-clock limit on the whole start, image pulls included, in milliseconds |
 | `--no-parallel`        |             | Start containers sequentially                       |
 | `--skip-health-checks` |             | Skip container health checks                        |
-| `--skip-init`          |             | Skip post-startup initialization (party and user setup, packages upload) |
+| `--skip-init`          |             | Skip initialization: the readiness waits, party and user setup, and the package upload, so the start can return before the APIs answer |
 
 `start` resumes an existing instance with the same ID and repairs a partly running one: stopped
 containers are started, missing ones are created, running containers that depend on them are

@@ -54,6 +54,11 @@ All notable changes to this project will be documented in this file. The format 
 - The SV app config no longer sets `comet-bft-config`. Splice 0.10.2 removed CometBFT; at 0.9.4
   leaving it unset is the same as the `enabled = false` dnm wrote.
 
+### Fixed
+
+- The `--skip-init` help now says it skips the readiness waits, so `dnm start --skip-init` can
+  return before the APIs answer.
+
 ## [0.1.0-beta.3] — 2026-11-09
 
 ### Changed

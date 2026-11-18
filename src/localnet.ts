@@ -631,7 +631,8 @@ export class LocalNet {
    *   cleanup, party and user setup and the package upload are not bounded by it.
    *   `parallel` (default `true`) starts the containers of one layer concurrently.
    *   `skipHealthChecks` skips waiting for Docker health checks. `skipInitialization` skips
-   *   initialization, including the readiness waits and the package upload. `onProgress` receives
+   *   initialization: the readiness waits, party and user setup, and the package upload, so the
+   *   start can return before the APIs answer. `onProgress` receives
    *   progress and warning messages, including elapsed time while a pull or a health wait runs.
    * @throws If this object is already running or starting, on a config mismatch or port conflict,
    *   if a container is paused, if another process appears to be starting the instance (including a

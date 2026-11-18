@@ -4,6 +4,7 @@ import {
   createTestDockerClient,
   generateTestInstanceId,
   isDockerAvailable,
+  testConfig,
 } from './helpers.ts';
 import { LocalNet } from '../../src/localnet.ts';
 import type { LocalNetConfig } from '../../src/types/config.ts';
@@ -12,7 +13,7 @@ import { CantonClient } from '../../src/api/canton.ts';
 import { getValidatorPorts } from '../../src/utils/ports.ts';
 
 // Test config exercising all new features
-const ENTITLEMENTS_TEST_CONFIG: LocalNetConfig = {
+const ENTITLEMENTS_TEST_CONFIG: LocalNetConfig = testConfig({
   validators: [
     {
       name: 'val1',
@@ -47,7 +48,7 @@ const ENTITLEMENTS_TEST_CONFIG: LocalNetConfig = {
       password: 'admin',
     },
   },
-};
+});
 
 // ============================================================================
 // ENTITLEMENTS TESTS

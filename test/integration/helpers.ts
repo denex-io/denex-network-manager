@@ -5,6 +5,75 @@
 
 import { DockerClient } from '../../src/docker/client.ts';
 import { LABEL_INSTANCE, LABEL_PREFIX } from '../../src/api/discovery-utils.ts';
+import {
+  buildSpliceImages,
+  type ContainerImages,
+  DEFAULT_IMAGES,
+  DEFAULT_SPLICE_VERSION,
+} from '../../src/docker/containers.ts';
+import type { LocalNetConfig } from '../../src/types/config.ts';
+import { readTestSpliceVersion, withTestSpliceVersion } from './splice_version_selection.ts';
+
+// Read once, when the first test module loads: a value the config schema refuses fails the run
+// here, before any container exists.
+const TEST_SPLICE_VERSION = readTestSpliceVersion(Deno.env.get('DNM_TEST_SPLICE_VERSION'));
+
+/** The Splice release every integration LocalNet runs. */
+export const SELECTED_SPLICE_VERSION = TEST_SPLICE_VERSION ?? DEFAULT_SPLICE_VERSION;
+
+/** The Splice images of {@link SELECTED_SPLICE_VERSION}, for tests that use one directly. */
+export const SELECTED_SPLICE_IMAGES: ContainerImages = {
+  ...DEFAULT_IMAGES,
+  ...buildSpliceImages(SELECTED_SPLICE_VERSION),
+};
+console.log(
+  `[test-splice] DNM_TEST_SPLICE_VERSION=${TEST_SPLICE_VERSION ?? '(unset, bundled default)'}: ` +
+    `canton ${SELECTED_SPLICE_IMAGES.canton}, splice ${SELECTED_SPLICE_IMAGES.splice}`,
+);
+
+/**
+ * Every LocalNet config the integration suite defines goes through this, so it runs
+ * {@link SELECTED_SPLICE_VERSION}. `test/unit/integration_config_guard_test.ts` checks that none
+ * skips it.
+ */
+export function testConfig<T extends LocalNetConfig>(config: T): T {
+  return withTestSpliceVersion(config, TEST_SPLICE_VERSION);
+}
+
+/** A Ledger JSON API that did not answer `GET /livez` with 2xx in time; `cause` is the last error. */
+export class JsonApiNotReadyError extends Error {
+  constructor(readonly url: string, readonly timeoutMs: number, options: ErrorOptions) {
+    super(`${url} did not answer within ${timeoutMs / 1000}s`, options);
+    this.name = 'JsonApiNotReadyError';
+  }
+}
+
+/**
+ * Waits until a participant's Ledger JSON API answers `GET /livez`. A start with
+ * `skipInitialization` skips the readiness waits and can return before it does (`LocalNet.start`),
+ * so a test that reads the ledger straight after one waits here first. Throws
+ * {@link JsonApiNotReadyError} after `timeoutMs`, with the last error as its cause.
+ */
+export async function waitForLedgerJsonApi(jsonApiUrl: string, timeoutMs = 30_000): Promise<void> {
+  const url = `${jsonApiUrl}/livez`;
+  const deadline = Date.now() + timeoutMs;
+  let lastError: unknown;
+  while (Date.now() < deadline) {
+    try {
+      // Each request is bounded by the time left, so a hanging API cannot outlast the wait.
+      const response = await fetch(url, {
+        signal: AbortSignal.timeout(Math.max(0, deadline - Date.now())),
+      });
+      await response.body?.cancel();
+      if (response.ok) return;
+      lastError = new Error(`HTTP ${response.status}`);
+    } catch (error) {
+      lastError = error;
+    }
+    await new Promise((resolve) => setTimeout(resolve, Math.min(200, deadline - Date.now())));
+  }
+  throw new JsonApiNotReadyError(url, timeoutMs, { cause: lastError });
+}
 
 // Resources created by LocalNet or DockerClient with default options use the 'denex.localnet'
 // prefix. Tests that label resources with 'localnet.instance' by hand, or use NetworkManager's

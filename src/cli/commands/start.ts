@@ -16,7 +16,11 @@ export const startCommand = new Command()
   )
   .option('--no-parallel', 'Start containers sequentially')
   .option('--skip-health-checks', 'Skip container health checks')
-  .option('--skip-init', 'Skip post-startup initialization (party and user setup, packages upload)')
+  .option(
+    '--skip-init',
+    'Skip initialization: the readiness waits, party and user setup, and the package upload, ' +
+      'so the start can return before the APIs answer',
+  )
   .action(async (options) => {
     const spin = progress('Starting LocalNet...');
 

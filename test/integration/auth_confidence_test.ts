@@ -24,9 +24,10 @@ import {
   createTestDockerClient,
   generateTestInstanceId,
   isDockerAvailable,
+  testConfig,
 } from './helpers.ts';
 
-const AUTH_CONFIDENCE_CONFIG: LocalNetConfig = {
+const AUTH_CONFIDENCE_CONFIG: LocalNetConfig = testConfig({
   basePort: 7000,
   validators: [
     {
@@ -45,7 +46,7 @@ const AUTH_CONFIDENCE_CONFIG: LocalNetConfig = {
       password: 'admin',
     },
   },
-};
+});
 
 async function assertUnauthorized(url: string): Promise<void> {
   const response = await fetch(url);

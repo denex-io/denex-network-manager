@@ -12,6 +12,7 @@ import {
   generateTestInstanceId,
   isDockerAvailable,
   TEST_CONFIG,
+  testConfig,
   waitFor,
 } from './helpers.ts';
 import {
@@ -22,10 +23,10 @@ import { LABEL_INSTANCE } from '../../src/api/discovery-utils.ts';
 import type { DockerClient } from '../../src/docker/client.ts';
 import type { LocalNetConfig } from '../../src/types/config.ts';
 
-const CONFIG: LocalNetConfig = {
+const CONFIG: LocalNetConfig = testConfig({
   validators: 1,
   auth: { keycloak: { admin: 'admin', password: 'admin' } },
-};
+});
 
 async function startAndWait(
   client: DockerClient,

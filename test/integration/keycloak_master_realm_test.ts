@@ -6,9 +6,10 @@ import {
   createTestDockerClient,
   generateTestInstanceId,
   isDockerAvailable,
+  testConfig,
 } from './helpers.ts';
 
-const MASTER_REALM_TEST_CONFIG: LocalNetConfig = {
+const MASTER_REALM_TEST_CONFIG: LocalNetConfig = testConfig({
   basePort: 8000,
   validators: 1,
   auth: {
@@ -17,7 +18,7 @@ const MASTER_REALM_TEST_CONFIG: LocalNetConfig = {
       password: 'admin',
     },
   },
-};
+});
 
 Deno.test({
   name: 'Keycloak: master realm has SSL disabled and admin REST API works over plain HTTP',

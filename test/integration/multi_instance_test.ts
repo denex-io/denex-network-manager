@@ -16,6 +16,7 @@ import {
   createTestDockerClient,
   generateTestInstanceId,
   isDockerAvailable,
+  testConfig,
 } from './helpers.ts';
 import { LocalNet } from '../../src/localnet.ts';
 import type { LocalNetConfig } from '../../src/types/config.ts';
@@ -27,17 +28,17 @@ import type { LocalNetConfig } from '../../src/types/config.ts';
 const BASE_PORT_A = 17000;
 const BASE_PORT_B = 18000;
 
-const INSTANCE_CONFIG_A: LocalNetConfig = {
+const INSTANCE_CONFIG_A: LocalNetConfig = testConfig({
   validators: 1,
   basePort: BASE_PORT_A,
   auth: { keycloak: { admin: 'admin', password: 'admin' } },
-};
+});
 
-const INSTANCE_CONFIG_B: LocalNetConfig = {
+const INSTANCE_CONFIG_B: LocalNetConfig = testConfig({
   validators: 1,
   basePort: BASE_PORT_B,
   auth: { keycloak: { admin: 'admin', password: 'admin' } },
-};
+});
 
 // ============================================================================
 // Concurrent startup isolation
@@ -214,16 +215,16 @@ Deno.test({
     const idB = generateTestInstanceId();
     const sharedPort = 19000;
 
-    const configA: LocalNetConfig = {
+    const configA: LocalNetConfig = testConfig({
       validators: 1,
       basePort: sharedPort,
       auth: { keycloak: { admin: 'admin', password: 'admin' } },
-    };
-    const configB: LocalNetConfig = {
+    });
+    const configB: LocalNetConfig = testConfig({
       validators: 1,
       basePort: sharedPort, // same — must be rejected
       auth: { keycloak: { admin: 'admin', password: 'admin' } },
-    };
+    });
 
     const netA = new LocalNet(configA, { instanceId: idA });
     const netB = new LocalNet(configB, { instanceId: idB });

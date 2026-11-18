@@ -5,6 +5,7 @@ import {
   createTestDockerClient,
   generateTestInstanceId,
   isDockerAvailable,
+  testConfig,
 } from './helpers.ts';
 import { LocalNet } from '../../src/localnet.ts';
 import type { LocalNetConfig } from '../../src/types/config.ts';
@@ -18,7 +19,7 @@ import type { LocalNetConfig } from '../../src/types/config.ts';
 
 const CLI_ENTRY = new URL('../../src/cli/mod.ts', import.meta.url).href;
 
-const CLI_TEST_CONFIG: LocalNetConfig = {
+const CLI_TEST_CONFIG: LocalNetConfig = testConfig({
   validators: 1,
   auth: {
     keycloak: {
@@ -26,7 +27,7 @@ const CLI_TEST_CONFIG: LocalNetConfig = {
       password: 'admin',
     },
   },
-};
+});
 
 interface CliResult {
   code: number;

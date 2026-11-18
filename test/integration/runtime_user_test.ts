@@ -3,13 +3,13 @@ import { LocalNet } from '../../src/mod.ts';
 import { KeycloakAdminClient } from '../../src/api/keycloak-admin.ts';
 import { getKeycloakUrl, type LocalNetConfig } from '../../src/types/config.ts';
 import { getValidatorPorts } from '../../src/utils/ports.ts';
-import { isDockerAvailable } from './helpers.ts';
+import { isDockerAvailable, testConfig } from './helpers.ts';
 
 function makeConfig(validators: string[] | number = 1): LocalNetConfig {
-  return {
+  return testConfig({
     validators: typeof validators === 'number' ? validators : validators.map((name) => ({ name })),
     auth: { keycloak: { admin: 'admin', password: 'admin' } },
-  };
+  });
 }
 
 function uniqueInstanceId(): string {

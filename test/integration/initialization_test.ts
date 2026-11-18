@@ -4,12 +4,15 @@ import {
   createTestDockerClient,
   generateTestInstanceId,
   isDockerAvailable,
+  testConfig,
+  waitForLedgerJsonApi,
 } from './helpers.ts';
 import { LocalNet } from '../../src/localnet.ts';
 import type { LocalNetConfig } from '../../src/types/config.ts';
+import { buildConfigEnvironmentInfo } from '../../src/utils/env-info.ts';
 
 // Config with parties defined for allocation testing
-const PARTY_ALLOCATION_CONFIG: LocalNetConfig = {
+const PARTY_ALLOCATION_CONFIG: LocalNetConfig = testConfig({
   validators: [
     {
       name: 'alice',
@@ -31,10 +34,10 @@ const PARTY_ALLOCATION_CONFIG: LocalNetConfig = {
       password: 'admin',
     },
   },
-};
+});
 
 // Config with users defined for wallet onboarding testing
-const USER_ONBOARDING_CONFIG: LocalNetConfig = {
+const USER_ONBOARDING_CONFIG: LocalNetConfig = testConfig({
   validators: [
     {
       name: 'val1',
@@ -61,7 +64,7 @@ const USER_ONBOARDING_CONFIG: LocalNetConfig = {
       password: 'admin',
     },
   },
-};
+});
 
 // ============================================================================
 // PARTY ALLOCATION TESTS
@@ -282,6 +285,10 @@ Deno.test({
     try {
       // Start with skipInitialization
       await localnet.start({ skipInitialization: true });
+      // skipInitialization skips the readiness waits (LocalNet.start), so wait for alice's API.
+      await waitForLedgerJsonApi(
+        buildConfigEnvironmentInfo(PARTY_ALLOCATION_CONFIG).validators.alice.endpoints.jsonApi,
+      );
 
       // Get parties for alice
       const aliceParties = await localnet.getParties('alice');
@@ -344,7 +351,7 @@ Deno.test({
     const client = createTestDockerClient();
     const instanceId = generateTestInstanceId();
     // Two validators share a hint; each user's primaryParty must be hosted on its own validator.
-    const config: LocalNetConfig = {
+    const config: LocalNetConfig = testConfig({
       basePort: 23000,
       validators: [
         {
@@ -359,7 +366,7 @@ Deno.test({
         },
       ],
       auth: { keycloak: { admin: 'admin', password: 'admin' } },
-    };
+    });
     const localnet = new LocalNet(config, { instanceId });
 
     try {
