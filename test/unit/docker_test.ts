@@ -53,6 +53,22 @@ const TEST_OPTIONS: ContainerBuilderOptions = {
   generatedConfigs: TEST_GENERATED_CONFIGS,
 };
 
+for (
+  const [hostBindIp, expected] of [
+    [undefined, undefined],
+    ['127.0.0.1', ['127.0.0.1', '::1']],
+    ['172.18.0.1', ['127.0.0.1', '::1', '172.18.0.1']],
+  ] as const
+) {
+  Deno.test(`hostBindIp ${hostBindIp ?? 'unset'} - every published container binds ${expected ?? 'all interfaces'}`, () => {
+    const config: LocalNetConfig = { ...TEST_CONFIG, ...(hostBindIp ? { hostBindIp } : {}) };
+    const specs = buildAllContainers(config, TEST_OPTIONS);
+    const published = specs.filter((s) => (s.ports ?? []).some((p) => p.host !== undefined));
+    assertEquals(published.map((s) => s.name).sort(), ['canton', 'keycloak', 'nginx', 'splice']);
+    for (const spec of published) assertEquals(spec.hostIps, expected ? [...expected] : undefined);
+  });
+}
+
 Deno.test('buildPostgresContainer - correct structure', () => {
   const container = buildPostgresContainer(TEST_CONFIG, TEST_OPTIONS);
 

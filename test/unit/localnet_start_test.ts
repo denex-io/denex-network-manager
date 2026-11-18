@@ -1,6 +1,6 @@
 import { assert, assertEquals, assertRejects, assertStringIncludes } from '@std/assert';
 import { LocalNet, type LocalNetOptions } from '../../src/localnet.ts';
-import { InstanceMismatchError } from '../../src/errors.ts';
+import { HostBindError, InstanceMismatchError, LocalNetError } from '../../src/errors.ts';
 import type { LocalNetWarning } from '../../src/types/state.ts';
 import type { LocalNetConfig } from '../../src/types/config.ts';
 import { NetworkManager } from '../../src/docker/network.ts';
@@ -62,6 +62,8 @@ class FakeDockerClient {
   networkExists = false;
   volumeExists = false;
   failStart = new Set<string>();
+  /** startContainer for these names rejects with exactly this error (a Docker error). */
+  startError = new Map<string, Error>();
   /** Like failStart, but only the first start of each name fails. */
   failStartOnce = new Set<string>();
   failCreate = new Set<string>();
@@ -168,6 +170,11 @@ class FakeDockerClient {
 
   startContainer(idOrName: string): Promise<void> {
     const f = this.find(idOrName);
+    const dockerError = f ? this.startError.get(f.name) : undefined;
+    if (dockerError) {
+      this.calls.push(`startFailed:${idOrName}`);
+      return Promise.reject(dockerError);
+    }
     if (f && (this.failStart.has(f.name) || this.failStartOnce.delete(f.name))) {
       // Not a mutation: recorded so tests can split calls before and after a failure.
       this.calls.push(`startFailed:${idOrName}`);
@@ -566,6 +573,50 @@ Deno.test('start - a transient inspect error surfaces as itself, not as a mismat
     assert(!(err instanceof InstanceMismatchError));
     assertEquals(fake.mutations, []);
   });
+});
+
+// Docker's text for a host address that is not on the host (seen live in DinD, 2026-11-18).
+const BIND_ERROR = '(HTTP code 500) server error - failed to set up container networking: ' +
+  `driver failed programming external connectivity on endpoint ${ID}-canton (0123abcd): ` +
+  `failed to bind host port 172.17.0.1:${BASE_PORT + 1}/tcp: cannot assign requested address`;
+
+Deno.test('start - a hostBindIp Docker cannot bind throws HostBindError with the fix per platform', async () => {
+  await withFakeNet(async (net, fake) => {
+    const docker = Object.assign(new Error(BIND_ERROR), { statusCode: 500 });
+    fake.startError.set(`${ID}-canton`, docker);
+    const err = await assertRejects(() => net.start(START), HostBindError);
+    assertEquals(err.address, '172.17.0.1');
+    assertEquals(err.port, BASE_PORT + 1);
+    assert(err.cause === docker);
+    for (
+      const part of [
+        'hostBindIp',
+        '172.17.0.1',
+        "Linux: set hostBindIp to the docker0 gateway that `docker network inspect bridge --format '{{(index .IPAM.Config 0).Gateway}}'` prints",
+        'Docker Desktop: use hostBindIp: 127.0.0.1',
+      ]
+    ) {
+      assertStringIncludes(err.message, part);
+    }
+  }, (c) => (c.hostBindIp = '172.17.0.1'));
+});
+
+Deno.test('start - any other Docker start error passes through unchanged and untyped', async () => {
+  await withFakeNet(async (net, fake) => {
+    const docker = Object.assign(
+      new Error(
+        '(HTTP code 500) server error - driver failed programming external connectivity on ' +
+          `endpoint ${ID}-canton: Bind for 0.0.0.0:${
+            BASE_PORT + 1
+          } failed: port is already allocated`,
+      ),
+      { statusCode: 500 },
+    );
+    fake.startError.set(`${ID}-canton`, docker);
+    const err = await assertRejects(() => net.start(START));
+    assert(err === docker, 'the Docker error itself');
+    assert(!(err instanceof LocalNetError));
+  }, (c) => (c.hostBindIp = '172.17.0.1'));
 });
 
 Deno.test('start - a stored config that differs throws InstanceMismatchError before any change', async () => {

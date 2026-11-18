@@ -123,6 +123,16 @@ export function postgresDataMount(image: string): string {
 }
 
 /**
+ * Host addresses the published ports bind to: undefined (every interface) unless `hostBindIp` is
+ * set, then 127.0.0.1 and ::1 plus `hostBindIp` itself when it is not 127.0.0.1.
+ */
+export function hostBindAddresses(config: LocalNetConfig): string[] | undefined {
+  const ip = config.hostBindIp;
+  if (ip === undefined) return undefined;
+  return ip === '127.0.0.1' ? ['127.0.0.1', '::1'] : ['127.0.0.1', '::1', ip];
+}
+
+/**
  * JVM options for the canton and splice containers, passed as `JAVA_TOOL_OPTIONS` (the image
  * entrypoints keep a caller's value and add their own). The images set no heap options, so G1
  * sizes the heap from the Docker VM and keeps its high-water mark committed. These make it return
@@ -289,6 +299,7 @@ export function buildCantonContainer(
       ADDITIONAL_CONFIG_LOCALNET: options.generatedConfigs.cantonConfig,
     },
     ports,
+    hostIps: hostBindAddresses(config),
     networks: [options.networkName],
     healthCheck: {
       type: 'http',
@@ -367,6 +378,7 @@ export function buildSpliceContainer(
       ADDITIONAL_CONFIG_LOCALNET: options.generatedConfigs.spliceConfig,
     },
     ports,
+    hostIps: hostBindAddresses(config),
     networks: [options.networkName],
     healthCheck: {
       type: 'http',
@@ -433,6 +445,7 @@ export function buildKeycloakContainer(
       'exec /opt/keycloak/bin/kc.sh start-dev --import-realm --proxy-headers=forwarded',
     ],
     ports: [{ container: 8080, host: getKeycloakPort(basePort) }],
+    hostIps: hostBindAddresses(config),
     networks: [options.networkName],
     healthCheck: {
       // Use bash /dev/tcp instead of curl (curl not available in Keycloak UBI image)
@@ -481,6 +494,7 @@ export function buildNginxContainer(
       NGINX_CONFIG: options.generatedConfigs.nginxConfig,
     },
     ports,
+    hostIps: hostBindAddresses(localNetConfig),
     // Write nginx.conf from an env var, then start nginx. Replaces a host bind
     // mount of the config file.
     command: [

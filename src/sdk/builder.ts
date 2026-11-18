@@ -205,6 +205,19 @@ export class LocalNetBuilder {
   }
 
   /**
+   * Publish host ports only on `127.0.0.1` and `[::1]`, plus `ip` when it is not `127.0.0.1`
+   * (for example the docker0 gateway on Linux). Sets `hostBindIp`; without it every port is
+   * published on every interface. `build()` rejects anything but an IPv4 address.
+   *
+   * @param ip - An IPv4 address, for example `'127.0.0.1'`.
+   * @returns This builder for chaining.
+   */
+  withHostBindIp(ip: string): LocalNetBuilder {
+    this.config.hostBindIp = ip;
+    return this;
+  }
+
+  /**
    * Set the Keycloak admin username and password (`auth.keycloak.admin` and
    * `auth.keycloak.password`). Defaults to `admin`/`admin`.
    */
@@ -247,6 +260,7 @@ export class LocalNetBuilder {
       basePort: this.config.basePort,
       auth: { keycloak: this.config.auth },
       spliceVersion: this.config.spliceVersion,
+      hostBindIp: this.config.hostBindIp,
     });
   }
 

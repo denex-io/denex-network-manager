@@ -77,6 +77,13 @@ Deno.test('LocalNetBuilder - spliceVersion is absent by default', () => {
   assertEquals('spliceVersion' in config, false);
 });
 
+Deno.test('LocalNetBuilder - withHostBindIp sets hostBindIp; absent by default', () => {
+  const builder = LocalNetBuilder.create().withValidators(1);
+  assertEquals(builder.withHostBindIp('172.18.0.1').build().hostBindIp, '172.18.0.1');
+  assertEquals('hostBindIp' in LocalNetBuilder.create().withValidators(1).build(), false);
+  assertThrows(() => LocalNetBuilder.create().withValidators(1).withHostBindIp('::1').build());
+});
+
 Deno.test('LocalNetBuilder - withAuth sets custom credentials', () => {
   const config = LocalNetBuilder.create()
     .withAuth('myadmin', 'secret')
@@ -192,6 +199,7 @@ Deno.test('SDK and package root export the typed errors', async () => {
     assertExists(mod.LocalNetError);
     assertExists(mod.InstanceMismatchError);
     assertExists(mod.SpliceVersionConflictError);
+    assertExists(mod.HostBindError);
     assert(new mod.InstanceMismatchError('x', [], 'm') instanceof mod.LocalNetError);
   }
 });

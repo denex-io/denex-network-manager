@@ -17,7 +17,7 @@ export interface InstanceDifference {
   /** Container name, e.g. `default-splice`; `'*'` when it concerns the whole instance. */
   container: string;
   /** What differs. */
-  field: 'config' | 'image' | 'hostBindings';
+  field: 'config' | 'image';
   expected: string;
   actual: string;
 }
@@ -51,5 +51,20 @@ export class SpliceVersionConflictError extends LocalNetError {
     message: string,
   ) {
     super(message);
+  }
+}
+
+/**
+ * Docker could not publish a host port on the address `hostBindIp` names: the address is not
+ * assigned to the Docker host. `start()` throws it instead of Docker's bare bind error.
+ */
+export class HostBindError extends LocalNetError {
+  constructor(
+    readonly address: string,
+    readonly port: number,
+    message: string,
+    options?: { cause?: unknown },
+  ) {
+    super(message, options);
   }
 }
