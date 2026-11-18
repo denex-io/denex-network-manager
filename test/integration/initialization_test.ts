@@ -383,8 +383,6 @@ Deno.test({
       await fresh.initializeResources((m) => messages.push(m));
 
       assertEquals(await snapshot(fresh), before);
-      assertEquals(messages.filter((m) => m.includes('Failed to allocate party')), []);
-      assertEquals(messages.filter((m) => m.includes('Failed to create user')), []);
       assertEquals(messages.filter((m) => m.includes('Allocating party')), []);
       for (const v of ['val1', 'val2']) {
         assertEquals(

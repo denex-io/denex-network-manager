@@ -60,10 +60,12 @@ initialization, and runtime operations.
   party loop pre-checks `fetchHostedParties()` and skips hints already hosted. If that query fails
   for a validator with configured parties, init throws "Cannot check existing parties on
   '<validator>'" instead of re-allocating blindly, so a transient query failure aborts init and
-  rolls back a `start()`. The last phase uploads `config.packages` via `resolvePackages()` +
-  `uploadDar()`; a missing DAR or failed upload is an `onWarning` (`source: 'packages'`), and
-  re-upload of a known DAR is a Canton no-op. `start()` throws on a missing DAR before touching
-  Docker only when no expected container exists.
+  rolls back a `start()`. Both that and the first configured party or user that cannot be set up are
+  an `InitializationError` (`kind`, `resource`, `validator`, `cause`); existing ones count as set
+  up. `createUser()` creates the Canton user only on a 404 from the lookup. The last phase uploads
+  `config.packages` via `resolvePackages()` + `uploadDar()`; a missing DAR or failed upload is an
+  `onWarning` (`source: 'packages'`), and re-upload of a known DAR is a Canton no-op. `start()`
+  throws on a missing DAR before touching Docker only when no expected container exists.
 - `LocalNetOptions.configDir` (not part of the config, so never compared by `detectConfigMismatch`)
   is the base for relative `dar` paths. `fromConfig(path)` defaults it to the YAML's directory,
   `buildContainerSpecs` writes the `<labelPrefix>.config-dir` label, and `fromInstanceId` reads it

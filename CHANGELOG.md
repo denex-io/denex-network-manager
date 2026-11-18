@@ -11,8 +11,8 @@ All notable changes to this project will be documented in this file. The format 
   Splice app's participant Admin API client is a `client-config` plus an `auth-config`, which 0.10
   requires. The tested releases are 0.9.4 and 0.10.2.
 - Typed errors: `LocalNetError` (base), `InstanceMismatchError`, `SpliceVersionConflictError`,
-  `ContainerStartupError` and `StartupTimeoutError`, exported from the package root and `/sdk`, so
-  callers can tell these failures apart with `instanceof`.
+  `ContainerStartupError`, `StartupTimeoutError` and `InitializationError`, exported from the
+  package root and `/sdk`, so callers can tell these failures apart with `instanceof`.
 - Image pulls report progress: `Pulling <image>...`, then the elapsed time every 10 seconds, then
   `Pulled <image> (<n>s)`. A cold start used to print nothing for minutes during the splice-app
   pull.
@@ -43,6 +43,18 @@ All notable changes to this project will be documented in this file. The format 
   explicit timeout now bounds the whole start; raise it if you set one below a cold start. The
   default rises from 300000 to 600000 ms: a cold start in a fresh container (linux-arm64, every
   image pulled) took 290.7 s, and 600 s is 2× that, rounded up to a whole minute.
+- **Breaking:** a configured party or user that initialization cannot set up fails `start()` with
+  `InitializationError` (`kind` `'party'` or `'user'`, the hint or user id, its validator, and the
+  cause), so `dnm start` and `dnm init` exit 1 naming it; before, it printed
+  `Warning: Failed to
+  allocate party …` or `Warning: Failed to create user …` and `start()`
+  succeeded without it. A failed fresh start is rolled back and a failed resume removes nothing, as
+  for any startup failure. A party or user that already exists still counts as set up, and package
+  uploads still only warn. The hosted-party query failure (`Cannot check existing parties on …`) is
+  an `InitializationError` too (`kind: 'validator'`; before, a plain `Error`).
+- `createUser()` creates the Canton user only when looking it up returns 404. Any other lookup error
+  fails it with a `LocalNetError` carrying the cause; before, every lookup error led to a create
+  attempt, and the lookup error was lost.
 - Health waits follow Docker's own verdict: `start()` fails on the first `unhealthy` Docker reports
   (after the health check's start period and retries) instead of after its own poll count, polls
   every second instead of every 5–10, and prints the elapsed time and last health status every 10

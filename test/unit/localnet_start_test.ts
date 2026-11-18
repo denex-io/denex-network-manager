@@ -2,6 +2,7 @@ import { assert, assertEquals, assertRejects, assertStringIncludes } from '@std/
 import { LocalNet, type LocalNetOptions } from '../../src/localnet.ts';
 import {
   ContainerStartupError,
+  InitializationError,
   InstanceMismatchError,
   StartupTimeoutError,
 } from '../../src/errors.ts';
@@ -707,6 +708,57 @@ Deno.test('start - a running container Docker reports unhealthy fails with its l
     assertEquals(err.logTail, ['health server: not ready']);
     assertStringIncludes(err.message, `Container ${ID}-canton is unhealthy`);
   });
+});
+
+/** A party allocation that fails during initialization, with the readiness waits stubbed out. */
+function failPartyAllocation(net: LocalNet): void {
+  Reflect.set(net, 'waitForApisReady', () => Promise.resolve());
+  Reflect.set(net, 'waitForScanActive', () => Promise.resolve());
+  Reflect.set(
+    net,
+    'fetchHostedParties',
+    () => Promise.resolve({ participantId: 'p', parties: [] }),
+  );
+  Reflect.set(net, 'allocateParty', () => Promise.reject(new Error('INVALID_ARGUMENT')));
+}
+
+const WITH_PARTY = (config: LocalNetConfig) => {
+  config.validators = [{ name: 'validator-1', parties: [{ hint: 'alice' }] }];
+};
+
+Deno.test('start - a party that cannot be set up fails a fresh start, typed, and rolls it back', async () => {
+  await withFakeNet(async (net, fake) => {
+    failPartyAllocation(net);
+    const err = await assertRejects(
+      () => net.start({ skipHealthChecks: true }),
+      InitializationError,
+    );
+    assertEquals([err.kind, err.resource], ['party', 'alice']);
+    assertEquals(fake.containers.size, 0);
+    assertEquals(fake.networkExists, false);
+    assertEquals(fake.volumeExists, false);
+    assertEquals(net.currentState, 'stopped');
+  }, WITH_PARTY);
+});
+
+Deno.test('start - a party that cannot be set up fails a resume, typed, and removes nothing', async () => {
+  await withFakeNet(async (net, fake) => {
+    fake.seedExisting(ALL_NAMES);
+    failPartyAllocation(net);
+    const err = await assertRejects(
+      () => net.start({ skipHealthChecks: true }),
+      InitializationError,
+    );
+    assertEquals([err.kind, err.resource], ['party', 'alice']);
+    assertEquals(
+      fake.mutations.filter((m) =>
+        !m.startsWith('startContainer:') && !m.startsWith('stopContainer:')
+      ),
+      [],
+    );
+    for (const n of ALL_NAMES) assert(fake.containers.has(n), `${n} must still exist`);
+    assert(fake.networkExists && fake.volumeExists);
+  }, WITH_PARTY);
 });
 
 Deno.test('start - API readiness that never succeeds stops at --timeout, typed, phase init', async () => {

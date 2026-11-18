@@ -117,9 +117,10 @@ such as `App` would never authenticate.
 
 Party hints referenced by users are auto-allocated even if not listed under the validator's
 top-level `parties`. A party whose hint is already hosted on the validator is skipped when
-initialization runs again. Configured hints are passed to Canton unchanged. The validator operator
-party is separate, and its hint is generated from the validator name and position, for example
-`localnet-app-1` for the first validator, `app`.
+initialization runs again. Configured hints are passed to Canton unchanged. A party or user that
+initialization cannot set up fails `dnm start` (and `dnm init`) with an error naming it, its
+validator and the cause. The validator operator party is separate, and its hint is generated from
+the validator name and position, for example `localnet-app-1` for the first validator, `app`.
 
 Earlier versions accepted a `validator` key on parties and users. It has been removed: a party or
 user always belongs to the validator it is listed under, and a leftover `validator` key produces a

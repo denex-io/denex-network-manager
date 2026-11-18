@@ -62,8 +62,8 @@ class FakeCantonClient {
   }
   /** Records the primary party and stops createUser right after hint resolution. */
   createdWith: Array<string | undefined> = [];
-  getUser(): Promise<UserDetails> {
-    return Promise.reject(new Error('not found'));
+  getUser(userId: string): Promise<UserDetails> {
+    return Promise.reject(new CantonApiError(404, `GET /v2/users/${userId}: USER_NOT_FOUND`));
   }
   createUser(_userId: string, primaryPartyId?: string): Promise<UserDetails> {
     this.createdWith.push(primaryPartyId);

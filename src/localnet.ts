@@ -38,8 +38,10 @@ import { getSvInternalPorts, getSvPorts, getValidatorPorts } from './utils/ports
 import { assertImagesMatchSpliceVersion, resolveSpliceVersion } from './utils/splice-version.ts';
 import {
   ContainerStartupError,
+  InitializationError,
   type InstanceDifference,
   InstanceMismatchError,
+  LocalNetError,
   StartupTimeoutError,
 } from './errors.ts';
 import { loadConfigFile } from './utils/yaml.ts';
@@ -53,6 +55,7 @@ import type {
 } from './types/state.ts';
 import {
   type ApiUserRight,
+  CantonApiError,
   CantonClient,
   createCanActAs,
   createCanActAsAnyParty,
@@ -618,9 +621,11 @@ export class LocalNet {
    *
    * Initialization ({@link LocalNet.initializeResources}) waits for every validator's APIs and
    * for Scan to become ready, allocates the configured parties, creates the configured users
-   * and uploads the configured `packages`. A party or user that fails is reported
-   * through `onProgress` and a package that fails through `onWarning`; neither fails
-   * `start()`, but a readiness wait that times out does.
+   * and uploads the configured `packages`. A party or user that cannot be set up fails `start()`
+   * with {@link InitializationError}, naming it and the cause (before 0.1.0-beta.4 it was only
+   * reported through `onProgress` and `start()` succeeded without it); a party or user that
+   * already exists counts as set up. Like any failure, it rolls back a fresh start and removes
+   * nothing on a resume. A package that fails is still only a warning, through `onWarning`.
    *
    * @param options - `timeout` (milliseconds) is a wall-clock limit on the whole start: image
    *   pulls, starting each layer of containers, the health waits, and initialization's waits for
@@ -637,7 +642,8 @@ export class LocalNet {
    * @throws If this object is already running or starting, on a config mismatch or port conflict,
    *   if a container is paused, if another process appears to be starting the instance (including a
    *   name conflict on create), if a configured `packages` DAR is missing on a fresh start,
-   *   if initialization cannot read a validator's hosted parties, if Docker is unavailable, a
+   *   if initialization cannot read a validator's hosted parties or set up a configured party or
+   *   user ({@link InitializationError}), if Docker is unavailable, a
    *   container stops, turns unhealthy or does not become healthy ({@link ContainerStartupError},
    *   with its last log lines), the timeout runs out, or the APIs or Scan do not become ready.
    *
@@ -1579,9 +1585,17 @@ export class LocalNet {
       ? partyMap.get(options.primaryParty)?.partyId
       : undefined;
 
+    // Only a 404 means the user does not exist yet. Any other lookup failure is not a reason to
+    // create it (before, every lookup error led to a create attempt that hid the real cause).
     try {
       await client.getUser(userId);
-    } catch {
+    } catch (error) {
+      if (!(error instanceof CantonApiError && error.statusCode === 404)) {
+        throw new LocalNetError(
+          `Cannot look up user '${userId}' on ${validatorName}: ${errorMessage(error)}`,
+          { cause: error },
+        );
+      }
       await client.createUser(userId, primaryPartyId);
     }
 
@@ -2535,9 +2549,11 @@ export class LocalNet {
    * `uploadTo` validators (default `sv` and every validator); relative `dar`
    * paths resolve against `configDir`, then the current directory. A missing
    * DAR or failed upload is a `'packages'` warning (via `onWarning`), not an error.
-   * Re-uploading a DAR the participant already has succeeds. A party or user that fails is
-   * reported through `onProgress`; if the hosted-party query fails for a validator with
-   * configured parties, the call throws without allocating anything there.
+   * Re-uploading a DAR the participant already has succeeds. The first configured party or user
+   * that cannot be set up throws {@link InitializationError} (`kind` `'party'` or `'user'`), and so
+   * does a failed hosted-party query for a validator with configured parties (`'validator'`, before
+   * anything is allocated there); before 0.1.0-beta.4 a party or user that failed was only
+   * reported through `onProgress`.
    *
    * @internal Do not call directly in application code — use start() instead.
    */
@@ -2562,10 +2578,12 @@ export class LocalNet {
       try {
         hosted = await this.fetchHostedParties(validatorName);
       } catch (error) {
-        throw new Error(
-          `Cannot check existing parties on '${validatorName}': ${
-            error instanceof Error ? error.message : error
-          }`,
+        throw new InitializationError(
+          'validator',
+          validatorName,
+          validatorName,
+          `Cannot check existing parties on '${validatorName}': ${errorMessage(error)}`,
+          { cause: error },
         );
       }
       const existingHints = new Set(
@@ -2579,57 +2597,53 @@ export class LocalNet {
           );
           continue;
         }
+        onProgress?.(`Allocating party '${partyConfig.hint}' on ${validatorName}...`);
+        let partyInfo: ApiPartyInfo;
         try {
-          onProgress?.(`Allocating party '${partyConfig.hint}' on ${validatorName}...`);
-          const partyInfo = await this.allocateParty(
+          partyInfo = await this.allocateParty(
             partyConfig.hint,
             validatorName,
             partyConfig.displayName ?? partyConfig.hint,
           );
-          onProgress?.(
-            `Allocated party '${partyConfig.hint}': ${partyInfo.partyId.substring(0, 30)}...`,
-          );
         } catch (error) {
-          onProgress?.(
-            `Warning: Failed to allocate party '${partyConfig.hint}': ${
-              error instanceof Error ? error.message : error
+          throw new InitializationError(
+            'party',
+            partyConfig.hint,
+            validatorName,
+            `Cannot allocate party '${partyConfig.hint}' on ${validatorName}: ${
+              errorMessage(error)
             }`,
+            { cause: error },
           );
         }
+        onProgress?.(
+          `Allocated party '${partyConfig.hint}': ${partyInfo.partyId.substring(0, 30)}...`,
+        );
       }
     }
 
     for (const validator of validators) {
       const validatorName = validator.name;
-      try {
-        onProgress?.(`Initializing ${validatorName}...`);
-
-        // NOTE: Each createUser call also onboards the user's wallet — previous
-        // initializeResources never onboarded user wallets, so config-defined users
-        // could not log in to the wallet UI. Latent bug fixed in T7.
-        const users = validator.users ?? [];
-        for (const userConfig of users) {
-          try {
-            await this.createUser(userConfig.id, validatorName, {
-              primaryParty: userConfig.primaryParty,
-              rights: userConfig.rights,
-              parties: userConfig.parties,
-            });
-            onProgress?.(`Created user ${userConfig.id} on ${validatorName}`);
-          } catch (error) {
-            onProgress?.(
-              `Warning: Failed to create user ${userConfig.id}: ${
-                error instanceof Error ? error.message : error
-              }`,
-            );
-          }
+      onProgress?.(`Initializing ${validatorName}...`);
+      // Each createUser call also onboards the user's wallet, so config-defined users can log in
+      // to the wallet UI.
+      for (const userConfig of validator.users ?? []) {
+        try {
+          await this.createUser(userConfig.id, validatorName, {
+            primaryParty: userConfig.primaryParty,
+            rights: userConfig.rights,
+            parties: userConfig.parties,
+          });
+        } catch (error) {
+          throw new InitializationError(
+            'user',
+            userConfig.id,
+            validatorName,
+            `Cannot set up user '${userConfig.id}' on ${validatorName}: ${errorMessage(error)}`,
+            { cause: error },
+          );
         }
-      } catch (error) {
-        onProgress?.(
-          `Warning: Failed to initialize ${validatorName}: ${
-            error instanceof Error ? error.message : error
-          }`,
-        );
+        onProgress?.(`Created user ${userConfig.id} on ${validatorName}`);
       }
     }
 
@@ -2783,6 +2797,10 @@ export class LocalNet {
  * Postgres init script that creates each database named by a CREATE_DATABASE_*
  * environment variable. Written into the container's init dir at startup.
  */
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
 function buildPostgresInitScript(): string {
   return `#!/bin/bash
 set -e
