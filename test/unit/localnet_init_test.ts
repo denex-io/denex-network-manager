@@ -145,3 +145,41 @@ Deno.test('createUser - any other lookup error fails it, typed, with the cause, 
     assertEquals(created, []);
   }
 });
+
+/** A LocalNet whose readiness waits poll fast and never succeed for the given reason. */
+async function neverReady(stub: (net: LocalNet) => void) {
+  const net = await LocalNet.fromConfig(createMinimalConfig(1), { instanceId: 'inittest' });
+  Reflect.set(net, 'readinessDelayMs', { initial: 1, max: 1 });
+  stub(net);
+  return net;
+}
+
+Deno.test('initializeResources - a validator API that never becomes ready fails it, typed, naming it and the cause', async () => {
+  const net = await neverReady((n) =>
+    Reflect.set(n, 'getValidatorState', () => Promise.reject(new TypeError('connection refused')))
+  );
+  const err = await assertRejects(() => net.initializeResources(), InitializationError);
+  assertEquals([err.kind, err.resource, err.validator], ['validator', 'sv', 'sv']);
+  assertEquals((err.cause as Error).message, 'connection refused');
+  assertStringIncludes(err.message, 'API for sv did not become ready');
+});
+
+Deno.test('initializeResources - Scan that never becomes active fails it, typed, with the cause', async () => {
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = () => Promise.reject(new TypeError('connection refused'));
+  try {
+    const net = await neverReady((n) =>
+      Reflect.set(
+        n,
+        'getValidatorState',
+        () => Promise.resolve({ isHealthy: true, validatorParty: 'p::ns' }),
+      )
+    );
+    const err = await assertRejects(() => net.initializeResources(), InitializationError);
+    assertEquals([err.kind, err.resource, err.validator], ['validator', 'sv', 'sv']);
+    assertEquals((err.cause as Error).message, 'connection refused');
+    assertStringIncludes(err.message, 'Scan did not become ready');
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});

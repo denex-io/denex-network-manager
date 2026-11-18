@@ -95,9 +95,10 @@ export class ContainerStartupError extends LocalNetError {
  * Initialization could not set up something the config asks for, and `start()` (or
  * `initializeResources()`, which `dnm init` runs) stops at the first such failure: a configured
  * party (`kind: 'party'`, `resource` is its hint), a configured user (`'user'`, its id), or the
- * validator itself when its hosted parties cannot be read to decide what to allocate
- * (`'validator'`, its name). `cause` is the error that failed it. What already exists counts as set
- * up. A failed fresh start is rolled back; a failed resume removes nothing.
+ * validator itself (`'validator'`, its name) when its API, or for `sv` Scan, does not become ready,
+ * or its hosted parties cannot be read to decide what to allocate. `cause` is the error that failed
+ * it. What already exists counts as set up. A failed fresh start is rolled back; a failed resume
+ * removes nothing.
  */
 export class InitializationError extends LocalNetError {
   constructor(

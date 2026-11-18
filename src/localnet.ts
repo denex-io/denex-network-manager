@@ -645,7 +645,8 @@ export class LocalNet {
    *   if initialization cannot read a validator's hosted parties or set up a configured party or
    *   user ({@link InitializationError}), if Docker is unavailable, a
    *   container stops, turns unhealthy or does not become healthy ({@link ContainerStartupError},
-   *   with its last log lines), the timeout runs out, or the APIs or Scan do not become ready.
+   *   with its last log lines), the timeout runs out, or the APIs or Scan do not become ready
+   *   ({@link InitializationError}, `kind: 'validator'`, after 30 attempts).
    *
    * @example
    * ```typescript
@@ -2450,8 +2451,12 @@ export class LocalNet {
         }
 
         if (i === maxRetries - 1) {
-          throw new Error(
+          throw new InitializationError(
+            'validator',
+            name,
+            name,
             `API for ${name} did not become ready: ${lastError?.message ?? 'unknown error'}`,
+            { cause: lastError },
           );
         }
 
@@ -2501,7 +2506,13 @@ export class LocalNet {
       }
 
       if (i === maxRetries - 1) {
-        throw new Error(`Scan did not become ready: ${lastError?.message ?? 'inactive'}`);
+        throw new InitializationError(
+          'validator',
+          'sv',
+          'sv',
+          `Scan did not become ready: ${lastError?.message ?? 'inactive'}`,
+          { cause: lastError },
+        );
       }
 
       await this.readinessPause(delay, budget, 'Scan', lastError);
@@ -2541,7 +2552,9 @@ export class LocalNet {
    * onboard wallets, and upload the configured `packages`. Called automatically
    * by start() unless skipInitialization is set. Also exposed for the
    * `dnm init` CLI command on already-running instances. It first waits for every validator's
-   * APIs and for Scan to become ready; those waits throw on timeout.
+   * APIs and for Scan to become ready; those waits throw {@link StartupTimeoutError} when the
+   * start's timeout runs out, and {@link InitializationError} (`kind: 'validator'`, with the last
+   * error as `cause`) after 30 attempts (before 0.1.0-beta.4, a plain `Error`).
    *
    * Safe to re-run: a configured party whose hint is already hosted on its
    * validator's participant is skipped, and users converge on their configured

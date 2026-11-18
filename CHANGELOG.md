@@ -50,8 +50,10 @@ All notable changes to this project will be documented in this file. The format 
   allocate party …` or `Warning: Failed to create user …` and `start()`
   succeeded without it. A failed fresh start is rolled back and a failed resume removes nothing, as
   for any startup failure. A party or user that already exists still counts as set up, and package
-  uploads still only warn. The hosted-party query failure (`Cannot check existing parties on …`) is
-  an `InitializationError` too (`kind: 'validator'`; before, a plain `Error`).
+  uploads still only warn. A validator's API (or Scan, for `sv`) that does not become ready within
+  its 30 attempts and the hosted-party query failure (`Cannot check existing parties on …`) are an
+  `InitializationError` too (`kind: 'validator'`, the last error as `cause`; before, a plain
+  `Error`).
 - `createUser()` creates the Canton user only when looking it up returns 404. Any other lookup error
   fails it with a `LocalNetError` carrying the cause; before, every lookup error led to a create
   attempt, and the lookup error was lost.
