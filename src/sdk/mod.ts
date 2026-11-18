@@ -12,7 +12,6 @@
 export { createLocalNet, LocalNet, type LocalNetOptions } from '../localnet.ts';
 export {
   ContainerStartupError,
-  HostBindError,
   type InstanceDifference,
   InstanceMismatchError,
   LocalNetError,

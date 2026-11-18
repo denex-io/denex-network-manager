@@ -24,7 +24,7 @@ export interface InstanceDifference {
 
 /**
  * The instance's existing containers do not match this handle: their stored config differs, or a
- * repair would create containers next to ones running another image or host binding.
+ * repair would create containers next to ones running another image.
  * {@link LocalNet.start} throws it before changing anything. Destroy the instance and start it
  * again, or start it with the config and options it was created with.
  */
@@ -51,21 +51,6 @@ export class SpliceVersionConflictError extends LocalNetError {
     message: string,
   ) {
     super(message);
-  }
-}
-
-/**
- * Docker could not publish a host port on the address `hostBindIp` names: the address is not
- * assigned to the Docker host. `start()` throws it instead of Docker's bare bind error.
- */
-export class HostBindError extends LocalNetError {
-  constructor(
-    readonly address: string,
-    readonly port: number,
-    message: string,
-    options?: { cause?: unknown },
-  ) {
-    super(message, options);
   }
 }
 

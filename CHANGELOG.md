@@ -11,23 +11,13 @@ All notable changes to this project will be documented in this file. The format 
   Splice app's participant Admin API client is a `client-config` plus an `auth-config`, which 0.10
   requires. The tested releases are 0.9.4 and 0.10.2.
 - Typed errors: `LocalNetError` (base), `InstanceMismatchError`, `SpliceVersionConflictError`,
-  `HostBindError`, `ContainerStartupError` and `StartupTimeoutError`, exported from the package root
-  and `/sdk`, so callers can tell these failures apart with `instanceof`.
+  `ContainerStartupError` and `StartupTimeoutError`, exported from the package root and `/sdk`, so
+  callers can tell these failures apart with `instanceof`.
 - Image pulls report progress: `Pulling <image>...`, then the elapsed time every 10 seconds, then
   `Pulled <image> (<n>s)`. A cold start used to print nothing for minutes during the splice-app
   pull.
 - `LocalNetWarning.source` can be `'instance'`: an existing instance resumes as it was created
   although it differs from the current config and options (for example another image).
-- `hostBindIp` (config key, `LocalNetBuilder.withHostBindIp()`) keeps LocalNet ports off the LAN.
-  Unset, ports are published on every interface as before. Set, every port is published on
-  `127.0.0.1` and `[::1]`, plus on `hostBindIp` when it is not `127.0.0.1`; the loopback bindings
-  stay because dnm's own clients, the printed URLs and the web UIs use `localhost`. On Linux,
-  containers that reach the LocalNet through `host-gateway` need the docker0 gateway, which
-  `docker network inspect bridge --format '{{(index .IPAM.Config 0).Gateway}}'` prints (often
-  `172.17.0.1`, but not always). On Docker Desktop, `127.0.0.1` is enough: `host-gateway` containers
-  already reach it. `0.0.0.0` is refused (leave `hostBindIp` unset for every interface), as are IPv6
-  and loopback addresses other than `127.0.0.1`. An address Docker cannot bind fails `start()` with
-  `HostBindError`, which names the fix; other Docker errors are unchanged.
 
 ### Changed
 

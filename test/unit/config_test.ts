@@ -790,34 +790,3 @@ Deno.test('validateLocalNetConfig - CanActAsAnyParty needs Splice 0.9 or later',
   // Stored labels stay lenient.
   parseStoredLocalNetConfig(withVersion('0.6.6'));
 });
-
-Deno.test('validateLocalNetConfig - hostBindIp takes an IPv4 address', () => {
-  const withIp = (hostBindIp: string) => ({ validators: 1, auth: AUTH, hostBindIp });
-  for (const ok of ['127.0.0.1', '172.18.0.1', '10.1.2.3']) {
-    const result = validateLocalNetConfig(withIp(ok));
-    assert(result.success, `hostBindIp ${ok}`);
-    assertEquals(result.data.hostBindIp, ok);
-  }
-  const unset = 'leave hostBindIp unset to publish on every interface';
-  const rejected: Array<[string, string]> = [
-    ['0.0.0.0', unset],
-    ['127.0.0.2', 'use 127.0.0.1'],
-    ['::1', unset],
-    ['172.18.0.256', unset],
-    ['localhost', unset],
-    ['', unset],
-  ];
-  for (const [bad, hint] of rejected) {
-    const result = validateLocalNetConfig(withIp(bad));
-    assert(!result.success, `hostBindIp '${bad}' must be rejected`);
-    assertEquals(result.errors.issues[0].path, ['hostBindIp']);
-    assertStringIncludes(result.errors.issues[0].message, hint);
-  }
-  // Stored labels stay lenient, so an instance stays stoppable whatever a label holds.
-  parseStoredLocalNetConfig({ validators: 1, auth: AUTH, hostBindIp: '::1' });
-});
-
-Deno.test('withDefaults - keeps hostBindIp', () => {
-  assertEquals(withDefaults({ validators: 1, hostBindIp: '127.0.0.1' }).hostBindIp, '127.0.0.1');
-  assertEquals('hostBindIp' in withDefaults({ validators: 1 }), false);
-});

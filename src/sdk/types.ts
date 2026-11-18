@@ -173,12 +173,4 @@ export interface LocalNetBuilderConfig {
    * Maps to `LocalNetConfig.spliceVersion`.
    */
   spliceVersion?: string;
-
-  /**
-   * Restricts host port publishing to loopback plus this IPv4 address. Unset publishes on every
-   * interface.
-   *
-   * Maps to `LocalNetConfig.hostBindIp`.
-   */
-  hostBindIp?: string;
 }

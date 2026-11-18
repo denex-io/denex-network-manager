@@ -25,11 +25,6 @@ export interface ContainerSpec {
   image: string;
   environment?: Record<string, string>;
   ports?: PortBinding[];
-  /**
-   * Host addresses every published port binds to, one Docker binding per address. Unset binds
-   * every interface (Docker's default).
-   */
-  hostIps?: string[];
   volumes?: VolumeMount[];
   networks?: string[];
   healthCheck?: HealthCheckConfig;

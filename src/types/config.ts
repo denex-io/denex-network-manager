@@ -229,18 +229,6 @@ export interface LocalNetConfig {
    * @example "0.9.0"
    */
   spliceVersion?: string;
-
-  /**
-   * Restrict the host addresses LocalNet ports are published on. Unset publishes every port on
-   * every interface. Set, ports are published on `127.0.0.1` and `[::1]`, plus on this address
-   * when it is not `127.0.0.1` — an addition, not a replacement, because dnm's own clients, the
-   * printed URLs and the web UIs use `localhost`. An IPv4 address; on Linux, containers that reach
-   * the LocalNet through `host-gateway` need the docker0 gateway this prints:
-   * `docker network inspect bridge --format '{{(index .IPAM.Config 0).Gateway}}'`.
-   *
-   * @example "127.0.0.1"
-   */
-  hostBindIp?: string;
 }
 
 export const DEFAULT_AUDIENCE = 'https://canton.network.global';

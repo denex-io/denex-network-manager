@@ -38,7 +38,6 @@ import { getSvInternalPorts, getSvPorts, getValidatorPorts } from './utils/ports
 import { assertImagesMatchSpliceVersion, resolveSpliceVersion } from './utils/splice-version.ts';
 import {
   ContainerStartupError,
-  HostBindError,
   type InstanceDifference,
   InstanceMismatchError,
   StartupTimeoutError,
@@ -2232,7 +2231,7 @@ export class LocalNet {
         // restart) counts as running to Docker, so a plain start is a no-op and
         // the backoff would go on. Stop it first to end the loop.
         if (exists.state === 'restarting') await this.client.stopContainer(containerId, 30);
-        await this.startContainerExplained(containerId);
+        await this.client.startContainer(containerId);
       } else if ((spec.dependsOn ?? []).some((dep) => rb.touched.has(dep))) {
         // A dependency was just (re)started: restart this container so it does
         // not keep addresses from before. Not recorded in rb.started.
@@ -2240,7 +2239,7 @@ export class LocalNet {
         rb.touched.add(spec.name);
         rb.restarted.set(spec.name, containerId);
         await this.client.stopContainer(containerId, 30);
-        await this.startContainerExplained(containerId);
+        await this.client.startContainer(containerId);
         rb.restarted.delete(spec.name);
       }
     } else {
@@ -2268,39 +2267,10 @@ export class LocalNet {
       }
       rb.created.set(spec.name, containerId);
       rb.touched.add(spec.name);
-      await this.startContainerExplained(containerId);
+      await this.client.startContainer(containerId);
     }
 
     this.containerIds.set(spec.name, containerId);
-  }
-
-  /**
-   * Start a container. Docker's "cannot assign requested address" bind failure (a `hostBindIp`
-   * that is not an address of the Docker host) becomes a {@link HostBindError} naming the setting
-   * and the fix; every other error is rethrown unchanged.
-   */
-  private async startContainerExplained(containerId: string): Promise<void> {
-    try {
-      await this.client.startContainer(containerId);
-    } catch (error) {
-      const bind = error instanceof Error
-        ? /failed to bind host port (\S+?):(\d+)\/(?:tcp|udp): cannot assign requested address/
-          .exec(error.message)
-        : null;
-      if (!bind) throw error;
-      const [, address, port] = bind;
-      throw new HostBindError(
-        address,
-        Number(port),
-        `Docker cannot publish port ${port} on ${address}: that address is not assigned to the ` +
-          `Docker host (hostBindIp is ${this.config.hostBindIp ?? 'unset'}).\n` +
-          `  Linux: set hostBindIp to the docker0 gateway that ` +
-          `\`docker network inspect bridge --format '{{(index .IPAM.Config 0).Gateway}}'\` prints.\n` +
-          `  Docker Desktop: use hostBindIp: 127.0.0.1; containers that reach the host through ` +
-          `host-gateway already reach ports published there.`,
-        { cause: error },
-      );
-    }
   }
 
   private async waitHealthy(

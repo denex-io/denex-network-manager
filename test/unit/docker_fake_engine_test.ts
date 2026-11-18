@@ -490,7 +490,7 @@ Deno.test({
 
 type CreateBody = { HostConfig: { PortBindings: Record<string, unknown> } };
 
-Deno.test('createContainer - without hostIps a host port binds every interface', opts, async () => {
+Deno.test('createContainer - a host port binds every interface', opts, async () => {
   const { engine, client, close } = await startEngine();
   try {
     await client.createContainer({
@@ -506,34 +506,6 @@ Deno.test('createContainer - without hostIps a host port binds every interface',
   }
 });
 
-Deno.test('createContainer - hostIps publish each host port once per address', opts, async () => {
-  const { engine, client, close } = await startEngine();
-  try {
-    await client.createContainer({
-      name: 'x',
-      image: 'i',
-      hostIps: ['127.0.0.1', '::1', '172.18.0.1'],
-      ports: [{ container: 5001, host: 5001 }, { container: 8080, host: 5082 }, {
-        container: 5432,
-      }],
-    });
-    assertEquals((engine.created[0] as CreateBody).HostConfig.PortBindings, {
-      '5001/tcp': [
-        { HostIp: '127.0.0.1', HostPort: '5001' },
-        { HostIp: '::1', HostPort: '5001' },
-        { HostIp: '172.18.0.1', HostPort: '5001' },
-      ],
-      '8080/tcp': [
-        { HostIp: '127.0.0.1', HostPort: '5082' },
-        { HostIp: '::1', HostPort: '5082' },
-        { HostIp: '172.18.0.1', HostPort: '5082' },
-      ],
-    });
-  } finally {
-    await close();
-  }
-});
-
 // --- port bindings read back from inspect ---
 
 const inspectWith = (portBindings: Record<string, unknown>) => ({
@@ -543,30 +515,6 @@ const inspectWith = (portBindings: Record<string, unknown>) => ({
   State: { Status: 'running' },
   HostConfig: { PortBindings: portBindings },
 });
-
-Deno.test(
-  'findContainer - a port published on several host addresses is listed once',
-  opts,
-  async () => {
-    const { engine, client, close } = await startEngine();
-    engine.inspect = inspectWith({
-      '5001/tcp': [
-        { HostIp: '127.0.0.1', HostPort: '5001' },
-        { HostIp: '::1', HostPort: '5001' },
-        { HostIp: '172.18.0.1', HostPort: '5001' },
-      ],
-      '8080/tcp': [{ HostIp: '127.0.0.1', HostPort: '5082' }, { HostIp: '::1', HostPort: '5082' }],
-    });
-    try {
-      assertEquals((await client.findContainer('c1'))?.ports, [
-        { container: 5001, host: 5001, protocol: 'tcp', service: 'SV Ledger API' },
-        { container: 8080, host: 5082, protocol: 'tcp', service: undefined },
-      ]);
-    } finally {
-      await close();
-    }
-  },
-);
 
 Deno.test(
   'findContainer - a port published on every interface reads back as one entry',

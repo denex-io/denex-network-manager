@@ -77,17 +77,14 @@ export class DockerClient {
   }
 
   async createContainer(spec: ContainerSpec): Promise<string> {
-    const portBindings: Record<string, Array<{ HostIp?: string; HostPort: string }>> = {};
+    const portBindings: Record<string, Array<{ HostPort: string }>> = {};
     const exposedPorts: Record<string, object> = {};
 
     for (const port of spec.ports ?? []) {
       const key = `${port.container}/${port.protocol ?? 'tcp'}`;
       exposedPorts[key] = {};
       if (port.host !== undefined) {
-        const HostPort = String(port.host);
-        portBindings[key] = spec.hostIps
-          ? spec.hostIps.map((HostIp) => ({ HostIp, HostPort }))
-          : [{ HostPort }];
+        portBindings[key] = [{ HostPort: String(port.host) }];
       }
     }
 
@@ -231,9 +228,7 @@ export class DockerClient {
     for (const [key, bindings] of Object.entries(portBindings)) {
       if (!bindings) continue;
       const [portStr, protocol] = key.split('/');
-      // With hostBindIp set, a port has one binding per host address; list each host port once.
-      const hostPorts = new Set((bindings as Array<{ HostPort: string }>).map((b) => b.HostPort));
-      for (const binding of [...hostPorts].map((HostPort) => ({ HostPort }))) {
+      for (const binding of bindings as Array<{ HostPort: string }>) {
         const hostPort = parseInt(binding.HostPort);
         const serviceLabel = labels[`${this.labelPrefix}.port.${hostPort}.service`];
         ports.push({

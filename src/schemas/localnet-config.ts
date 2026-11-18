@@ -1,5 +1,4 @@
 import { z } from 'zod';
-import { isIPv4, isIPv6 } from 'node:net';
 import {
   CONFIG_DEFAULTS,
   getRealmName,
@@ -129,8 +128,6 @@ function makeSchemas<M extends 'strict' | 'strip'>(mode: M) {
       /^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$/,
       'spliceVersion must be a valid Docker image tag (for example "0.9.0")',
     ).optional(),
-    // Any string here, so stored labels keep parsing; input rules check the address.
-    hostBindIp: z.string().optional(),
   });
 
   return {
@@ -262,32 +259,8 @@ function isSpliceReleaseBefore(version: string, major: number, minor: number): b
  * release before 0.9. Also `packages[].uploadTo`: when present it must be non-empty and name only
  * `sv` or configured validators.
  */
-/** Why a `hostBindIp` value is refused, or `undefined` if it is usable. */
-function hostBindIpProblem(ip: string): string | undefined {
-  const unset = 'leave hostBindIp unset to publish on every interface';
-  if (isIPv6(ip)) {
-    return `hostBindIp must be an IPv4 address; '${ip}' is IPv6 (ports are already published ` +
-      `on [::1] whenever hostBindIp is set). Use an IPv4 address, or ${unset}`;
-  }
-  if (!isIPv4(ip)) {
-    return `hostBindIp must be an IPv4 address such as 127.0.0.1; got '${ip}'. ` +
-      `Use an IPv4 address, or ${unset}`;
-  }
-  if (ip === '0.0.0.0') return `hostBindIp 0.0.0.0 means every interface: ${unset}`;
-  if (ip.startsWith('127.') && ip !== '127.0.0.1') {
-    return `hostBindIp ${ip} is a loopback address other than 127.0.0.1; use 127.0.0.1`;
-  }
-  return undefined;
-}
-
 function checkConfigInvariants(parsed: ParsedLocalNetConfig): z.ZodIssue[] {
   const issues: z.ZodIssue[] = [];
-  if (parsed.hostBindIp !== undefined) {
-    const problem = hostBindIpProblem(parsed.hostBindIp);
-    if (problem) {
-      issues.push({ code: z.ZodIssueCode.custom, path: ['hostBindIp'], message: problem });
-    }
-  }
   const count = typeof parsed.validators === 'number'
     ? parsed.validators
     : parsed.validators.length;
@@ -522,6 +495,5 @@ export function withDefaults(
     discovery: config.discovery,
     basePort,
     ...(config.spliceVersion === undefined ? {} : { spliceVersion: config.spliceVersion }),
-    ...(config.hostBindIp === undefined ? {} : { hostBindIp: config.hostBindIp }),
   }, options);
 }
