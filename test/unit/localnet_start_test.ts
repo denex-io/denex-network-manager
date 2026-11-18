@@ -1,6 +1,11 @@
 import { assert, assertEquals, assertRejects, assertStringIncludes } from '@std/assert';
 import { LocalNet, type LocalNetOptions } from '../../src/localnet.ts';
-import { HostBindError, InstanceMismatchError, LocalNetError } from '../../src/errors.ts';
+import {
+  ContainerStartupError,
+  HostBindError,
+  InstanceMismatchError,
+  LocalNetError,
+} from '../../src/errors.ts';
 import type { LocalNetWarning } from '../../src/types/state.ts';
 import type { LocalNetConfig } from '../../src/types/config.ts';
 import { NetworkManager } from '../../src/docker/network.ts';
@@ -59,6 +64,8 @@ class FakeDockerClient {
   specImages = new Map<string, string>();
   /** What listContainers reports as these containers' image (an ID once a tag moves). */
   listedImage = new Map<string, string>();
+  /** Docker health of these running containers; others report healthy. */
+  healthOf = new Map<string, 'starting' | 'unhealthy'>();
   networkExists = false;
   volumeExists = false;
   failStart = new Set<string>();
@@ -113,7 +120,7 @@ class FakeDockerClient {
       status: c.state,
       image: (listed ? this.listedImage.get(name) : undefined) ?? c.image ?? 'img',
       ports: [],
-      health: c.state === 'running' ? 'healthy' : 'none',
+      health: c.state === 'running' ? (this.healthOf.get(name) ?? 'healthy') : 'none',
       labels: {
         [`${this.labelPrefix}.instance`]: ID,
         [`${this.labelPrefix}.config`]: this.configJson,
@@ -147,12 +154,41 @@ class FakeDockerClient {
     return this.getContainerInfo(idOrName);
   }
 
-  imageExists(): Promise<boolean> {
-    return Promise.resolve(true);
+  /** Log text per container name; getContainerLogs applies `tail` like the daemon does. */
+  logs = new Map<string, string>();
+  /** getContainerLogs for these names rejects with this error. */
+  logsError = new Map<string, Error>();
+  /** imageExists is false for these images; pullImage then takes pullDelayMs. */
+  missingImages = new Set<string>();
+  pullDelayMs = 0;
+
+  getContainerLogs(
+    idOrName: string,
+    options?: { tail?: number },
+  ): Promise<ReadableStream<Uint8Array>> {
+    this.calls.push(`logs:${idOrName}`);
+    const name = this.find(idOrName)?.name ?? idOrName;
+    const err = this.logsError.get(name);
+    if (err) return Promise.reject(err);
+    const lines = (this.logs.get(name) ?? '').split('\n').filter((l) => l !== '');
+    const text = lines.slice(options?.tail ? -options.tail : 0).map((l) => `${l}\n`).join('');
+    return Promise.resolve(
+      new ReadableStream({
+        start(c) {
+          c.enqueue(new TextEncoder().encode(text));
+          c.close();
+        },
+      }),
+    );
   }
 
-  pullImage(): Promise<void> {
-    return Promise.resolve();
+  imageExists(image: string): Promise<boolean> {
+    return Promise.resolve(!this.missingImages.has(image));
+  }
+
+  async pullImage(image: string): Promise<void> {
+    this.calls.push(`pullImage:${image}`);
+    await new Promise((r) => setTimeout(r, this.pullDelayMs));
   }
 
   async createContainer(spec: ContainerSpec): Promise<string> {
@@ -572,6 +608,76 @@ Deno.test('start - a transient inspect error surfaces as itself, not as a mismat
     const err = await assertRejects(() => net.start(START), Error, 'socket hang up');
     assert(!(err instanceof InstanceMismatchError));
     assertEquals(fake.mutations, []);
+  });
+});
+
+// With health checks on (the dying container must be waited for).
+const START_CHECKED = { skipInitialization: true } as const;
+
+Deno.test('start - a container that dies during startup fails with its last 20 log lines, read before rollback', async () => {
+  await withFakeNet(async (net, fake) => {
+    fake.exitsAfterStart.add(`${ID}-splice`);
+    fake.logs.set(
+      `${ID}-splice`,
+      [...Array.from({ length: 30 }, (_, i) => `line ${i + 1}`), 'GENERIC_CONFIG_ERROR(8,0)'].join(
+        '\n',
+      ),
+    );
+    const err = await assertRejects(() => net.start(START_CHECKED), ContainerStartupError);
+    assertEquals(err.container, `${ID}-splice`);
+    assertEquals(err.state, 'exited');
+    assertEquals(err.logTail.length, 20);
+    assertEquals(err.logTail[0], 'line 12');
+    assertEquals(err.logTail.at(-1), 'GENERIC_CONFIG_ERROR(8,0)');
+    assertStringIncludes(err.message, `${ID}-splice stopped unexpectedly (state: exited)`);
+    assertStringIncludes(err.message, 'GENERIC_CONFIG_ERROR(8,0)');
+    const read = fake.calls.indexOf(`logs:new-${ID}-splice`);
+    const removed = fake.calls.indexOf(`removeContainer:new-${ID}-splice`);
+    assert(read >= 0 && removed > read, 'logs are read before rollback removes the container');
+  });
+});
+
+Deno.test('start - a running container that never turns healthy fails with its last log lines', async () => {
+  await withFakeNet(async (net, fake) => {
+    fake.healthOf.set(`${ID}-canton`, 'starting');
+    fake.logs.set(`${ID}-canton`, 'DbMigrations: still migrating\nnot ready yet');
+    Reflect.set(net, 'healthPollMs', 1);
+    const err = await assertRejects(() => net.start(START_CHECKED), ContainerStartupError);
+    assertEquals(err.container, `${ID}-canton`);
+    assertEquals(err.state, 'running');
+    assertEquals(err.logTail, ['DbMigrations: still migrating', 'not ready yet']);
+    assertStringIncludes(err.message, 'did not become healthy in time');
+    const read = fake.calls.indexOf(`logs:new-${ID}-canton`);
+    const removed = fake.calls.indexOf(`removeContainer:new-${ID}-canton`);
+    assert(read >= 0 && removed > read, 'logs are read before rollback removes the container');
+  });
+});
+
+Deno.test('start - a startup failure whose logs cannot be read says so and still fails typed', async () => {
+  await withFakeNet(async (net, fake) => {
+    fake.exitsAfterStart.add(`${ID}-splice`);
+    fake.logsError.set(`${ID}-splice`, new Error('socket hang up'));
+    const err = await assertRejects(() => net.start(START_CHECKED), ContainerStartupError);
+    assertEquals(err.logTail, []);
+    assertStringIncludes(err.message, 'logs could not be read: socket hang up');
+  });
+});
+
+Deno.test('start - an image pull reports progress with elapsed time while it waits', async () => {
+  const messages: string[] = [];
+  await withFakeNet(async (net, fake) => {
+    const image = fake.specImages.get(`${ID}-postgres`)!;
+    fake.missingImages.add(image);
+    fake.pullDelayMs = 120;
+    Reflect.set(net, 'pullProgressIntervalMs', 30);
+    await net.start({ ...START, onProgress: (m) => messages.push(m) });
+    assertEquals(messages.filter((m) => m === `Pulling ${image}...`).length, 1);
+    const waiting = messages.filter((m) => new RegExp(`^Pulling ${image}\\.\\.\\. \\d+s$`).test(m));
+    assert(waiting.length >= 2, `elapsed lines while pulling: ${JSON.stringify(messages)}`);
+    assertEquals(
+      messages.filter((m) => new RegExp(`^Pulled ${image} \\(\\d+s\\)$`).test(m)).length,
+      1,
+    );
   });
 });
 

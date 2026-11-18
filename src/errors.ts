@@ -68,3 +68,21 @@ export class HostBindError extends LocalNetError {
     super(message, options);
   }
 }
+
+/**
+ * A container stopped, turned unhealthy or never became healthy while `start()` waited for it.
+ * Carries the container's last log lines, read before the failed start is rolled back (which
+ * removes containers that start created, and their logs with them).
+ */
+export class ContainerStartupError extends LocalNetError {
+  constructor(
+    readonly container: string,
+    /** Docker state when the wait gave up, e.g. `exited`, `restarting`, `running`. */
+    readonly state: string,
+    /** Up to the last 20 log lines; empty if the logs could not be read (the message says why). */
+    readonly logTail: readonly string[],
+    message: string,
+  ) {
+    super(message);
+  }
+}

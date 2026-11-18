@@ -10,9 +10,12 @@ All notable changes to this project will be documented in this file. The format 
 - Splice 0.10.2 support. `spliceVersion: '0.10.2'` generates the Splice 0.10 config shape: each
   Splice app's participant Admin API client is a `client-config` plus an `auth-config`, which 0.10
   requires. The tested releases are 0.9.4 and 0.10.2.
-- Typed errors: `LocalNetError` (base), `InstanceMismatchError`, `SpliceVersionConflictError` and
-  `HostBindError`, exported from the package root and `/sdk`, so callers can tell these failures
-  apart with `instanceof`.
+- Typed errors: `LocalNetError` (base), `InstanceMismatchError`, `SpliceVersionConflictError`,
+  `HostBindError` and `ContainerStartupError`, exported from the package root and `/sdk`, so callers
+  can tell these failures apart with `instanceof`.
+- Image pulls report progress: `Pulling <image>...`, then the elapsed time every 10 seconds, then
+  `Pulled <image> (<n>s)`. A cold start used to print nothing for minutes during the splice-app
+  pull.
 - `LocalNetWarning.source` can be `'instance'`: an existing instance resumes as it was created
   although it differs from the current config and options (for example another image).
 - `hostBindIp` (config key, `LocalNetBuilder.withHostBindIp()`) keeps LocalNet ports off the LAN.
@@ -38,7 +41,10 @@ All notable changes to this project will be documented in this file. The format 
   config shape differs from the config's release (0.10.x vs earlier) throw
   `SpliceVersionConflictError` when the handle is created. Set `spliceVersion` to that release.
   Same-shape overrides (for example 0.7.0 images with the 0.9.4 default) are unchanged.
-
+- A container that stops, turns unhealthy or never becomes healthy during `start()` fails it with
+  `ContainerStartupError`, which carries the container's last 20 log lines. They are read before the
+  failed start is rolled back; before, the rollback removed the container and its logs, and the
+  message said only "stopped unexpectedly". The message still starts with the same text.
 - The bundled default stays Splice 0.9.4. Splice 0.10 moves to Canton 3.7 and protocol version 37
   (per its release notes), where `GenerateExternalPartyTopology` returns v31 topology transactions
   unless the request pins protocol version 36, which changes external-party onboarding for SDK

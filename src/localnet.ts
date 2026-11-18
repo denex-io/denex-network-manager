@@ -36,7 +36,15 @@ import {
 } from './generator/mod.ts';
 import { getSvInternalPorts, getSvPorts, getValidatorPorts } from './utils/ports.ts';
 import { assertImagesMatchSpliceVersion, resolveSpliceVersion } from './utils/splice-version.ts';
-import { HostBindError, type InstanceDifference, InstanceMismatchError } from './errors.ts';
+import {
+  ContainerStartupError,
+  HostBindError,
+  type InstanceDifference,
+  InstanceMismatchError,
+} from './errors.ts';
+
+/** How many of a failed container's last log lines a {@link ContainerStartupError} carries. */
+const STARTUP_LOG_LINES = 20;
 import { loadConfigFile } from './utils/yaml.ts';
 import { buildConfigEnvironmentInfo } from './utils/env-info.ts';
 import { type CredentialInfo, getCredentials as getCredentialsList } from './utils/credentials.ts';
@@ -285,6 +293,10 @@ export class LocalNet {
   private keycloakAdminClient: KeycloakAdminClient | null = null;
   private apiCache: Map<string, CacheEntry<unknown>> = new Map();
   private cacheTtlMs = 30_000;
+  /** How often a running image pull reports its elapsed time. */
+  private pullProgressIntervalMs = 10_000;
+  /** Health poll delay; undefined derives it from the health check. Tests shorten it. */
+  private healthPollMs: number | undefined = undefined;
   private baseHost = 'localhost';
   private attachedToRunning = false;
   /**
@@ -2276,32 +2288,85 @@ export class LocalNet {
     const startPeriod = healthConfig?.startPeriod ?? 30;
 
     const maxRetries = Math.max(configRetries * 2, 60);
-    const retryDelay = Math.max(configInterval * 1000, 2000);
+    const retryDelay = this.healthPollMs ?? Math.max(configInterval * 1000, 2000);
     const minRetriesBeforeUnhealthyFail = Math.ceil(startPeriod / (retryDelay / 1000));
 
+    let state = 'unknown';
     for (let i = 0; i < maxRetries; i++) {
       const info = await this.client.getContainerInfo(containerId);
+      state = info?.state ?? 'missing';
       if (info?.health === 'healthy') {
         return;
       }
       if (info?.health === 'unhealthy' && i >= minRetriesBeforeUnhealthyFail) {
-        throw new Error(`Container ${containerName} is unhealthy`);
+        throw await this.startupError(containerId, containerName, state, 'is unhealthy');
       }
       if (info?.state !== 'running') {
-        throw new Error(`Container ${containerName} stopped unexpectedly (state: ${info?.state})`);
+        throw await this.startupError(
+          containerId,
+          containerName,
+          state,
+          `stopped unexpectedly (state: ${state})`,
+        );
       }
       await new Promise((resolve) => setTimeout(resolve, retryDelay));
     }
 
-    throw new Error(`Container ${containerName} did not become healthy in time`);
+    throw await this.startupError(
+      containerId,
+      containerName,
+      state,
+      'did not become healthy in time',
+    );
+  }
+
+  /**
+   * The error for a container that failed to come up, with its last log lines. Read here because
+   * a failed fresh start removes the containers it created, and their logs with them.
+   */
+  private async startupError(
+    containerId: string,
+    containerName: string,
+    state: string,
+    what: string,
+  ): Promise<ContainerStartupError> {
+    let tail: string[] = [];
+    let note: string;
+    try {
+      const stream = await this.client.getContainerLogs(containerId, {
+        tail: STARTUP_LOG_LINES,
+      });
+      tail = (await new Response(stream).text()).split('\n').filter((l) => l.trim() !== '')
+        .slice(-STARTUP_LOG_LINES);
+      note = tail.length > 0
+        ? `Its last ${tail.length} log lines:\n${tail.map((l) => `  ${l}`).join('\n')}`
+        : 'It wrote no log lines.';
+    } catch (err) {
+      note = `Its logs could not be read: ${err instanceof Error ? err.message : String(err)}`;
+    }
+    return new ContainerStartupError(
+      containerName,
+      state,
+      tail,
+      `Container ${containerName} ${what}. ${note}`,
+    );
   }
 
   private async pullImageIfNeeded(image: string, progress?: (msg: string) => void): Promise<void> {
-    const exists = await this.client.imageExists(image);
-    if (!exists) {
-      progress?.(`Pulling ${image}...`);
+    if (await this.client.imageExists(image)) return;
+    const started = Date.now();
+    const elapsed = () => `${Math.round((Date.now() - started) / 1000)}s`;
+    progress?.(`Pulling ${image}...`);
+    const timer = setInterval(
+      () => progress?.(`Pulling ${image}... ${elapsed()}`),
+      this.pullProgressIntervalMs,
+    );
+    try {
       await this.client.pullImage(image);
+    } finally {
+      clearInterval(timer);
     }
+    progress?.(`Pulled ${image} (${elapsed()})`);
   }
 
   private async waitForApisReady(onProgress?: (msg: string) => void): Promise<void> {
