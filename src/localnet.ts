@@ -35,6 +35,8 @@ import {
   generateFullSpliceConfig,
 } from './generator/mod.ts';
 import { getSvInternalPorts, getSvPorts, getValidatorPorts } from './utils/ports.ts';
+import { assertImagesMatchSpliceVersion, resolveSpliceVersion } from './utils/splice-version.ts';
+import { type InstanceDifference, InstanceMismatchError } from './errors.ts';
 import { loadConfigFile } from './utils/yaml.ts';
 import { buildConfigEnvironmentInfo } from './utils/env-info.ts';
 import { type CredentialInfo, getCredentials as getCredentialsList } from './utils/credentials.ts';
@@ -312,6 +314,11 @@ export class LocalNet {
       });
       this.configWarnings = warnings;
     }
+    assertImagesMatchSpliceVersion(
+      resolveSpliceVersion(this.config),
+      options?.images,
+      this.config.spliceVersion === undefined ? 'the default' : 'spliceVersion',
+    );
     const instanceId = options?.instanceId ?? DEFAULT_INSTANCE_ID;
     const labelPrefix = options?.labelPrefix ?? DEFAULT_LABEL_PREFIX;
     this.options = {
@@ -616,7 +623,14 @@ export class LocalNet {
 
     const mismatch = await this.detectConfigMismatch();
     if (mismatch.hasMismatch) {
-      throw new Error(
+      throw new InstanceMismatchError(
+        this.options.instanceId,
+        [{
+          container: '*',
+          field: 'config',
+          expected: 'the config of this handle',
+          actual: 'the config stored on the instance',
+        }],
         mismatch.message ||
           `Instance '${this.options.instanceId}' is already running with a different config. ` +
             `Stop and destroy first, or use a different instanceId.`,
@@ -626,7 +640,8 @@ export class LocalNet {
     const existing = await this.client.listContainers({
       [`${this.options.labelPrefix}.instance`]: this.options.instanceId,
     });
-    const expectedNames = this.buildContainerSpecs(EMPTY_GENERATED_CONFIGS).map((s) => s.name);
+    const specs = this.buildContainerSpecs(EMPTY_GENERATED_CONFIGS);
+    const expectedNames = specs.map((s) => s.name);
     const byName = new Map(existing.map((c) => [c.name, c]));
     const present = expectedNames.flatMap((n) => byName.get(n) ?? []);
 
@@ -646,6 +661,34 @@ export class LocalNet {
             `('${c.name}' created ${age}s ago); if none is, retry in a minute.`,
         );
       }
+    }
+
+    // Existing containers keep the image they were created with. Creating the missing ones from
+    // this handle's images next to them would mix releases, so a repair refuses; a complete
+    // instance resumes as it was created.
+    const differences = await this.diffExistingContainers(present, specs);
+    if (differences.length > 0) {
+      const missing = expectedNames.filter((n) => !byName.has(n));
+      const lines = differences.map((d) =>
+        `  ${d.container}: has ${d.actual}, expected ${d.expected}`
+      );
+      if (missing.length > 0) {
+        throw new InstanceMismatchError(
+          this.options.instanceId,
+          differences,
+          `Instance '${this.options.instanceId}' cannot be repaired: ${missing.join(', ')} ` +
+            `would be created next to containers that differ from this config and options:\n` +
+            `${lines.join('\n')}\n` +
+            `Destroy the instance and start it again (its ledger state is lost), or start it ` +
+            `with the spliceVersion and images it was created with.`,
+        );
+      }
+      this.options.onWarning({
+        source: 'instance',
+        message: `Instance '${this.options.instanceId}' resumes as it was created, which differs ` +
+          `from this config and options:\n${lines.join('\n')}\n` +
+          `Destroy it and start again to apply them.`,
+      });
     }
 
     const running = present.filter((c) => c.state === 'running');
@@ -951,6 +994,33 @@ export class LocalNet {
       network: network ?? undefined,
       startedAt: this.startedAt,
     };
+  }
+
+  /** Each existing container whose image differs from what this handle would create. */
+  private async diffExistingContainers(
+    present: ContainerInfo[],
+    specs: ContainerSpec[],
+  ): Promise<InstanceDifference[]> {
+    const specByName = new Map(specs.map((s) => [s.name, s]));
+    // A listed image equal to the expected reference is trusted: Docker lists the reference only
+    // while the tag still points at the container's image. Once the tag moves (say `postgres:18`
+    // pulled again) it lists the image ID instead, so any other listed value is confirmed by
+    // inspect, whose Config.Image keeps the reference. Comparing references cannot see a custom
+    // tag whose content changed underneath; Splice release tags do not move, which is what this
+    // guard is for.
+    const suspects = present.filter((c) => {
+      const spec = specByName.get(c.name);
+      return spec !== undefined && c.image !== spec.image;
+    });
+    const inspected = await Promise.all(suspects.map((c) => this.client.findContainer(c.id)));
+    const differences: InstanceDifference[] = [];
+    suspects.forEach((c, i) => {
+      const expected = specByName.get(c.name)!.image;
+      const info = inspected[i];
+      if (!info || info.image === expected) return;
+      differences.push({ container: c.name, field: 'image', expected, actual: info.image });
+    });
+    return differences;
   }
 
   /**

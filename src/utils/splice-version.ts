@@ -1,3 +1,5 @@
+import { SpliceVersionConflictError } from '../errors.ts';
+
 /**
  * The Splice release a LocalNet runs when its config sets no `spliceVersion`. It stays 0.9.4 while
  * 0.10.x founds the synchronizer on protocol version 37, which changes the topology transactions
@@ -41,4 +43,36 @@ export function isSpliceReleaseBefore(version: string, major: number, minor: num
  */
 export function usesSplice010Config(version: string): boolean {
   return !isSpliceReleaseBefore(version, 0, 10);
+}
+
+/** The tag of an image reference (`[registry/]repo:tag[@digest]`), or `undefined` if it has none. */
+export function imageTag(image: string): string | undefined {
+  const ref = image.split('@')[0];
+  const colon = ref.lastIndexOf(':');
+  return colon > ref.lastIndexOf('/') ? ref.slice(colon + 1) : undefined;
+}
+
+/**
+ * Throws if an explicit canton or splice image carries a Splice release tag whose config shape
+ * differs from `spliceVersion`'s: dnm generates the config for `spliceVersion`, and the image
+ * would not load it. Images without a release tag (custom builds) are not checked.
+ */
+export function assertImagesMatchSpliceVersion(
+  spliceVersion: string,
+  images: { canton?: string; splice?: string } | undefined,
+  versionSource: string,
+): void {
+  for (const key of ['canton', 'splice'] as const) {
+    const image = images?.[key];
+    const tag = image === undefined ? undefined : imageTag(image);
+    if (image === undefined || tag === undefined || !parseSpliceRelease(tag)) continue;
+    if (usesSplice010Config(tag) === usesSplice010Config(spliceVersion)) continue;
+    throw new SpliceVersionConflictError(
+      spliceVersion,
+      image,
+      `images.${key} is ${image} (Splice ${tag}), but the generated config is for Splice ` +
+        `${spliceVersion} (${versionSource}), and Splice 0.10 changed the config shape. ` +
+        `Set spliceVersion: '${tag}' to run that release.`,
+    );
+  }
 }

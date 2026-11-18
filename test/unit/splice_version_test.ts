@@ -1,6 +1,7 @@
 // Version selection: which Splice release a config resolves to, which images that pulls, and which
 // config shape is generated for it. Every tested release is checked the same way.
-import { assertEquals, assertFalse } from '@std/assert';
+import { assertEquals, assertFalse, assertStringIncludes, assertThrows } from '@std/assert';
+import { SpliceVersionConflictError } from '../../src/errors.ts';
 import type { LocalNetConfig } from '../../src/types/config.ts';
 import { generateFullCantonConfig, generateFullSpliceConfig } from '../../src/generator/mod.ts';
 import { DEFAULT_SPLICE_VERSION } from '../../src/docker/containers.ts';
@@ -85,6 +86,37 @@ Deno.test('splice version 0.10.2 - participant Admin API clients are client-conf
     assertEquals(flat.get(`${api}.client-config.port`), port);
     assertEquals(flat.get(`${api}.auth-config.type`), '"none"');
   }
+});
+
+Deno.test('splice version family check - images on another config shape than the config are refused', () => {
+  const cases: Array<[string | undefined, Partial<Record<'canton' | 'splice', string>>]> = [
+    [undefined, { splice: `${SPLICE_REPO}/splice-app:0.10.2` }],
+    ['0.9.4', { canton: `${SPLICE_REPO}/canton:0.10.2` }],
+    ['0.10.2', {
+      canton: `${SPLICE_REPO}/canton:0.9.4`,
+      splice: `${SPLICE_REPO}/splice-app:0.9.4`,
+    }],
+    ['0.10.2', { splice: `registry.local:5000/splice-app:0.7.0@sha256:${'a'.repeat(64)}` }],
+  ];
+  for (const [spliceVersion, images] of cases) {
+    const err = assertThrows(
+      () => new LocalNet(config(spliceVersion), { images }),
+      SpliceVersionConflictError,
+    );
+    assertStringIncludes(err.message, 'spliceVersion');
+    assertEquals(err.spliceVersion, spliceVersion ?? DEFAULT_SPLICE_VERSION);
+  }
+});
+
+Deno.test('splice version family check - same-shape and custom-tag overrides are allowed', () => {
+  // sec-lending2's pattern: canton + splice-app at 0.7.0 with the default (0.9.4) config shape.
+  new LocalNet(config(), {
+    images: { canton: `${SPLICE_REPO}/canton:0.7.0`, splice: `${SPLICE_REPO}/splice-app:0.7.0` },
+  });
+  new LocalNet(config('0.10.2'), { images: { splice: `${SPLICE_REPO}/splice-app:0.10.1` } });
+  new LocalNet(config('0.10.2'), { images: { splice: 'my-registry/splice-app:custom-build' } });
+  new LocalNet(config(), { images: { splice: 'my-registry/splice-app' } });
+  new LocalNet(config('0.10.2'), { images: { walletWebUi: `${SPLICE_REPO}/wallet-web-ui:0.9.4` } });
 });
 
 for (const version of [undefined, '0.9.4']) {

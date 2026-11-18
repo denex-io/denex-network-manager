@@ -472,10 +472,21 @@ function makeNetWithFakeDocker(instanceId: string, allExpected = false) {
         'denex.localnet.config': JSON.stringify(parseLocalNetConfig(net.getConfig())),
       };
       const suffixes = allExpected ? ALL_CONTAINER_SUFFIXES : ['splice', 'postgres'];
+      // Docker's list always reports an image; these run the ones the handle would create.
+      const images = new Map(
+        Reflect.get(net, 'buildContainerSpecs').call(net, {
+          cantonConfig: '',
+          spliceConfig: '',
+          nginxConfig: '',
+          postgresInitScript: '',
+          keycloakRealms: {},
+        }).map((s: { name: string; image: string }) => [s.name, s.image]),
+      );
       const all = suffixes.map((s) => ({
         id: `id-${s}`,
         name: `${instanceId}-${s}`,
         state: 'running',
+        image: images.get(`${instanceId}-${s}`),
         labels: configLabels,
       }));
       // Honour the instance filter; an unfiltered call also sees another instance.

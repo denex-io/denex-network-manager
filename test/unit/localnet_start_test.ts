@@ -1,5 +1,7 @@
-import { assert, assertEquals, assertRejects } from '@std/assert';
+import { assert, assertEquals, assertRejects, assertStringIncludes } from '@std/assert';
 import { LocalNet, type LocalNetOptions } from '../../src/localnet.ts';
+import { InstanceMismatchError } from '../../src/errors.ts';
+import type { LocalNetWarning } from '../../src/types/state.ts';
 import type { LocalNetConfig } from '../../src/types/config.ts';
 import { NetworkManager } from '../../src/docker/network.ts';
 import type { DockerClient } from '../../src/docker/client.ts';
@@ -49,7 +51,14 @@ type FakeState = 'running' | 'exited' | 'created' | 'paused' | 'restarting';
 /** Records every Docker call; only the methods start() touches are implemented. */
 class FakeDockerClient {
   calls: string[] = [];
-  containers = new Map<string, { id: string; state: FakeState; created?: number }>();
+  containers = new Map<
+    string,
+    { id: string; state: FakeState; created?: number; image?: string }
+  >();
+  /** The image each container would be created with; seeded containers default to it. */
+  specImages = new Map<string, string>();
+  /** What listContainers reports as these containers' image (an ID once a tag moves). */
+  listedImage = new Map<string, string>();
   networkExists = false;
   volumeExists = false;
   failStart = new Set<string>();
@@ -82,14 +91,17 @@ class FakeDockerClient {
   }
 
   seedExisting(names: string[], state: FakeState = 'exited') {
-    for (const n of names) this.containers.set(n, { id: `old-${n}`, state });
+    for (const n of names) {
+      this.containers.set(n, { id: `old-${n}`, state, image: this.specImages.get(n) });
+    }
     this.networkExists = true;
     this.volumeExists = true;
   }
 
   private info(
     name: string,
-    c: { id: string; state: FakeState; created?: number },
+    c: { id: string; state: FakeState; created?: number; image?: string },
+    listed = false,
   ): ContainerInfo {
     return {
       id: c.id,
@@ -97,7 +109,7 @@ class FakeDockerClient {
       name,
       state: c.state,
       status: c.state,
-      image: 'img',
+      image: (listed ? this.listedImage.get(name) : undefined) ?? c.image ?? 'img',
       ports: [],
       health: c.state === 'running' ? 'healthy' : 'none',
       labels: {
@@ -119,7 +131,7 @@ class FakeDockerClient {
   }
 
   listContainers(): Promise<ContainerInfo[]> {
-    return Promise.resolve([...this.containers].map(([n, c]) => this.info(n, c)));
+    return Promise.resolve([...this.containers].map(([n, c]) => this.info(n, c, true)));
   }
 
   getContainerInfo(idOrName: string): Promise<ContainerInfo | null> {
@@ -149,7 +161,7 @@ class FakeDockerClient {
       throw Object.assign(new Error('name conflict'), { statusCode: 409 });
     }
     const id = `new-${spec.name}`;
-    this.containers.set(spec.name, { id, state: 'exited' });
+    this.containers.set(spec.name, { id, state: 'exited', image: spec.image });
     this.calls.push(`createContainer:${spec.name}`);
     return id;
   }
@@ -251,6 +263,15 @@ async function withFakeNet(
     const prefix = net.getOptions().labelPrefix;
     const fake = new FakeDockerClient(prefix);
     fake.setConfig(JSON.stringify(parseLocalNetConfig(net.getConfig())));
+    const emptyConfigs = {
+      cantonConfig: '',
+      spliceConfig: '',
+      nginxConfig: '',
+      postgresInitScript: '',
+      keycloakRealms: {},
+    };
+    const specs: ContainerSpec[] = Reflect.get(net, 'buildContainerSpecs').call(net, emptyConfigs);
+    for (const s of specs) fake.specImages.set(s.name, s.image);
     const client = fake as unknown as DockerClient;
     Reflect.set(net, 'client', client);
     Reflect.set(net, 'networkManager', new NetworkManager(client, { prefix }));
@@ -477,6 +498,84 @@ Deno.test('start repair - a web UI exited: only that UI and nginx are started', 
     assertEquals(fake.mutations.filter((m) => m.startsWith('stopContainer:')), [
       `stopContainer:old-${ID}-nginx`,
     ]);
+  });
+});
+
+Deno.test('start repair - a missing container next to one on another image is refused, nothing changes', async () => {
+  await withFakeNet(async (net, fake) => {
+    fake.seedExisting(ALL_BUT(`${ID}-splice`), 'running');
+    const old = 'ghcr.io/digital-asset/decentralized-canton-sync/docker/canton:0.9.3';
+    fake.containers.get(`${ID}-canton`)!.image = old;
+    const err = await assertRejects(() => net.start(START), InstanceMismatchError);
+    assertEquals(fake.mutations, []);
+    assertEquals(err.instanceId, ID);
+    assertEquals(err.differences, [{
+      container: `${ID}-canton`,
+      field: 'image',
+      expected: fake.specImages.get(`${ID}-canton`)!,
+      actual: old,
+    }]);
+    assertStringIncludes(err.message, `${ID}-splice`);
+    assertStringIncludes(err.message, 'Destroy the instance');
+  });
+});
+
+Deno.test('start resume - a complete instance on another image resumes as created, with a warning', async () => {
+  const warnings: LocalNetWarning[] = [];
+  await withFakeNet(
+    async (net, fake) => {
+      fake.seedExisting(ALL_NAMES);
+      fake.containers.get(`${ID}-splice`)!.image = 'example/splice-app:0.9.3';
+      await net.start(START);
+      assertEquals(fake.mutations.filter((m) => m.startsWith('createContainer')), []);
+      const instance = warnings.filter((w) => w.source === 'instance');
+      assertEquals(instance.length, 1);
+      assertStringIncludes(instance[0].message, `${ID}-splice`);
+      assertStringIncludes(instance[0].message, 'example/splice-app:0.9.3');
+    },
+    undefined,
+    { onWarning: (w) => warnings.push(w) },
+  );
+});
+
+Deno.test('start - existing containers whose listed image matches are not inspected', async () => {
+  await withFakeNet(async (net, fake) => {
+    fake.seedExisting(ALL_NAMES, 'running');
+    for (const n of ALL_NAMES) fake.inspectError.set(`old-${n}`, new Error('must not inspect'));
+    await net.start(START);
+    assertEquals(net.currentState, 'running');
+  });
+});
+
+Deno.test('start - a listed image ID is resolved by inspect, not reported as a mismatch', async () => {
+  await withFakeNet(async (net, fake) => {
+    // After a tag moves, the list API shows the image ID; inspect keeps the reference.
+    fake.seedExisting(ALL_NAMES, 'running');
+    fake.listedImage.set(`${ID}-postgres`, '98f8ec75657d');
+    await net.start(START);
+    assertEquals(net.currentState, 'running');
+  });
+});
+
+Deno.test('start - a transient inspect error surfaces as itself, not as a mismatch', async () => {
+  await withFakeNet(async (net, fake) => {
+    fake.seedExisting(ALL_NAMES, 'running');
+    fake.listedImage.set(`${ID}-postgres`, '98f8ec75657d');
+    fake.inspectError.set(`old-${ID}-postgres`, new Error('socket hang up'));
+    const err = await assertRejects(() => net.start(START), Error, 'socket hang up');
+    assert(!(err instanceof InstanceMismatchError));
+    assertEquals(fake.mutations, []);
+  });
+});
+
+Deno.test('start - a stored config that differs throws InstanceMismatchError before any change', async () => {
+  await withFakeNet(async (net, fake) => {
+    fake.seedExisting(ALL_NAMES);
+    const stored = { ...parseLocalNetConfig(net.getConfig()), spliceVersion: '0.10.2' };
+    fake.setConfig(JSON.stringify(stored));
+    const err = await assertRejects(() => net.start(START), InstanceMismatchError);
+    assertEquals(err.differences.map((d) => d.field), ['config']);
+    assertEquals(fake.mutations, []);
   });
 });
 

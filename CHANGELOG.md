@@ -10,12 +10,29 @@ All notable changes to this project will be documented in this file. The format 
 - Splice 0.10.2 support. `spliceVersion: '0.10.2'` generates the Splice 0.10 config shape: each
   Splice app's participant Admin API client is a `client-config` plus an `auth-config`, which 0.10
   requires. The tested releases are 0.9.4 and 0.10.2.
+- Typed errors: `LocalNetError` (base), `InstanceMismatchError` and `SpliceVersionConflictError`,
+  exported from the package root and `/sdk`, so callers can tell these failures apart with
+  `instanceof`.
+- `LocalNetWarning.source` can be `'instance'`: an existing instance resumes as it was created
+  although it differs from the current config and options (for example another image).
 
 ### Changed
 
-- The bundled default stays Splice 0.9.4. 0.10.x founds the synchronizer on protocol version 37,
-  where `GenerateExternalPartyTopology` returns v31 topology transactions, which changes
-  external-party onboarding for SDK users.
+- **Breaking:** `start()` refuses a repair that would create missing containers next to existing
+  ones running other images (for example after a dnm upgrade changed a default, or after
+  `options.images` changed). It throws `InstanceMismatchError` before changing anything; destroy the
+  instance, or start it with the `spliceVersion` and images it was created with. Before, the repair
+  mixed releases. A complete instance still resumes as it was created, with an `'instance'` warning.
+  A config mismatch on start now throws `InstanceMismatchError` too (still an `Error`).
+- **Breaking:** `LocalNetOptions.images` that put canton or splice-app on a Splice release whose
+  config shape differs from the config's release (0.10.x vs earlier) throw
+  `SpliceVersionConflictError` when the handle is created. Set `spliceVersion` to that release.
+  Same-shape overrides (for example 0.7.0 images with the 0.9.4 default) are unchanged.
+
+- The bundled default stays Splice 0.9.4. Splice 0.10 moves to Canton 3.7 and protocol version 37
+  (per its release notes), where `GenerateExternalPartyTopology` returns v31 topology transactions
+  unless the request pins protocol version 36, which changes external-party onboarding for SDK
+  users.
 - The SV app config no longer sets `comet-bft-config`. Splice 0.10.2 removed CometBFT; at 0.9.4
   leaving it unset is the same as the `enabled = false` dnm wrote.
 

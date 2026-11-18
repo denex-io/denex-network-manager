@@ -187,6 +187,15 @@ Deno.test('SDK mod.ts exports all expected value symbols', async () => {
   assertExists(sdk.createMinimalConfig);
 });
 
+Deno.test('SDK and package root export the typed errors', async () => {
+  for (const mod of [await import('../../src/sdk/mod.ts'), await import('../../src/mod.ts')]) {
+    assertExists(mod.LocalNetError);
+    assertExists(mod.InstanceMismatchError);
+    assertExists(mod.SpliceVersionConflictError);
+    assert(new mod.InstanceMismatchError('x', [], 'm') instanceof mod.LocalNetError);
+  }
+});
+
 // --- builder validation ---
 
 Deno.test('LocalNetBuilder - withValidators(count) throws RangeError for a bad count', () => {

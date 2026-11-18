@@ -10,6 +10,12 @@
  */
 
 export { createLocalNet, LocalNet, type LocalNetOptions } from '../localnet.ts';
+export {
+  type InstanceDifference,
+  InstanceMismatchError,
+  LocalNetError,
+  SpliceVersionConflictError,
+} from '../errors.ts';
 export { LocalNetBuilder } from './builder.ts';
 export type { LocalNetBuilderConfig, UserSpec, ValidatorSpec } from './types.ts';
 export type { DiscoveredInstance } from '../api/discovery-utils.ts';
