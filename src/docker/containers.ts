@@ -8,6 +8,7 @@ import {
 } from '../types/config.ts';
 import { BOOTSTRAP_ADMIN_USERNAME } from '../generator/keycloak.ts';
 import type { PortBinding } from './types.ts';
+import { DEFAULT_SPLICE_VERSION } from '../utils/splice-version.ts';
 import {
   DEFAULT_BASE_PORT,
   getKeycloakPort,
@@ -66,7 +67,7 @@ export interface ContainerImages {
   keycloak: string;
 }
 
-export const DEFAULT_SPLICE_VERSION = '0.9.4';
+export { DEFAULT_SPLICE_VERSION };
 export const DEFAULT_SPLICE_IMAGE_REPO = 'ghcr.io/digital-asset/decentralized-canton-sync/docker';
 
 function spliceImage(name: string): string {

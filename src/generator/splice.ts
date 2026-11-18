@@ -8,6 +8,26 @@ import {
   normalizeValidators,
 } from '../types/config.ts';
 import { getSvInternalPorts, getSvPorts, getValidatorPorts } from '../utils/ports.ts';
+import {
+  DEFAULT_SPLICE_VERSION,
+  resolveSpliceVersion,
+  usesSplice010Config,
+} from '../utils/splice-version.ts';
+
+/**
+ * A Splice app's client for the participant Admin API on the `canton` container. Splice 0.10
+ * replaced `admin-api { address, port }` with `ClientConfigWithAuth`, which has no defaults: a
+ * `client-config` plus an `auth-config` (upstream LocalNet uses `type = "none"`). Each release
+ * gets only its own shape.
+ */
+function participantAdminApiClient(port: number, spliceVersion: string, indent: string): string {
+  const i = indent;
+  if (!usesSplice010Config(spliceVersion)) {
+    return `admin-api {\n${i}  address = canton\n${i}  port = ${port}\n${i}}`;
+  }
+  return `admin-api {\n${i}  client-config {\n${i}    address = canton\n${i}    port = ${port}\n` +
+    `${i}  }\n${i}  auth-config.type = "none"\n${i}}`;
+}
 
 /**
  * Generate the auth block for Splice config.
@@ -57,7 +77,7 @@ function generateRealmLedgerApiAuthConfig(
     }`;
 }
 
-export function generateSpliceBaseConfig(): string {
+export function generateSpliceBaseConfig(spliceVersion: string = DEFAULT_SPLICE_VERSION): string {
   return `_storage {
   type = postgres
   config {
@@ -105,10 +125,7 @@ _validator_backend {
     port = 5003
   }
   participant-client = {
-    admin-api = {
-      address = canton
-      port = 5002
-    }
+    ${participantAdminApiClient(5002, spliceVersion, '    ')}
     ledger-api.client-config = {
       address = canton
       port = 5001
@@ -132,6 +149,7 @@ export function generateSvSpliceConfig(
   onboardingSecrets: string[],
   authConfig: AuthConfig,
   basePort?: number,
+  spliceVersion: string = DEFAULT_SPLICE_VERSION,
 ): string {
   const svPorts = getSvPorts(basePort);
   const internal = getSvInternalPorts(basePort);
@@ -147,10 +165,7 @@ export function generateSvSpliceConfig(
   const svAuth = generateAuthBlock(authConfig, 'SV');
 
   return `_sv_participant_client {
-  admin-api {
-    address = canton
-    port = ${svPorts.adminApi}
-  }
+  ${participantAdminApiClient(svPorts.adminApi, spliceVersion, '  ')}
   ledger-api {
     client-config {
       address = canton
@@ -247,10 +262,6 @@ ${expectedOnboardings}
         address = canton
         port = ${internal.mediatorAdmin}
       }
-
-      comet-bft-config {
-        enabled = false
-      }
     }
 
     storage = \${_storage} {
@@ -304,6 +315,7 @@ export function generateValidatorSpliceConfig(
   partyHint: string,
   authConfig: AuthConfig,
   basePort?: number,
+  spliceVersion: string = DEFAULT_SPLICE_VERSION,
 ): string {
   const ports = getValidatorPorts(index, basePort);
   const participantName = name.replace(/-/g, '_');
@@ -320,10 +332,7 @@ export function generateValidatorSpliceConfig(
   const validatorAuth = generateAuthBlock(authConfig, validatorRealmName);
 
   return `_${participantName}_participant_client {
-  admin-api {
-    address = canton
-    port = ${ports.adminApi}
-  }
+  ${participantAdminApiClient(ports.adminApi, spliceVersion, '  ')}
   ledger-api {
     client-config {
       address = canton
@@ -379,6 +388,9 @@ export function generateFullSpliceConfig(
   const basePort = typeof configOrValidators === 'object' && 'validators' in configOrValidators
     ? configOrValidators.basePort
     : undefined;
+  const spliceVersion = typeof configOrValidators === 'object' && 'validators' in configOrValidators
+    ? resolveSpliceVersion(configOrValidators)
+    : DEFAULT_SPLICE_VERSION;
   if (!resolvedAuthConfig) {
     throw new Error('generateFullSpliceConfig requires auth configuration');
   }
@@ -390,9 +402,9 @@ export function generateFullSpliceConfig(
 
   const internal = getSvInternalPorts(basePort);
 
-  let config = generateSpliceBaseConfig();
+  let config = generateSpliceBaseConfig(spliceVersion);
   config += '\n';
-  config += generateSvSpliceConfig(onboardingSecrets, resolvedAuthConfig, basePort);
+  config += generateSvSpliceConfig(onboardingSecrets, resolvedAuthConfig, basePort, spliceVersion);
 
   const svAddress = `http://localhost:${internal.svAdmin}`;
   const scanAddress = `http://localhost:${internal.scanAdmin}`;
@@ -415,6 +427,7 @@ export function generateFullSpliceConfig(
       partyHint,
       resolvedAuthConfig,
       basePort,
+      spliceVersion,
     );
   }
 

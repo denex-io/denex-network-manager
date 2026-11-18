@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file. The format 
 
 ## [Unreleased]
 
+### Added
+
+- Splice 0.10.2 support. `spliceVersion: '0.10.2'` generates the Splice 0.10 config shape: each
+  Splice app's participant Admin API client is a `client-config` plus an `auth-config`, which 0.10
+  requires. The tested releases are 0.9.4 and 0.10.2.
+
+### Changed
+
+- The bundled default stays Splice 0.9.4. 0.10.x founds the synchronizer on protocol version 37,
+  where `GenerateExternalPartyTopology` returns v31 topology transactions, which changes
+  external-party onboarding for SDK users.
+- The SV app config no longer sets `comet-bft-config`. Splice 0.10.2 removed CometBFT; at 0.9.4
+  leaving it unset is the same as the `enabled = false` dnm wrote.
+
 ## [0.1.0-beta.3] — 2026-11-09
 
 ### Changed
