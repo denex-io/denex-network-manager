@@ -79,7 +79,7 @@ Deno.test({
 
     try {
       // Start LocalNet - initialization runs automatically
-      await localnet.start({ timeout: 300000 });
+      await localnet.start();
 
       // Get all parties
       const allParties = await localnet.getParties();
@@ -134,7 +134,7 @@ Deno.test({
     const localnet = new LocalNet(PARTY_ALLOCATION_CONFIG, { instanceId });
 
     try {
-      await localnet.start({ timeout: 300000 });
+      await localnet.start();
 
       // Get parties for alice
       const aliceParties = await localnet.getParties('alice');
@@ -168,7 +168,7 @@ Deno.test({
     const localnet = new LocalNet(USER_ONBOARDING_CONFIG, { instanceId });
 
     try {
-      await localnet.start({ timeout: 300000 });
+      await localnet.start();
 
       // Get users for val1
       const users = await localnet.getUsers('val1');
@@ -200,7 +200,7 @@ Deno.test({
     const localnet = new LocalNet(USER_ONBOARDING_CONFIG, { instanceId });
 
     try {
-      await localnet.start({ timeout: 300000 });
+      await localnet.start();
 
       // Get parties and users
       const parties = await localnet.getParties('val1');
@@ -245,7 +245,7 @@ Deno.test({
     const localnet = new LocalNet(USER_ONBOARDING_CONFIG, { instanceId });
 
     try {
-      await localnet.start({ timeout: 300000 });
+      await localnet.start();
 
       // NOTE: This test verifies LEDGER user creation only. Wallet onboarding
       // verification requires browser-level testing — see test/integration/wallet_ui_test.ts.
@@ -281,7 +281,7 @@ Deno.test({
 
     try {
       // Start with skipInitialization
-      await localnet.start({ skipInitialization: true, timeout: 300000 });
+      await localnet.start({ skipInitialization: true });
 
       // Get parties for alice
       const aliceParties = await localnet.getParties('alice');
@@ -312,7 +312,7 @@ Deno.test({
 
     try {
       // Start with skipInitialization
-      await localnet.start({ skipInitialization: true, timeout: 300000 });
+      await localnet.start({ skipInitialization: true });
 
       // Manually initialize
       await localnet.initializeResources();
@@ -363,7 +363,7 @@ Deno.test({
     const localnet = new LocalNet(config, { instanceId });
 
     try {
-      await localnet.start({ timeout: 300000 });
+      await localnet.start();
 
       const snapshot = async (net: LocalNet) => ({
         parties: (await net.getParties()).length,

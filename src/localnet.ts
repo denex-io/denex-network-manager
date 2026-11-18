@@ -41,10 +41,8 @@ import {
   HostBindError,
   type InstanceDifference,
   InstanceMismatchError,
+  StartupTimeoutError,
 } from './errors.ts';
-
-/** How many of a failed container's last log lines a {@link ContainerStartupError} carries. */
-const STARTUP_LOG_LINES = 20;
 import { loadConfigFile } from './utils/yaml.ts';
 import { buildConfigEnvironmentInfo } from './utils/env-info.ts';
 import { type CredentialInfo, getCredentials as getCredentialsList } from './utils/credentials.ts';
@@ -228,6 +226,23 @@ interface CacheEntry<T> {
   expiresAt: number;
 }
 
+/** How many of a failed container's last log lines a {@link ContainerStartupError} carries. */
+const STARTUP_LOG_LINES = 20;
+
+/**
+ * Default `start()` timeout: a wall-clock limit on the whole start, pulls included. A cold start
+ * (fresh container, linux-arm64, every image pulled) took 290.7 s on 2026-11-18; this is 2x that,
+ * rounded up to a whole minute.
+ */
+export const DEFAULT_START_TIMEOUT_MS = 600_000;
+
+/** What is left of one `start()` call's timeout: every pull, health wait and readiness wait. */
+interface StartBudget {
+  /** Epoch milliseconds by which the start must be done. */
+  deadline: number;
+  timeoutMs: number;
+}
+
 /**
  * What a single `start()` call has changed in Docker, so a failure can undo
  * exactly that and nothing else. `created` maps container name to id; `started`
@@ -295,8 +310,12 @@ export class LocalNet {
   private cacheTtlMs = 30_000;
   /** How often a running image pull reports its elapsed time. */
   private pullProgressIntervalMs = 10_000;
-  /** Health poll delay; undefined derives it from the health check. Tests shorten it. */
+  /** How often a health wait polls Docker; undefined is 1 s. Tests shorten it. */
   private healthPollMs: number | undefined = undefined;
+  /** How often a health wait reports elapsed time and the last health status. */
+  private healthProgressIntervalMs = 10_000;
+  /** Backoff of the API and Scan readiness waits (first delay, cap). Tests shorten it. */
+  private readinessDelayMs = { initial: 1000, max: 10_000 };
   private baseHost = 'localhost';
   private attachedToRunning = false;
   /**
@@ -604,17 +623,23 @@ export class LocalNet {
    * through `onProgress` and a package that fails through `onWarning`; neither fails
    * `start()`, but a readiness wait that times out does.
    *
-   * @param options - `timeout` (milliseconds, default 300000) is checked before each layer of
-   *   containers is started, not enforced as a wall-clock limit; health-check waits and
-   *   initialization can run past it. `parallel` (default `true`) starts the containers of one
-   *   layer concurrently. `skipHealthChecks` skips waiting for Docker health checks.
-   *   `skipInitialization` skips initialization, including the readiness waits and the package
-   *   upload. `onProgress` receives progress and warning messages.
+   * @param options - `timeout` (milliseconds) is a wall-clock limit on the whole start: image
+   *   pulls, starting each layer of containers, the health waits, and initialization's waits for
+   *   the validator APIs and Scan. Default 600000 (600 s): a measured cold start took 290.7 s
+   *   (fresh container, linux-arm64, pulls included); 2× that, rounded up to a whole minute.
+   *   Running out throws {@link StartupTimeoutError} (phase `pull`,
+   *   `start` or `init`), or {@link ContainerStartupError} during a health wait. The bootstrap-admin
+   *   cleanup, party and user setup and the package upload are not bounded by it.
+   *   `parallel` (default `true`) starts the containers of one layer concurrently.
+   *   `skipHealthChecks` skips waiting for Docker health checks. `skipInitialization` skips
+   *   initialization, including the readiness waits and the package upload. `onProgress` receives
+   *   progress and warning messages, including elapsed time while a pull or a health wait runs.
    * @throws If this object is already running or starting, on a config mismatch or port conflict,
    *   if a container is paused, if another process appears to be starting the instance (including a
    *   name conflict on create), if a configured `packages` DAR is missing on a fresh start,
-   *   if initialization cannot read a validator's hosted parties, if Docker is unavailable, a container exits or does not become healthy, the timeout check
-   *   fails, or the APIs or Scan do not become ready.
+   *   if initialization cannot read a validator's hosted parties, if Docker is unavailable, a
+   *   container stops, turns unhealthy or does not become healthy ({@link ContainerStartupError},
+   *   with its last log lines), the timeout runs out, or the APIs or Scan do not become ready.
    *
    * @example
    * ```typescript
@@ -720,7 +745,7 @@ export class LocalNet {
       await assertPackageFilesExist(await resolvePackages(this.config, this.options.configDir));
     }
 
-    const timeout = options?.timeout ?? 300000;
+    const timeout = options?.timeout ?? DEFAULT_START_TIMEOUT_MS; // 600 s
     const startTime = Date.now();
     const rb: StartRollback = {
       networkCreated: false,
@@ -757,11 +782,22 @@ export class LocalNet {
 
       const containerSpecs = this.buildContainerSpecs(generatedConfigs);
       const layers = getStartupOrder(containerSpecs);
+      // The timeout bounds the whole start, pulls included: each pull and health wait gets
+      // what is left of it.
+      const budget: StartBudget = { deadline: startTime + timeout, timeoutMs: timeout };
 
       for (const [layerIndex, layer] of layers.entries()) {
         rb.layer = layerIndex;
-        if (Date.now() - startTime > timeout) {
-          throw new Error('Startup timeout exceeded');
+        const elapsed = Date.now() - startTime;
+        if (elapsed > timeout) {
+          throw new StartupTimeoutError(
+            'start',
+            timeout,
+            elapsed,
+            undefined,
+            `Startup timeout (${timeout / 1000}s) exceeded before starting ` +
+              `${layer.map((s) => s.name).join(', ')}`,
+          );
         }
 
         const parallel = options?.parallel ?? true;
@@ -772,15 +808,15 @@ export class LocalNet {
         // containers behind the rollback's back.
         if (parallel) {
           const results = await Promise.allSettled(
-            layer.map((spec) => this.ensureStarted(spec, rb, options)),
+            layer.map((spec) => this.ensureStarted(spec, rb, budget, options)),
           );
           const failed = results.find((r): r is PromiseRejectedResult => r.status === 'rejected');
           if (failed) throw failed.reason;
-          await Promise.all(layer.map((spec) => this.waitHealthy(spec, options)));
+          await Promise.all(layer.map((spec) => this.waitHealthy(spec, budget, options)));
         } else {
           for (const spec of layer) {
-            await this.ensureStarted(spec, rb, options);
-            await this.waitHealthy(spec, options);
+            await this.ensureStarted(spec, rb, budget, options);
+            await this.waitHealthy(spec, budget, options);
           }
         }
       }
@@ -795,7 +831,7 @@ export class LocalNet {
       this.startedAt = new Date();
 
       if (!options?.skipInitialization) {
-        await this.initializeResources(options?.onProgress);
+        await this.initializeResources(options?.onProgress, budget);
       }
 
       options?.onProgress?.(
@@ -2176,6 +2212,7 @@ export class LocalNet {
   private async ensureStarted(
     spec: ContainerSpec,
     rb: StartRollback,
+    budget: StartBudget,
     options?: StartOptions,
   ): Promise<void> {
     const progress = options?.onProgress ?? (() => {});
@@ -2213,7 +2250,7 @@ export class LocalNet {
         networks: [networkName],
       };
 
-      await this.pullImageIfNeeded(spec.image, progress);
+      await this.pullImageIfNeeded(spec.image, budget, progress);
       progress(`Creating ${spec.name}...`);
       try {
         containerId = await this.client.createContainer(specWithNetwork);
@@ -2266,7 +2303,11 @@ export class LocalNet {
     }
   }
 
-  private async waitHealthy(spec: ContainerSpec, options?: StartOptions): Promise<void> {
+  private async waitHealthy(
+    spec: ContainerSpec,
+    budget: StartBudget,
+    options?: StartOptions,
+  ): Promise<void> {
     if (!spec.healthCheck || options?.skipHealthChecks) return;
     const containerId = this.containerIds.get(spec.name);
     if (!containerId) return;
@@ -2274,34 +2315,34 @@ export class LocalNet {
     const progress = options?.onProgress ?? (() => {});
     progress(`Waiting for ${spec.name} to be healthy...`);
     const healthStart = Date.now();
-    await this.waitForDockerHealthy(containerId, spec.name, spec.healthCheck);
+    await this.waitForDockerHealthy(containerId, spec.name, budget, progress);
     progress(`${spec.name} healthy (took ${((Date.now() - healthStart) / 1000).toFixed(1)}s)`);
   }
 
+  /**
+   * Wait until Docker reports the container healthy. Docker's own verdict decides failure: it
+   * reports `unhealthy` only after the health check's start period and retries, so dnm fails on
+   * the first `unhealthy` it sees, or when the container stops, or when the start timeout runs
+   * out. Every way out but healthy throws a {@link ContainerStartupError} with the logs.
+   */
   private async waitForDockerHealthy(
     containerId: string,
     containerName: string,
-    healthConfig?: { retries?: number; interval?: number; startPeriod?: number },
+    budget: StartBudget,
+    progress: (msg: string) => void,
   ): Promise<void> {
-    const configRetries = healthConfig?.retries ?? 30;
-    const configInterval = healthConfig?.interval ?? 10;
-    const startPeriod = healthConfig?.startPeriod ?? 30;
-
-    const maxRetries = Math.max(configRetries * 2, 60);
-    const retryDelay = this.healthPollMs ?? Math.max(configInterval * 1000, 2000);
-    const minRetriesBeforeUnhealthyFail = Math.ceil(startPeriod / (retryDelay / 1000));
-
-    let state = 'unknown';
-    for (let i = 0; i < maxRetries; i++) {
+    const pollMs = this.healthPollMs ?? 1000;
+    const started = Date.now();
+    let nextReport = started + this.healthProgressIntervalMs;
+    for (;;) {
       const info = await this.client.getContainerInfo(containerId);
-      state = info?.state ?? 'missing';
-      if (info?.health === 'healthy') {
-        return;
-      }
-      if (info?.health === 'unhealthy' && i >= minRetriesBeforeUnhealthyFail) {
+      const state = info?.state ?? 'missing';
+      const health = info?.health ?? 'none';
+      if (health === 'healthy') return;
+      if (health === 'unhealthy') {
         throw await this.startupError(containerId, containerName, state, 'is unhealthy');
       }
-      if (info?.state !== 'running') {
+      if (state !== 'running') {
         throw await this.startupError(
           containerId,
           containerName,
@@ -2309,15 +2350,22 @@ export class LocalNet {
           `stopped unexpectedly (state: ${state})`,
         );
       }
-      await new Promise((resolve) => setTimeout(resolve, retryDelay));
+      const now = Date.now();
+      if (now >= budget.deadline) {
+        throw await this.startupError(
+          containerId,
+          containerName,
+          state,
+          `did not become healthy within the start timeout (${budget.timeoutMs / 1000}s)`,
+        );
+      }
+      if (now >= nextReport) {
+        const waited = Math.round((now - started) / 1000);
+        progress(`Waiting for ${containerName} to be healthy... ${waited}s (health: ${health})`);
+        nextReport = now + this.healthProgressIntervalMs;
+      }
+      await new Promise((resolve) => setTimeout(resolve, Math.min(pollMs, budget.deadline - now)));
     }
-
-    throw await this.startupError(
-      containerId,
-      containerName,
-      state,
-      'did not become healthy in time',
-    );
   }
 
   /**
@@ -2352,30 +2400,53 @@ export class LocalNet {
     );
   }
 
-  private async pullImageIfNeeded(image: string, progress?: (msg: string) => void): Promise<void> {
+  /** Pull an image if it is missing, within what is left of the start timeout. */
+  private async pullImageIfNeeded(
+    image: string,
+    budget: StartBudget,
+    progress?: (msg: string) => void,
+  ): Promise<void> {
     if (await this.client.imageExists(image)) return;
     const started = Date.now();
     const elapsed = () => `${Math.round((Date.now() - started) / 1000)}s`;
     progress?.(`Pulling ${image}...`);
-    const timer = setInterval(
+    const reporter = setInterval(
       () => progress?.(`Pulling ${image}... ${elapsed()}`),
       this.pullProgressIntervalMs,
     );
+    const abort = new AbortController();
+    const expiry = setTimeout(() => abort.abort(), Math.max(0, budget.deadline - Date.now()));
     try {
-      await this.client.pullImage(image);
+      await this.client.pullImage(image, undefined, abort.signal);
+    } catch (error) {
+      if (!abort.signal.aborted) throw error;
+      const spent = budget.timeoutMs - (budget.deadline - started);
+      throw new StartupTimeoutError(
+        'pull',
+        budget.timeoutMs,
+        spent + (Date.now() - started),
+        image,
+        `Startup timeout (${budget.timeoutMs / 1000}s) reached while pulling ${image} ` +
+          `(pulling for ${elapsed()}). Pull it ahead of time with \`docker pull ${image}\`, ` +
+          `or raise the timeout (--timeout, StartOptions.timeout).`,
+      );
     } finally {
-      clearInterval(timer);
+      clearInterval(reporter);
+      clearTimeout(expiry);
     }
     progress?.(`Pulled ${image} (${elapsed()})`);
   }
 
-  private async waitForApisReady(onProgress?: (msg: string) => void): Promise<void> {
+  private async waitForApisReady(
+    onProgress?: (msg: string) => void,
+    budget?: StartBudget,
+  ): Promise<void> {
     const validators = normalizeValidators(this.config.validators);
     const validatorNames = ['sv', ...validators.map((v) => v.name)];
 
     const maxRetries = 30;
-    const initialDelay = 1000;
-    const maxDelay = 10000;
+    const initialDelay = this.readinessDelayMs.initial;
+    const maxDelay = this.readinessDelayMs.max;
 
     for (const name of validatorNames) {
       let delay = initialDelay;
@@ -2399,7 +2470,7 @@ export class LocalNet {
           );
         }
 
-        await new Promise((resolve) => setTimeout(resolve, delay));
+        await this.readinessPause(delay, budget, `the ${name} API`, lastError);
         this.invalidateCache(`validator:${name}`);
         delay = Math.min(delay * 1.5, maxDelay);
       }
@@ -2408,7 +2479,10 @@ export class LocalNet {
     onProgress?.('All APIs are ready');
   }
 
-  private async waitForScanActive(onProgress?: (msg: string) => void): Promise<void> {
+  private async waitForScanActive(
+    onProgress?: (msg: string) => void,
+    budget?: StartBudget,
+  ): Promise<void> {
     interface ScanStatusResponse {
       success?: {
         active?: boolean;
@@ -2416,8 +2490,8 @@ export class LocalNet {
     }
 
     const maxRetries = 30;
-    const initialDelay = 1000;
-    const maxDelay = 10000;
+    const initialDelay = this.readinessDelayMs.initial;
+    const maxDelay = this.readinessDelayMs.max;
     let delay = initialDelay;
     let lastError: Error | null = null;
 
@@ -2445,9 +2519,36 @@ export class LocalNet {
         throw new Error(`Scan did not become ready: ${lastError?.message ?? 'inactive'}`);
       }
 
-      await new Promise((resolve) => setTimeout(resolve, delay));
+      await this.readinessPause(delay, budget, 'Scan', lastError);
       delay = Math.min(delay * 1.5, maxDelay);
     }
+  }
+
+  /**
+   * Sleep between readiness attempts, never past the start timeout: when `budget` runs out,
+   * throws a {@link StartupTimeoutError} (phase `init`) naming what was not ready yet.
+   */
+  private async readinessPause(
+    delay: number,
+    budget: StartBudget | undefined,
+    what: string,
+    lastError: Error | null,
+  ): Promise<void> {
+    if (!budget) {
+      await new Promise((resolve) => setTimeout(resolve, delay));
+      return;
+    }
+    const left = budget.deadline - Date.now();
+    if (left > 0) await new Promise((resolve) => setTimeout(resolve, Math.min(delay, left)));
+    if (Date.now() < budget.deadline) return;
+    throw new StartupTimeoutError(
+      'init',
+      budget.timeoutMs,
+      Date.now() - (budget.deadline - budget.timeoutMs),
+      undefined,
+      `Startup timeout (${budget.timeoutMs / 1000}s) reached while waiting for ${what}` +
+        (lastError ? ` (last error: ${lastError.message})` : ''),
+    );
   }
 
   /**
@@ -2469,11 +2570,14 @@ export class LocalNet {
    *
    * @internal Do not call directly in application code — use start() instead.
    */
-  async initializeResources(onProgress?: (msg: string) => void): Promise<void> {
+  async initializeResources(
+    onProgress?: (msg: string) => void,
+    budget?: { deadline: number; timeoutMs: number },
+  ): Promise<void> {
     onProgress?.('Initializing resources...');
 
-    await this.waitForApisReady(onProgress);
-    await this.waitForScanActive(onProgress);
+    await this.waitForApisReady(onProgress, budget);
+    await this.waitForScanActive(onProgress, budget);
 
     const validators = normalizeValidators(this.config.validators);
 

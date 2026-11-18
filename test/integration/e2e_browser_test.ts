@@ -90,7 +90,6 @@ Deno.test({
 
       console.log('[E2E] Starting LocalNet with 2 validators (oauth2 mode)...');
       await localnet.start({
-        timeout: 300000,
         onProgress: (msg) => console.log(`[progress] ${msg}`),
       });
 
@@ -268,7 +267,6 @@ Deno.test({
 
       console.log('[E2E] Starting LocalNet with new config (force recreate)...');
       await localnet2.start({
-        timeout: 420000,
         onProgress: (msg) => console.log(`[progress] ${msg}`),
       });
 

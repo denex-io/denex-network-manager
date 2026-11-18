@@ -58,8 +58,8 @@ Deno.test({
     try {
       // Start both concurrently — must not port-conflict.
       await Promise.all([
-        netA.start({ skipHealthChecks: true, skipInitialization: true, timeout: 120_000 }),
-        netB.start({ skipHealthChecks: true, skipInitialization: true, timeout: 120_000 }),
+        netA.start({ skipHealthChecks: true, skipInitialization: true }),
+        netB.start({ skipHealthChecks: true, skipInitialization: true }),
       ]);
 
       assertEquals(netA.currentState, 'running');
@@ -117,8 +117,8 @@ Deno.test({
 
     try {
       await Promise.all([
-        netA.start({ skipHealthChecks: true, skipInitialization: true, timeout: 120_000 }),
-        netB.start({ skipHealthChecks: true, skipInitialization: true, timeout: 120_000 }),
+        netA.start({ skipHealthChecks: true, skipInitialization: true }),
+        netB.start({ skipHealthChecks: true, skipInitialization: true }),
       ]);
 
       const volsA = await client.listVolumes({ 'denex.localnet.instance': idA });
@@ -158,8 +158,8 @@ Deno.test({
 
     try {
       await Promise.all([
-        netA.start({ skipHealthChecks: true, skipInitialization: true, timeout: 120_000 }),
-        netB.start({ skipHealthChecks: true, skipInitialization: true, timeout: 120_000 }),
+        netA.start({ skipHealthChecks: true, skipInitialization: true }),
+        netB.start({ skipHealthChecks: true, skipInitialization: true }),
       ]);
 
       const containerCountB = (await client.listContainers({ 'denex.localnet.instance': idB }))
@@ -229,10 +229,12 @@ Deno.test({
     const netB = new LocalNet(configB, { instanceId: idB });
 
     try {
-      await netA.start({ skipHealthChecks: true, skipInitialization: true, timeout: 120_000 });
+      await netA.start({ skipHealthChecks: true, skipInitialization: true });
 
       let threw = false;
       try {
+        // Expected to fail fast on the port check, which runs before any pull or timeout check;
+        // the short bound only keeps a regression from turning into a full start.
         await netB.start({ skipHealthChecks: true, skipInitialization: true, timeout: 30_000 });
       } catch (err) {
         threw = true;

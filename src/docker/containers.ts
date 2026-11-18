@@ -187,6 +187,10 @@ export interface GeneratedConfigs {
   keycloakRealms: Record<string, string>;
 }
 
+// PLACEHOLDER (M3, not yet sized): every healthCheck startPeriod below is unchanged from
+// 0.1.0-beta.3. Each gets sized from its container's measured time-to-healthy on the 0.10.2 full
+// suite, with the margin stated here, before this branch is pushed.
+
 const DEFAULT_DB_USER = 'cnadmin';
 const DEFAULT_DB_PASSWORD = 'supersafe';
 

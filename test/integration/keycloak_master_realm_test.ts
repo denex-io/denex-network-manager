@@ -30,7 +30,7 @@ Deno.test({
     const localnet = new LocalNet(MASTER_REALM_TEST_CONFIG, { instanceId });
 
     try {
-      await localnet.start({ skipInitialization: true, timeout: 180000 });
+      await localnet.start({ skipInitialization: true });
 
       const keycloakUrl = getKeycloakUrl(MASTER_REALM_TEST_CONFIG);
 

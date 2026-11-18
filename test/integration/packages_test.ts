@@ -65,7 +65,7 @@ Deno.test({
     const localnet = new LocalNet(CONFIG, { instanceId });
 
     try {
-      await localnet.start({ timeout: 300000 });
+      await localnet.start();
 
       const before = await localnet.getPackages('validator-1');
       assert(before.length > 0, 'validator-1 should know built-in packages');
@@ -129,7 +129,7 @@ Deno.test({
     });
 
     try {
-      await localnet.start({ timeout: 300000 });
+      await localnet.start();
       const packageWarnings = () => warnings.filter((w) => w.source === 'packages');
       assertEquals(packageWarnings(), [], 'first start should upload without warnings');
 

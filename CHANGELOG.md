@@ -11,8 +11,8 @@ All notable changes to this project will be documented in this file. The format 
   Splice app's participant Admin API client is a `client-config` plus an `auth-config`, which 0.10
   requires. The tested releases are 0.9.4 and 0.10.2.
 - Typed errors: `LocalNetError` (base), `InstanceMismatchError`, `SpliceVersionConflictError`,
-  `HostBindError` and `ContainerStartupError`, exported from the package root and `/sdk`, so callers
-  can tell these failures apart with `instanceof`.
+  `HostBindError`, `ContainerStartupError` and `StartupTimeoutError`, exported from the package root
+  and `/sdk`, so callers can tell these failures apart with `instanceof`.
 - Image pulls report progress: `Pulling <image>...`, then the elapsed time every 10 seconds, then
   `Pulled <image> (<n>s)`. A cold start used to print nothing for minutes during the splice-app
   pull.
@@ -44,7 +44,19 @@ All notable changes to this project will be documented in this file. The format 
 - A container that stops, turns unhealthy or never becomes healthy during `start()` fails it with
   `ContainerStartupError`, which carries the container's last 20 log lines. They are read before the
   failed start is rolled back; before, the rollback removed the container and its logs, and the
-  message said only "stopped unexpectedly". The message still starts with the same text.
+  message said only "stopped unexpectedly" or "is unhealthy", which it still starts with.
+- **Breaking:** `--timeout` (`StartOptions.timeout`) is now enforced as a wall-clock limit on the
+  whole start, image pulls included; previously it was only checked between container layers, so the
+  last health wait and initialization's waits for the validator APIs and Scan ran past it. Running
+  out throws `StartupTimeoutError` (phase `pull`, `start` or `init`; before, a plain `Error`
+  "Startup timeout exceeded"), or `ContainerStartupError` with the logs during a health wait. An
+  explicit timeout now bounds the whole start; raise it if you set one below a cold start. The
+  default rises from 300000 to 600000 ms: a cold start in a fresh container (linux-arm64, every
+  image pulled) took 290.7 s, and 600 s is 2× that, rounded up to a whole minute.
+- Health waits follow Docker's own verdict: `start()` fails on the first `unhealthy` Docker reports
+  (after the health check's start period and retries) instead of after its own poll count, polls
+  every second instead of every 5–10, and prints the elapsed time and last health status every 10
+  seconds.
 - The bundled default stays Splice 0.9.4. Splice 0.10 moves to Canton 3.7 and protocol version 37
   (per its release notes), where `GenerateExternalPartyTopology` returns v31 topology transactions
   unless the request pins protocol version 36, which changes external-party onboarding for SDK

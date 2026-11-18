@@ -2,14 +2,18 @@ import { Command } from '@cliffy/command';
 import { printError, printSuccess, progress, warnToStderr } from '../utils.ts';
 import { dirname, resolve } from 'node:path';
 import { findConfigFile, loadConfigFile } from '../../utils/yaml.ts';
-import { LocalNet } from '../../localnet.ts';
+import { DEFAULT_START_TIMEOUT_MS, LocalNet } from '../../localnet.ts';
 
 export const startCommand = new Command()
   .name('start')
   .description('Start the Canton LocalNet')
   .option('-c, --config <path:string>', 'Path to config file')
   .option('-i, --instance <id:string>', 'Instance ID', { default: 'default' })
-  .option('-t, --timeout <ms:number>', 'Startup timeout in milliseconds', { default: 300000 })
+  .option(
+    '-t, --timeout <ms:number>',
+    'Wall-clock limit on the whole start, image pulls included, in milliseconds',
+    { default: DEFAULT_START_TIMEOUT_MS },
+  )
   .option('--no-parallel', 'Start containers sequentially')
   .option('--skip-health-checks', 'Skip container health checks')
   .option('--skip-init', 'Skip post-startup initialization (party and user setup, packages upload)')

@@ -38,12 +38,27 @@ export class DockerClient {
     }
   }
 
-  async pullImage(image: string, onProgress?: (event: unknown) => void): Promise<void> {
-    const stream = await this.docker.pull(image);
+  /**
+   * Pull an image. Aborting `signal` closes the pull's connection, which ends the pull, and
+   * rejects with the signal's reason.
+   */
+  async pullImage(
+    image: string,
+    onProgress?: (event: unknown) => void,
+    signal?: AbortSignal,
+  ): Promise<void> {
+    signal?.throwIfAborted();
+    const stream = await this.docker.pull(image) as Readable;
     return new Promise((resolve, reject) => {
+      const onAbort = () => {
+        stream.destroy();
+        reject(signal?.reason);
+      };
+      signal?.addEventListener('abort', onAbort, { once: true });
       this.docker.modem.followProgress(
         stream,
         (err: Error | null) => {
+          signal?.removeEventListener('abort', onAbort);
           if (err) reject(err);
           else resolve();
         },

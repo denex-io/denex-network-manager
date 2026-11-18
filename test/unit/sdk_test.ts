@@ -201,6 +201,7 @@ Deno.test('SDK and package root export the typed errors', async () => {
     assertExists(mod.SpliceVersionConflictError);
     assertExists(mod.HostBindError);
     assertExists(mod.ContainerStartupError);
+    assertExists(mod.StartupTimeoutError);
     assert(new mod.InstanceMismatchError('x', [], 'm') instanceof mod.LocalNetError);
   }
 });

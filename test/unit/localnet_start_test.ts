@@ -5,6 +5,7 @@ import {
   HostBindError,
   InstanceMismatchError,
   LocalNetError,
+  StartupTimeoutError,
 } from '../../src/errors.ts';
 import type { LocalNetWarning } from '../../src/types/state.ts';
 import type { LocalNetConfig } from '../../src/types/config.ts';
@@ -186,9 +187,15 @@ class FakeDockerClient {
     return Promise.resolve(!this.missingImages.has(image));
   }
 
-  async pullImage(image: string): Promise<void> {
+  pullImage(image: string, _onProgress?: unknown, signal?: AbortSignal): Promise<void> {
     this.calls.push(`pullImage:${image}`);
-    await new Promise((r) => setTimeout(r, this.pullDelayMs));
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(resolve, this.pullDelayMs);
+      signal?.addEventListener('abort', () => {
+        clearTimeout(timer);
+        reject(new Error('pull aborted'));
+      }, { once: true });
+    });
   }
 
   async createContainer(spec: ContainerSpec): Promise<string> {
@@ -329,7 +336,12 @@ const START = { skipHealthChecks: true, skipInitialization: true } as const;
 Deno.test('start rollback - failed resume (timeout) removes and stops nothing', async () => {
   await withFakeNet(async (net, fake) => {
     fake.seedExisting(ALL_NAMES);
-    await assertRejects(() => net.start({ ...START, timeout: -1 }), Error, 'Startup timeout');
+    const err = await assertRejects(
+      () => net.start({ ...START, timeout: -1 }),
+      StartupTimeoutError,
+      'Startup timeout',
+    );
+    assertEquals(err.phase, 'start');
     assertEquals(fake.mutations, []);
     assertEquals(fake.containers.size, ALL_NAMES.length);
     assert(fake.networkExists && fake.volumeExists);
@@ -642,14 +654,125 @@ Deno.test('start - a running container that never turns healthy fails with its l
     fake.healthOf.set(`${ID}-canton`, 'starting');
     fake.logs.set(`${ID}-canton`, 'DbMigrations: still migrating\nnot ready yet');
     Reflect.set(net, 'healthPollMs', 1);
-    const err = await assertRejects(() => net.start(START_CHECKED), ContainerStartupError);
+    const err = await assertRejects(
+      () => net.start({ ...START_CHECKED, timeout: 100 }),
+      ContainerStartupError,
+    );
     assertEquals(err.container, `${ID}-canton`);
     assertEquals(err.state, 'running');
     assertEquals(err.logTail, ['DbMigrations: still migrating', 'not ready yet']);
-    assertStringIncludes(err.message, 'did not become healthy in time');
+    assertStringIncludes(err.message, 'did not become healthy within the start timeout');
     const read = fake.calls.indexOf(`logs:new-${ID}-canton`);
     const removed = fake.calls.indexOf(`removeContainer:new-${ID}-canton`);
     assert(read >= 0 && removed > read, 'logs are read before rollback removes the container');
+  });
+});
+
+Deno.test('start - a short --timeout bounds the health wait and fails fast, typed', async () => {
+  await withFakeNet(async (net, fake) => {
+    fake.healthOf.set(`${ID}-canton`, 'starting');
+    Reflect.set(net, 'healthPollMs', 100);
+    const started = Date.now();
+    const err = await assertRejects(
+      () => net.start({ ...START_CHECKED, timeout: 300 }),
+      ContainerStartupError,
+    );
+    const took = Date.now() - started;
+    assert(took < 1500, `a 300 ms timeout failed after ${took} ms`);
+    assertEquals(err.container, `${ID}-canton`);
+    assertStringIncludes(err.message, 'did not become healthy within the start timeout (0.3s)');
+  });
+});
+
+Deno.test('start - the health wait prints elapsed time and the last health status', async () => {
+  const messages: string[] = [];
+  await withFakeNet(async (net, fake) => {
+    fake.healthOf.set(`${ID}-canton`, 'starting');
+    Reflect.set(net, 'healthPollMs', 5);
+    Reflect.set(net, 'healthProgressIntervalMs', 20);
+    await assertRejects(
+      () => net.start({ ...START_CHECKED, timeout: 150, onProgress: (m) => messages.push(m) }),
+      ContainerStartupError,
+    );
+    const waiting = messages.filter((m) =>
+      new RegExp(`^Waiting for ${ID}-canton to be healthy\\.\\.\\. \\d+s \\(health: starting\\)$`)
+        .test(m)
+    );
+    assert(waiting.length >= 2, `progress while waiting: ${JSON.stringify(messages)}`);
+  });
+});
+
+Deno.test('start - a running container Docker reports unhealthy fails with its last log lines', async () => {
+  await withFakeNet(async (net, fake) => {
+    fake.healthOf.set(`${ID}-canton`, 'unhealthy');
+    fake.logs.set(`${ID}-canton`, 'health server: not ready');
+    Reflect.set(net, 'healthPollMs', 1);
+    const err = await assertRejects(
+      () => net.start({ ...START_CHECKED, timeout: 2000 }),
+      ContainerStartupError,
+    );
+    assertEquals(err.container, `${ID}-canton`);
+    assertEquals(err.state, 'running');
+    assertEquals(err.logTail, ['health server: not ready']);
+    assertStringIncludes(err.message, `Container ${ID}-canton is unhealthy`);
+  });
+});
+
+Deno.test('start - API readiness that never succeeds stops at --timeout, typed, phase init', async () => {
+  await withFakeNet(async (net) => {
+    // fetch is stubbed to reject, so no validator API ever answers.
+    Reflect.set(net, 'readinessDelayMs', { initial: 20, max: 20 });
+    const started = Date.now();
+    const err = await assertRejects(
+      () => net.start({ skipHealthChecks: true, timeout: 300 }),
+      StartupTimeoutError,
+    );
+    const took = Date.now() - started;
+    assert(took < 500, `a 300 ms timeout failed after ${took} ms`);
+    assertEquals(err.phase, 'init');
+    assertStringIncludes(
+      err.message,
+      'Startup timeout (0.3s) reached while waiting for the sv API',
+    );
+  });
+});
+
+Deno.test('start - Scan readiness that never succeeds stops at --timeout, typed, phase init', async () => {
+  await withFakeNet(async (net) => {
+    Reflect.set(net, 'readinessDelayMs', { initial: 20, max: 20 });
+    Reflect.set(
+      net,
+      'getValidatorState',
+      () => Promise.resolve({ isHealthy: true, validatorParty: 'p::1' }),
+    );
+    const started = Date.now();
+    const err = await assertRejects(
+      () => net.start({ skipHealthChecks: true, timeout: 300 }),
+      StartupTimeoutError,
+    );
+    const took = Date.now() - started;
+    assert(took < 500, `a 300 ms timeout failed after ${took} ms`);
+    assertEquals(err.phase, 'init');
+    assertStringIncludes(err.message, 'Startup timeout (0.3s) reached while waiting for Scan');
+  });
+});
+
+Deno.test('start - a pull that outlasts --timeout fails typed, naming the image', async () => {
+  await withFakeNet(async (net, fake) => {
+    const image = fake.specImages.get(`${ID}-canton`)!;
+    fake.missingImages.add(image);
+    fake.pullDelayMs = 5000;
+    const started = Date.now();
+    const err = await assertRejects(
+      () => net.start({ ...START_CHECKED, timeout: 200 }),
+      StartupTimeoutError,
+    );
+    const took = Date.now() - started;
+    assert(took < 1500, `a 200 ms timeout failed after ${took} ms`);
+    assertEquals(err.phase, 'pull');
+    assertEquals(err.image, image);
+    assertEquals(err.timeoutMs, 200);
+    assertStringIncludes(err.message, `Startup timeout (0.2s) reached while pulling ${image}`);
   });
 });
 
@@ -968,11 +1091,12 @@ Deno.test('packages - a resume with a missing DAR does not fail the pre-flight',
     // Containers exist but are stopped, so start() goes past the all-running early return and
     // would hit the pre-flight if it ran on a resume. The timeout then fails the start.
     fake.seedExisting(ALL_NAMES);
-    await assertRejects(
+    const err = await assertRejects(
       () => net.start({ skipHealthChecks: true, timeout: -1 }),
-      Error,
+      StartupTimeoutError,
       'Startup timeout',
     );
+    assertEquals(err.phase, 'start');
   }, (c) => {
     c.packages = [{ name: 'app', dar: 'definitely-missing.dar' }];
   }, { configDir: '/nonexistent-config-dir' });
@@ -980,11 +1104,12 @@ Deno.test('packages - a resume with a missing DAR does not fail the pre-flight',
 
 Deno.test('packages - a fresh start with skipInitialization ignores a missing DAR', async () => {
   await withFakeNet(async (net) => {
-    await assertRejects(
+    const err = await assertRejects(
       () => net.start({ skipHealthChecks: true, skipInitialization: true, timeout: -1 }),
-      Error,
+      StartupTimeoutError,
       'Startup timeout',
     );
+    assertEquals(err.phase, 'start');
   }, (c) => {
     c.packages = [{ name: 'app', dar: 'definitely-missing.dar' }];
   }, { configDir: '/nonexistent-config-dir' });

@@ -146,7 +146,7 @@ Deno.test({
     const validatorUserClientId = getLedgerApiUserClientId('validator-1');
 
     try {
-      await localnet.start({ timeout: 300000 });
+      await localnet.start();
 
       const validatorStates = await localnet.getAllValidatorStates();
       assertEquals(validatorStates.length, 2);

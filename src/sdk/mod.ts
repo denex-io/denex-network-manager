@@ -17,6 +17,7 @@ export {
   InstanceMismatchError,
   LocalNetError,
   SpliceVersionConflictError,
+  StartupTimeoutError,
 } from '../errors.ts';
 export { LocalNetBuilder } from './builder.ts';
 export type { LocalNetBuilderConfig, UserSpec, ValidatorSpec } from './types.ts';

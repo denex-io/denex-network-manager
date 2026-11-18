@@ -149,7 +149,7 @@ one stopped instance, and print a stderr notice when they fall back or ignore ot
 `--instance <id>` when a tier holds several. `dnm config -y` overwrites an existing file after
 saving it as `<file>.bak`.
 
-`--timeout` units differ per command: `start --timeout` is in **milliseconds** (default `300000`),
+`--timeout` units differ per command: `start --timeout` is in **milliseconds** (default `600000`),
 while `stop --timeout` and `destroy --timeout` are in **seconds** (default `30`). The
 [CLI reference](https://denex-io.github.io/denex-network-manager/reference/cli/) documents every
 flag.
@@ -158,7 +158,7 @@ Useful options:
 
 ```bash
 dnm config -y -o localnet.yaml
-dnm start --instance demo --timeout 300000
+dnm start --instance demo
 dnm start --skip-init
 dnm start --skip-health-checks
 dnm env --json

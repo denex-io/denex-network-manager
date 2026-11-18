@@ -64,7 +64,7 @@ Deno.test({
     const localnet = new LocalNet(ENTITLEMENTS_TEST_CONFIG, { instanceId });
 
     try {
-      await localnet.start({ timeout: 300000 });
+      await localnet.start();
 
       const usersWithRights = await localnet.getUsersWithRights('val1');
 
@@ -121,7 +121,7 @@ Deno.test({
     const localnet = new LocalNet(ENTITLEMENTS_TEST_CONFIG, { instanceId });
 
     try {
-      await localnet.start({ timeout: 300000 });
+      await localnet.start();
 
       const parties = await localnet.getParties('val1');
 
@@ -146,7 +146,7 @@ Deno.test({
     const localnet = new LocalNet(ENTITLEMENTS_TEST_CONFIG, { instanceId });
 
     try {
-      await localnet.start({ timeout: 300000 });
+      await localnet.start();
 
       const usersWithRights = await localnet.getUsersWithRights('val1');
 
@@ -178,7 +178,7 @@ Deno.test({
     const localnet = new LocalNet(ENTITLEMENTS_TEST_CONFIG, { instanceId });
 
     try {
-      await localnet.start({ timeout: 300000 });
+      await localnet.start();
 
       // Create a per-user client for admin-user
       const ports = getValidatorPorts(0);

@@ -104,7 +104,7 @@ Deno.test({
     // deno-lint-ignore no-explicit-any
     let browser: any;
     try {
-      await localnet.start({ timeout: 300_000 });
+      await localnet.start();
       const pw = await loadPlaywrightOrThrow();
       browser = await pw.chromium.launch({ headless: true });
       const page = await browser.newPage();
@@ -144,7 +144,7 @@ Deno.test({
     // deno-lint-ignore no-explicit-any
     let browser: any;
     try {
-      await localnet.start({ timeout: 300_000 });
+      await localnet.start();
       const pw = await loadPlaywrightOrThrow();
       browser = await pw.chromium.launch({ headless: true });
       const page = await browser.newPage();
@@ -173,7 +173,7 @@ Deno.test({
     // deno-lint-ignore no-explicit-any
     let browser: any;
     try {
-      await localnet.start({ timeout: 300_000 });
+      await localnet.start();
       const pw = await loadPlaywrightOrThrow();
       browser = await pw.chromium.launch({ headless: true });
       const page = await browser.newPage();
@@ -202,7 +202,7 @@ Deno.test({
     // deno-lint-ignore no-explicit-any
     let browser: any;
     try {
-      await localnet.start({ timeout: 300_000 });
+      await localnet.start();
       await localnet.createUser('alice', 'validator-1', { primaryParty: 'alice' });
 
       const pw = await loadPlaywrightOrThrow();
@@ -232,7 +232,7 @@ Deno.test({
     const localnet = await LocalNet.fromConfig(TEST_CONFIG, { instanceId: uniqueInstanceId() });
     let browser: import('npm:playwright@1.57.0').Browser | undefined;
     try {
-      await localnet.start({ timeout: 300_000 });
+      await localnet.start();
       const walletLogins = (await localnet.getCredentials()).filter((c) =>
         c.purpose.endsWith(' wallet')
       );

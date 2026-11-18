@@ -59,7 +59,7 @@ Deno.test({
     const localnet = new LocalNet(CLI_TEST_CONFIG, { instanceId });
 
     try {
-      await localnet.start({ skipHealthChecks: true, skipInitialization: true, timeout: 60000 });
+      await localnet.start({ skipHealthChecks: true, skipInitialization: true });
 
       // Invoke the CLI exactly as a user would, WITHOUT --timeout so it uses the
       // default (30 seconds). Before the fix this became t=30/1000=0.03, which
@@ -106,7 +106,7 @@ Deno.test({
     const localnet = new LocalNet(CLI_TEST_CONFIG, { instanceId });
 
     try {
-      await localnet.start({ skipHealthChecks: true, skipInitialization: true, timeout: 60000 });
+      await localnet.start({ skipHealthChecks: true, skipInitialization: true });
 
       // `destroy` internally calls stop() first — the same path that produced
       // the t=0.03 HTTP 500 — so it exercises the fix end-to-end via the CLI.

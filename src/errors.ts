@@ -70,6 +70,25 @@ export class HostBindError extends LocalNetError {
 }
 
 /**
+ * `start()` ran out of its timeout (`StartOptions.timeout`, the CLI's `--timeout`): while pulling an
+ * image (`pull`), before starting the next layer of containers (`start`), or while waiting for the
+ * validator APIs or Scan during initialization (`init`). The timeout covers the whole start, pulls
+ * included. A health wait that runs out throws {@link ContainerStartupError} instead.
+ */
+export class StartupTimeoutError extends LocalNetError {
+  constructor(
+    readonly phase: 'pull' | 'start' | 'init',
+    readonly timeoutMs: number,
+    readonly elapsedMs: number,
+    /** The image being pulled when `phase` is `'pull'`. */
+    readonly image: string | undefined,
+    message: string,
+  ) {
+    super(message);
+  }
+}
+
+/**
  * A container stopped, turned unhealthy or never became healthy while `start()` waited for it.
  * Carries the container's last log lines, read before the failed start is rolled back (which
  * removes containers that start created, and their logs with them).

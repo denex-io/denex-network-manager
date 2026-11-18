@@ -44,7 +44,6 @@ Deno.test({
     try {
       const messages: string[] = [];
       await localnet.start({
-        timeout: 600000,
         onProgress: (msg) => messages.push(msg),
       });
 
@@ -92,7 +91,7 @@ Deno.test({
     const localnet = new LocalNet(simpleConfig, { instanceId });
 
     try {
-      await localnet.start({ timeout: 600000 });
+      await localnet.start();
 
       const dsoPartyId = await localnet.getDsoPartyId();
 
