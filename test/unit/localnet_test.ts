@@ -88,7 +88,10 @@ auth:
   );
   const warnings: string[] = [];
   const net = await LocalNet.fromConfig(path, { onWarning: (w) => warnings.push(w.message) });
-  assertEquals(warnings, []);
+  // 0.8.3 is outside the tested set: the only warning says so.
+  assertEquals(warnings, [
+    "spliceVersion '0.8.3' is untested (tested: 0.9.4, 0.10.2); it gets the Splice 0.9 config shape",
+  ]);
   assertEquals(net.getConfig().spliceVersion, '0.8.3');
   assertEquals(net['options'].images.canton, `${SPLICE_REPO}/canton:0.8.3`);
 });

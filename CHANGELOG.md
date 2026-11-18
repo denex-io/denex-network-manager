@@ -16,6 +16,10 @@ All notable changes to this project will be documented in this file. The format 
 - Image pulls report progress: `Pulling <image>...`, then the elapsed time every 10 seconds, then
   `Pulled <image> (<n>s)`. A cold start used to print nothing for minutes during the splice-app
   pull.
+- A `spliceVersion` outside the tested set (0.9.4, 0.10.2) is accepted with a warning that it is
+  untested and which config shape (0.9 or 0.10) it gets; a tag that is not a release number, such as
+  `dev-snapshot`, gets the 0.10 shape. Only a value that cannot be a Docker tag is refused, as
+  before.
 - `LocalNetWarning.source` can be `'instance'`: an existing instance resumes as it was created
   although it differs from the current config and options (for example another image).
 
@@ -61,6 +65,14 @@ All notable changes to this project will be documented in this file. The format 
   (after the health check's start period and retries) instead of after its own poll count, polls
   every second instead of every 5–10, and prints the elapsed time and last health status every 10
   seconds.
+- **Breaking:** config input refuses, with an error naming the field, what was only refused at
+  startup before (by Keycloak or Canton, after the containers were up): a user id that is not 3 to
+  128 characters of letters, digits and ``@^$.!`-#+'~_|:()`` (Keycloak usernames are at least 3
+  characters, Canton 3.6/3.7 user ids at most 128 of these; before, any lowercase string), and a
+  user's `primaryParty` or `parties[].hint` that Canton does not accept as a party hint (letters,
+  digits, `:`, `-`, `_` and spaces, at most 185 characters, no `::`; before, any non-empty string).
+  `version` must be `'1.0'`; before, any string was accepted and ignored. Stored instance labels are
+  not checked, so existing instances stay stoppable.
 - The bundled default stays Splice 0.9.4. Splice 0.10 moves to Canton 3.7 and protocol version 37
   (per its release notes), where `GenerateExternalPartyTopology` returns v31 topology transactions
   unless the request pins protocol version 36, which changes external-party onboarding for SDK

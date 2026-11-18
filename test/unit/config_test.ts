@@ -476,7 +476,7 @@ Deno.test('parseLocalNetConfig - known optional keys do not warn', () => {
       name: 'alice',
       parties: [{ hint: 'a', displayName: 'A' }],
       users: [{
-        id: 'u',
+        id: 'usr',
         primaryParty: 'a',
         rights: ['ParticipantAdmin'],
         parties: [{ hint: 'a' }],
@@ -546,7 +546,7 @@ Deno.test('parseLocalNetConfig - party and user validator keys warn and are drop
     validators: [{
       name: 'alice',
       parties: [{ hint: 'a', validator: 'bob' }],
-      users: [{ id: 'u', validator: 'bob' }],
+      users: [{ id: 'usr', validator: 'bob' }],
     }],
     auth: AUTH,
   });
@@ -789,4 +789,93 @@ Deno.test('validateLocalNetConfig - CanActAsAnyParty needs Splice 0.9 or later',
   }
   // Stored labels stay lenient.
   parseStoredLocalNetConfig(withVersion('0.6.6'));
+});
+
+const quiet = { onWarning: () => {} };
+
+Deno.test('validateLocalNetConfig - spliceVersion must be a Docker tag; any Docker tag is accepted', () => {
+  const withV = (spliceVersion: string) => ({ validators: 1, auth: AUTH, spliceVersion });
+  for (const ok of ['0.9.4', '0.10.2', '0.10.3-snapshot.20261110.1', 'dev-snapshot', 'latest']) {
+    assert(validateLocalNetConfig(withV(ok), quiet).success, `spliceVersion ${ok}`);
+  }
+  for (const bad of ['', '-dev', '0.10 beta', '0.10.2:x', 'a'.repeat(129)]) {
+    const result = validateLocalNetConfig(withV(bad), quiet);
+    assert(!result.success, `spliceVersion '${bad}' must be rejected`);
+    assertEquals(result.errors.issues[0].path, ['spliceVersion']);
+    assertStringIncludes(result.errors.issues[0].message, 'valid Docker image tag');
+  }
+});
+
+Deno.test('validateLocalNetConfig - a spliceVersion outside the tested set warns that it is untested', () => {
+  const warnings: ConfigWarning[] = [];
+  const record = { onWarning: (w: ConfigWarning) => warnings.push(w) };
+  for (const v of ['0.10.1', 'dev-snapshot']) {
+    warnings.length = 0;
+    assert(validateLocalNetConfig({ validators: 1, auth: AUTH, spliceVersion: v }, record).success);
+    assertEquals(warnings.map((w) => [w.source, w.path]), [['config', 'spliceVersion']], v);
+    assertStringIncludes(warnings[0].message, `spliceVersion '${v}' is untested`);
+    assertStringIncludes(warnings[0].message, 'tested: 0.9.4, 0.10.2');
+  }
+  // A tag that is not a release gets the newest config shape, and the warning says so.
+  assertStringIncludes(warnings[0].message, 'Splice 0.10 config');
+  warnings.length = 0;
+  for (const v of [undefined, '0.9.4', '0.10.2']) {
+    validateLocalNetConfig(
+      { validators: 1, auth: AUTH, ...(v ? { spliceVersion: v } : {}) },
+      record,
+    );
+  }
+  assertEquals(warnings, []);
+  // Stored labels stay silent.
+  parseStoredLocalNetConfig({ validators: 1, auth: AUTH, spliceVersion: '0.10.1' });
+});
+
+Deno.test('validateLocalNetConfig - only config version 1.0 is read', () => {
+  assert(validateLocalNetConfig({ version: '1.0', validators: 1, auth: AUTH }).success);
+  const result = validateLocalNetConfig({ version: '2.0', validators: 1, auth: AUTH });
+  assert(!result.success);
+  assertEquals(result.errors.issues[0].path, ['version']);
+  assertStringIncludes(result.errors.issues[0].message, "'1.0'");
+});
+
+// Canton 3.6.4 and 3.7.3 (github.com/digital-asset/canton, tags v3.6.4 and v3.7.3, identical):
+// a party hint is a Daml-LF Party (letters, digits, ':', '-', '_', space; community/daml-lf/data/
+// .../IdString.scala:297-298) without '::', at most 185 characters (community/base/.../topology/
+// Identifier.scala:99-111). A user id is 1 to 128 of [a-zA-Z0-9@^$.!`\-#+'~_|:()]
+// (IdString.scala:336-338); Keycloak 26.1.0 usernames are 3 to 255 characters.
+Deno.test('validateLocalNetConfig - user party references follow what Canton accepts as a party hint', () => {
+  const withUser = (user: Record<string, unknown>) => ({
+    validators: [{ name: 'v1', users: [{ id: 'ops', ...user }] }],
+    auth: AUTH,
+  });
+  for (const ok of ['alice-1', 'Alice Smith', '1bob', 'a_b:c', 'a'.repeat(185)]) {
+    const result = validateLocalNetConfig(withUser({ primaryParty: ok, parties: [{ hint: ok }] }));
+    assert(result.success, `hint '${ok}' is one Canton accepts`);
+  }
+  const user = ['validators', 0, 'users', 0];
+  const cases: Array<[Record<string, unknown>, Array<string | number>]> = [
+    [{ primaryParty: 'alice::ns' }, [...user, 'primaryParty']],
+    [{ primaryParty: 'bob.smith' }, [...user, 'primaryParty']],
+    [{ parties: [{ hint: 'alicé' }] }, [...user, 'parties', 0, 'hint']],
+    [{ parties: [{ hint: 'a'.repeat(186) }] }, [...user, 'parties', 0, 'hint']],
+  ];
+  for (const [bad, path] of cases) {
+    const result = validateLocalNetConfig(withUser(bad));
+    assert(!result.success, JSON.stringify(bad));
+    assertEquals(result.errors.issues.map((i) => i.path), [path]);
+    assertStringIncludes(result.errors.issues[0].message, 'not one Canton accepts');
+  }
+});
+
+Deno.test('validateLocalNetConfig - user ids are what both Keycloak and Canton accept', () => {
+  const withId = (id: string) => ({ validators: [{ name: 'v1', users: [{ id }] }], auth: AUTH });
+  for (const ok of ['ops', 'a'.repeat(128), 'ops.team@corp', "a-b_c|d:e(f)+g'h~i#j$k^l!m`n"]) {
+    assert(validateLocalNetConfig(withId(ok)).success, `id '${ok}'`);
+  }
+  for (const bad of ['ab', 'a'.repeat(129), 'has space', 'ops/1', 'opsé']) {
+    const result = validateLocalNetConfig(withId(bad));
+    assert(!result.success, `id '${bad}' must be rejected`);
+    assertEquals(result.errors.issues.map((i) => i.path), [['validators', 0, 'users', 0, 'id']]);
+    assertStringIncludes(result.errors.issues[0].message, '3 to 128 characters');
+  }
 });

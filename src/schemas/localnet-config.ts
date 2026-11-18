@@ -7,6 +7,11 @@ import {
 } from '../types/config.ts';
 import type { ConfigWarning } from '../types/state.ts';
 import { getHighestPort, MAX_PORT } from '../utils/ports.ts';
+import {
+  isSpliceReleaseBefore,
+  TESTED_SPLICE_VERSIONS,
+  usesSplice010Config,
+} from '../utils/splice-version.ts';
 
 export const UserRightSchema = z.enum([
   'ParticipantAdmin',
@@ -240,27 +245,52 @@ function unknownKeyWarnings(input: unknown): ConfigWarning[] {
   return warnings;
 }
 
-/**
- * Whether a `spliceVersion` tag names a release before `major.minor`. Tags that do not start
- * with `<major>.<minor>` (custom builds) are never treated as older.
- */
-function isSpliceReleaseBefore(version: string, major: number, minor: number): boolean {
-  const m = /^(\d+)\.(\d+)(?:\.|$|-)/.exec(version);
-  if (!m) return false;
-  const [vMajor, vMinor] = [Number(m[1]), Number(m[2])];
-  return vMajor < major || (vMajor === major && vMinor < minor);
+// What Canton accepts, from github.com/digital-asset/canton at tags v3.6.4 and v3.7.3 (Splice
+// 0.9.4 and 0.10.2; the files are identical at both). A party id hint is a Daml-LF Party —
+// letters, digits, ':', '-', '_' and space (community/daml-lf/data/src/main/scala/com/
+// digitalasset/daml/lf/data/IdString.scala:297-298) — without '::' and at most 185 characters
+// (community/base/src/main/scala/com/digitalasset/canton/topology/Identifier.scala:99-111). A user
+// id is 1 to 128 of [a-zA-Z0-9@^$.!`\-#+'~_|:()] (IdString.scala:336-338); Keycloak 26.1.0's
+// default user profile requires a username of 3 to 255 characters
+// (services/src/main/resources/org/keycloak/userprofile/config/keycloak-default-user-profile.json).
+const CANTON_PARTY_HINT = /^[A-Za-z0-9:_ -]{1,185}$/;
+const USER_ID = /^[a-zA-Z0-9@^$.!`\-#+'~_|:()]{3,128}$/;
+
+/** `value` for an error message, shortened when long. */
+function shown(value: string): string {
+  return value.length > 40 ? `${value.slice(0, 40)}…` : value;
+}
+
+function partyHintIssue(hint: string, path: Array<string | number>): z.ZodIssue | undefined {
+  if (CANTON_PARTY_HINT.test(hint) && !hint.includes('::')) return undefined;
+  return {
+    code: z.ZodIssueCode.custom,
+    path,
+    message: `Party hint '${shown(hint)}' is not one Canton accepts: 1 to 185 letters, digits, ` +
+      `':', '-', '_' or spaces, without '::'`,
+  };
 }
 
 /**
  * Input-only rules that are not part of the schema, so stored labels keep parsing: the
  * port limit for the validator count, lowercase and unique validator names that neither
  * equal the reserved `sv` nor derive a Keycloak realm name already in use, and lowercase user
- * ids (Keycloak lowercases usernames), and no `CanActAsAnyParty` right when `spliceVersion` names a
- * release before 0.9. Also `packages[].uploadTo`: when present it must be non-empty and name only
- * `sv` or configured validators.
+ * ids (Keycloak lowercases usernames) that both Keycloak and Canton accept, user party
+ * references (`primaryParty`, `parties[].hint`) that Canton accepts as a party hint, and no
+ * `CanActAsAnyParty` right when `spliceVersion` names a release before 0.9. Also `version` must be
+ * `'1.0'`, and `packages[].uploadTo`: when present it must be non-empty and name only `sv` or
+ * configured validators.
  */
 function checkConfigInvariants(parsed: ParsedLocalNetConfig): z.ZodIssue[] {
   const issues: z.ZodIssue[] = [];
+  if (parsed.version !== CONFIG_DEFAULTS.version) {
+    issues.push({
+      code: z.ZodIssueCode.custom,
+      path: ['version'],
+      message: `Config version '${shown(parsed.version)}' is not supported; this version of ` +
+        `denex-network-manager reads version '${CONFIG_DEFAULTS.version}'`,
+    });
+  }
   const count = typeof parsed.validators === 'number'
     ? parsed.validators
     : parsed.validators.length;
@@ -325,24 +355,42 @@ function checkConfigInvariants(parsed: ParsedLocalNetConfig): z.ZodIssue[] {
     });
     const before09 = parsed.spliceVersion !== undefined &&
       isSpliceReleaseBefore(parsed.spliceVersion, 0, 9);
+    const user = (i: number, j: number) => ['validators', i, 'users', j];
     parsed.validators.forEach((v: ValidatorConfig, i: number) => {
       (v.users ?? []).forEach((u, j) => {
         const lower = u.id.toLowerCase();
         if (u.id !== lower) {
           issues.push({
             code: z.ZodIssueCode.custom,
-            path: ['validators', i, 'users', j, 'id'],
-            message: `User id '${u.id}' must be lowercase (Keycloak lowercases usernames); ` +
-              `use '${lower}'`,
+            path: [...user(i, j), 'id'],
+            message:
+              `User id '${shown(u.id)}' must be lowercase (Keycloak lowercases usernames); ` +
+              `use '${shown(lower)}'`,
+          });
+        } else if (!USER_ID.test(u.id)) {
+          issues.push({
+            code: z.ZodIssueCode.custom,
+            path: [...user(i, j), 'id'],
+            message: `User id '${shown(u.id)}' (${u.id.length} characters) must be 3 to 128 ` +
+              `characters, each a letter, a digit or one of @^$.!\`-#+'~_|:() (Keycloak usernames ` +
+              `are at least 3 characters, Canton user ids at most 128 of these)`,
           });
         }
+        const primary = u.primaryParty === undefined
+          ? undefined
+          : partyHintIssue(u.primaryParty, [...user(i, j), 'primaryParty']);
+        if (primary) issues.push(primary);
+        (u.parties ?? []).forEach((p, k) => {
+          const issue = partyHintIssue(p.hint, [...user(i, j), 'parties', k, 'hint']);
+          if (issue) issues.push(issue);
+        });
         // Ledger API 3.6 (Splice 0.9.0) added the right. An older participant rejects the whole
         // grant, so the user would get none of its rights and no wallet.
         const k = u.rights?.indexOf('CanActAsAnyParty') ?? -1;
         if (before09 && k >= 0) {
           issues.push({
             code: z.ZodIssueCode.custom,
-            path: ['validators', i, 'users', j, 'rights', k],
+            path: [...user(i, j), 'rights', k],
             message: `CanActAsAnyParty needs Splice 0.9.0 or later (Canton 3.6); ` +
               `spliceVersion is '${parsed.spliceVersion}'`,
           });
@@ -395,10 +443,27 @@ type InputResult =
   | { success: true; data: ParsedLocalNetConfig; warnings: ConfigWarning[] }
   | { success: false; errors: z.ZodError; warnings: ConfigWarning[] };
 
+/** A `spliceVersion` outside the tested set is accepted with a warning. */
+function untestedSpliceVersionWarning(version: string | undefined): ConfigWarning | undefined {
+  if (version === undefined || (TESTED_SPLICE_VERSIONS as readonly string[]).includes(version)) {
+    return undefined;
+  }
+  const shape = usesSplice010Config(version) ? '0.10' : '0.9';
+  return {
+    source: 'config',
+    path: 'spliceVersion',
+    message:
+      `spliceVersion '${version}' is untested (tested: ${TESTED_SPLICE_VERSIONS.join(', ')}); ` +
+      `it gets the Splice ${shape} config shape`,
+  };
+}
+
 function parseInput(input: unknown): InputResult {
   const warnings = unknownKeyWarnings(input);
   const result = LocalNetConfigSchema.safeParse(input);
   if (!result.success) return { success: false, errors: result.error, warnings };
+  const untested = untestedSpliceVersionWarning(result.data.spliceVersion);
+  if (untested) warnings.push(untested);
   const issues = checkConfigInvariants(result.data);
   if (issues.length > 0) return { success: false, errors: new z.ZodError(issues), warnings };
   return { success: true, data: result.data, warnings };

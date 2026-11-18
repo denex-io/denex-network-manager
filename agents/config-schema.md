@@ -49,9 +49,12 @@ user-facing schema, fills defaults, and feeds the generator and lifecycle layers
 - Input (YAML, objects given to `fromConfig()`/the `LocalNet` constructor, builder output) goes
   through `parseLocalNetConfig()`, `validateLocalNetConfig()` or `withDefaults()`: strip parse plus
   unknown-key warnings plus `checkConfigInvariants()` (port limit, lowercase and unique names,
-  lowercase user ids, reserved `sv`, Keycloak realm collisions via `getRealmName`,
-  `packages[].uploadTo` non-empty and naming `sv` or a configured validator). These invariants are
-  not in the exported Zod schema, so the schema type is unchanged.
+  `version` `'1.0'`, lowercase user ids that Keycloak and Canton accept, user party references that
+  Canton accepts as a party hint, reserved `sv`, Keycloak realm collisions via `getRealmName`,
+  `packages[].uploadTo` non-empty and naming `sv` or a configured validator), and a warning for a
+  `spliceVersion` outside `TESTED_SPLICE_VERSIONS`. These invariants are not in the exported Zod
+  schema, so the schema type is unchanged. The Canton and Keycloak rules are cited at their tags
+  beside `CANTON_PARTY_HINT` and `USER_ID` in `src/schemas/localnet-config.ts`.
 - Stored labels (`fromInstanceId()`, `discover()`, `reconstructConfigFromLabels()`,
   `detectConfigMismatch()` on both sides) use `parseStoredLocalNetConfig()`: strip parse only, no
   warnings, no invariants. Instances created by older versions (11+ validators, case-variant names,
@@ -80,7 +83,10 @@ user-facing schema, fills defaults, and feeds the generator and lifecycle layers
   `discovery` object will see `undefined` now.
 - `PartyConfig.hint` and `ValidatorConfig.name` must match `/^[a-z][a-z0-9-]*$/i`; on input a
   validator name must also be lowercase (`checkConfigInvariants`), and user ids must be lowercase
-  too (`validators[i].users[j].id`). Stored labels stay lenient for both.
+  too (`validators[i].users[j].id`). Stored labels stay lenient for both. A user's `primaryParty`
+  and `parties[].hint` are held to Canton's looser party-hint rule instead (letters, digits, `:`,
+  `-`, `_`, space, at most 185, no `::`), so the top-level `parties[].hint` rule is the stricter of
+  the two.
 - `UserConfig.rights` accepts all rights for backward compatibility, but per-party rights should be
   modeled with `UserConfig.parties`.
 
