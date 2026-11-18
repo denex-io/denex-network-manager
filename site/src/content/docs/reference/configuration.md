@@ -71,7 +71,7 @@ auth:
 | `basePort`      | number (1024–60000) | `5000`   | Base of the port block                                     |
 | `spliceVersion` | string              | —        | Splice release tag for Canton, Splice and the web UIs      |
 | `packages`      | array               | —        | DARs uploaded to participants at the end of initialization |
-| `discovery`     | object              | —        | Deprecated. Does not start a server.                       |
+| `discovery`     | object              | —        | Deprecated. Does not start a server; use `dnm discovery serve` (CLI) or `MultiInstanceDiscoveryServer` (SDK) |
 
 `validators: 2` is shorthand for two validators named `validator-1` and `validator-2`. The field is
 required in YAML, and a file without it fails to load. In the SDK, `LocalNetBuilder` and
@@ -85,6 +85,10 @@ Unknown keys are ignored with a warning. A typo such as `basport: 7000` loads, p
 `Unrecognized key 'basport' at root (ignored)` on stderr, and the network uses the default
 `basePort`. The SDK delivers the same warning to `LocalNetOptions.onWarning`. YAML merge keys are
 not supported: a `<<` key counts as an unknown key, so it warns and nothing is merged.
+
+`discovery` is still validated so that older configs keep loading: when present it needs `port`, an
+integer from 1 to 65535, and `host`, a non-empty string. After a successful start, `dnm start` warns
+that the field is deprecated.
 
 ## Validators
 
@@ -125,10 +129,15 @@ warning and is ignored.
 
 | Field          | Type   | Description                                    |
 | -------------- | ------ | ---------------------------------------------- |
-| `id`           | string | Required. Lowercase, at least 3 characters (Keycloak's username minimum), and unique within the validator. Also the Keycloak password |
+| `id`           | string | Required. Lowercase, non-empty, and unique within the validator; use at least 3 characters (see below). Also the Keycloak password |
 | `primaryParty` | string | Grants `CanActAs` on that party and onboards the user to the wallet |
 | `rights`       | array  | Participant-wide rights                        |
 | `parties`      | array  | Per-party rights, as `{ hint, rights }`        |
+
+Config validation accepts any non-empty, lowercase `id` that is unique within its validator.
+Keycloak's default user profile (26.1.0, the Keycloak image LocalNet runs) sets a 3–255 character
+rule for usernames, so use at least 3. Users created at runtime with `LocalNet.createUser()` are
+checked against it.
 
 Rights split into two kinds:
 
@@ -163,6 +172,9 @@ auth:
     admin: admin
     password: admin
 ```
+
+`auth.keycloak.admin` and `auth.keycloak.password` are required, non-empty strings. `auth.mode` is
+optional, and the only accepted value is `oauth2`.
 
 These configure the persistent Keycloak master realm admin, not validator wallet credentials. See
 [Web UIs and credentials](/denex-network-manager/start/web-uis/).

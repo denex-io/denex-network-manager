@@ -3,6 +3,9 @@ title: Quick start
 description: Bring up a Canton LocalNet from a single YAML file, inspect it, and tear it down.
 ---
 
+The commands below need `dnm` on your `PATH`: `dnm --version` should print a version. If it does
+not, see [Installation](/denex-network-manager/start/installation/#cli).
+
 ## Write a config
 
 Create `localnet.yaml`:
