@@ -220,14 +220,16 @@ By default every LocalNet runs the Splice release bundled with this version of
 `ghcr.io/digital-asset/decentralized-canton-sync/docker` are all pulled at that tag. PostgreSQL,
 Keycloak and Nginx are unaffected. The value must be a valid Docker tag.
 
-The version is stored with the instance, so a `dnm start` that repairs it recreates containers at
-the same release. Without `spliceVersion` no release is stored, and a repair uses the release
-bundled with the `denex-network-manager` version doing the repair, which after an upgrade can
-differ from the one the instance was created with. In the SDK, `LocalNetOptions.images` overrides
-individual images and wins over `spliceVersion`.
+The tested releases are 0.9.4 (the default) and 0.10.2; another value starts with a warning that
+it is untested. The generated Canton and Splice config follows the release: 0.10 and later get the
+Splice 0.10 shape.
 
-Only the bundled release is tested. Generated Canton and Splice configs are not versioned, so a
-release that changed its config format can fail to start.
+An instance keeps the release it was created with. A `dnm start` that would create containers next
+to existing ones on another release (for example after a `denex-network-manager` upgrade changed
+the default) refuses before changing anything; a complete instance resumes as it was created, with
+a warning. To switch release, destroy the instance and start it again (its ledger state is lost).
+In the SDK, `LocalNetOptions.images` overrides individual images and wins over `spliceVersion`, but
+an override that puts canton or splice-app on a release of the other config shape is refused.
 
 ## Environment variable interpolation
 

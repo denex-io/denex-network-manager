@@ -26,7 +26,8 @@ built-ins and are intended to work on Deno, Node.js, and Bun.
 **Bun caveat:** Bun does not support Docker Unix sockets reliably through `node:http`. If you use
 the SDK from Bun, configure Docker to listen on a TCP socket.
 
-> This release runs Splice **0.9.4** (Canton 3.6.4) by default. To run another release, set
+> This release runs Splice **0.9.4** (Canton 3.6.4) by default and is also tested on Splice
+> **0.10.2** (Canton 3.7.3): set `spliceVersion: '0.10.2'`. To run another release, set
 > `spliceVersion` in the config or call `LocalNetBuilder.withSpliceVersion()`. From the SDK, pass
 > `images` in `LocalNetOptions` to override individual images.
 

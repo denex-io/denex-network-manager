@@ -42,14 +42,17 @@ environment, and Nginx setup needed by the LocalNet.
 - `canton.features.enable-testing-commands = yes` is intentionally enabled for local/test behavior.
 - `SPLICE_SV_IS_DEVNET=true` is set on the Splice container.
 - Onboarding secrets are deterministic: `validator-{i+1}-onboarding-secret`.
-- **One generated config serves every `spliceVersion`.** Canton fails startup on unknown config keys
-  (3.5.1 already did for most; 3.6 extended the check to all), so a key added for 3.6 can fail on
-  Canton 3.5.1 (Splice 0.6.6, the documented way to keep the previous release). Splice still ignores
-  unknown keys, but a known key it reads with a different shape fails: Splice 0.6.6's
-  `RateLimitersConfig` has no defaults, so `_rate_limiting` repeats `default` and `rate-limiters`.
-  Check each new key at both tags (`git -C <splice> show <tag>:<path>`) and start both versions
-  before merging. Splice 0.10.x needs `participant-client.admin-api.client-config` plus
-  `auth-config`, which the current shape lacks.
+- **Generated config has two shapes, keyed by `spliceVersion`.** `usesSplice010Config()`
+  (`src/utils/splice-version.ts`) picks the Splice 0.10 shape for 0.10 and later and for any tag
+  that is not a release number: each Splice app's participant Admin API client is
+  `admin-api { client-config { address, port }, auth-config.type = "none" }`
+  (`participantAdminApiClient()` in `src/generator/splice.ts`), instead of
+  `admin-api { address, port }`. Everything else is shared. Canton fails startup on unknown config
+  keys (3.5.1 already did for most; 3.6 extended the check to all), so check each new key at every
+  tested tag (`git -C <splice> show <tag>:<path>`) and start each tested version before merging.
+  Splice ignores unknown keys, but a known key it reads with a different shape fails (Splice 0.6.6's
+  `RateLimitersConfig` has no defaults, so `_rate_limiting` repeats `default` and `rate-limiters`).
+  Golden fixtures pin the 0.9.4 output (`test/unit/fixtures/generated-0.9.4/`).
 - Storage pools are `max-connections = 8` for Canton and Splice. A participant opens
   `1.5 × max-connections + 23` Postgres connections and the sequencer `2 × max-connections`; at 32,
   SV + 2 validators opened 475.

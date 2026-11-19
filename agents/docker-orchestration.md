@@ -98,6 +98,13 @@ health, and labels resources for discovery and cleanup.
   on a real Unix-socket daemon, fall back to `exec.start({ hijack: false, stdin: false })`.
 - Port conflict detection checks other Docker containers' published ports, not arbitrary host
   processes.
+- `start()` compares each existing container's image with its spec before changing anything
+  (`diffExistingContainers()`): a repair that would create containers next to ones on another image
+  throws `InstanceMismatchError`; a complete instance resumes as created with an `'instance'`
+  warning. Switching Splice release means destroy and start again.
+- Health waits follow Docker's verdict: the first `unhealthy` (after the check's start period and
+  retries), an exit, or the start's timeout fails with `ContainerStartupError` carrying the
+  container's last 20 log lines, read before the rollback removes the container.
 - Bun cannot reliably use Docker Unix sockets through `node:http`; configure Docker over TCP for
   Bun.
 - Keycloak 26 health uses management port `9000` inside the container and `/dev/tcp`, not `curl`.

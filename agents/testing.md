@@ -63,10 +63,26 @@ See `test/integration/` for the full list. Notable files:
 - `test/integration/network_test.ts`
 - `test/integration/postgres_test.ts`
 - `test/integration/runtime_user_test.ts`
+- `test/integration/splice_version_test.ts`
 - `test/integration/transfer_test.ts`
 - `test/integration/multi_instance_test.ts`
 - `test/integration/wallet_ui_test.ts`
 - `test/integration/helpers.ts`
+
+## Splice version under test
+
+- `DNM_TEST_SPLICE_VERSION=<tag>` runs the integration suite on that Splice release; unset runs the
+  bundled default. `test/integration/helpers.ts` reads it once through the config schema (a value it
+  refuses fails the run at import) and every integration config goes through `testConfig()`; tests
+  that need an image use `SELECTED_SPLICE_IMAGES`. `test/unit/integration_config_guard_test.ts`
+  fails on a config definition that skips `testConfig()` or a test that names `DEFAULT_IMAGES` /
+  `DEFAULT_SPLICE_VERSION`. A config that pins its own `spliceVersion` cannot use `testConfig()`.
+- `deno task test:integration` runs `test/integration/splice_version_test.ts` first, alone (one full
+  start; the canton and splice image tags must be the selected release; Canton's `/v2/version` is
+  logged), and the rest only if it passes. `.github/workflows/integration.yml` does the same per
+  release in its matrix.
+- A start with `skipInitialization` can return before the APIs answer; a test that reads the ledger
+  right after one calls `waitForLedgerJsonApi()` (bounded, throws `JsonApiNotReadyError`).
 
 ## Working rules
 
