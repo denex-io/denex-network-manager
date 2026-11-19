@@ -595,13 +595,20 @@ Deno.test('start - existing containers whose listed image matches are not inspec
 });
 
 Deno.test('start - a listed image ID is resolved by inspect, not reported as a mismatch', async () => {
-  await withFakeNet(async (net, fake) => {
-    // After a tag moves, the list API shows the image ID; inspect keeps the reference.
-    fake.seedExisting(ALL_NAMES, 'running');
-    fake.listedImage.set(`${ID}-postgres`, '98f8ec75657d');
-    await net.start(START);
-    assertEquals(net.currentState, 'running');
-  });
+  const warnings: LocalNetWarning[] = [];
+  await withFakeNet(
+    async (net, fake) => {
+      // After a tag moves, the list API shows the image ID; inspect keeps the reference. On a
+      // complete instance a false mismatch would only warn, so the warning is what is checked.
+      fake.seedExisting(ALL_NAMES, 'running');
+      fake.listedImage.set(`${ID}-postgres`, '98f8ec75657d');
+      await net.start(START);
+      assertEquals(net.currentState, 'running');
+      assertEquals(warnings.filter((w) => w.source === 'instance'), []);
+    },
+    undefined,
+    { onWarning: (w) => warnings.push(w) },
+  );
 });
 
 Deno.test('start - a transient inspect error surfaces as itself, not as a mismatch', async () => {
@@ -725,6 +732,79 @@ function failPartyAllocation(net: LocalNet): void {
 const WITH_PARTY = (config: LocalNetConfig) => {
   config.validators = [{ name: 'validator-1', parties: [{ hint: 'alice' }] }];
 };
+
+Deno.test('start - a --timeout beyond the timer limit does not end a pull at once', async () => {
+  await withFakeNet(async (net, fake) => {
+    fake.missingImages.add('postgres:18');
+    fake.pullDelayMs = 50;
+    // A delay above 2^31-1 ms overflows setTimeout, which then fires at once.
+    await net.start({ ...START, timeout: 2 ** 32 });
+    assertEquals(net.currentState, 'running');
+  });
+});
+
+/** A fetch that accepts every request and never answers, until its signal aborts. */
+function hangingFetch(hangs: (url: string) => boolean): typeof fetch {
+  return (input, init) => {
+    const url = String(input);
+    if (!hangs(url)) return Promise.reject(new Error(`fetch is stubbed in this test: ${url}`));
+    return new Promise((_resolve, reject) => {
+      init?.signal?.addEventListener('abort', () => reject(init.signal!.reason), { once: true });
+    });
+  };
+}
+
+/** Resolves with what `p` settles to, or with a note once `ms` pass without it settling. */
+function within<T>(p: Promise<T>, ms: number): Promise<T | string> {
+  return Promise.race([
+    p,
+    new Promise<string>((r) => setTimeout(() => r(`not settled after ${ms} ms`), ms)),
+  ]);
+}
+
+Deno.test('start - a validator API that never answers fails typed within --timeout', async () => {
+  await withFakeNet(async (net) => {
+    Reflect.set(net, 'readinessDelayMs', { initial: 20, max: 20 });
+    globalThis.fetch = hangingFetch((url) => url.endsWith('/livez'));
+    const outcome = await within(
+      net.start({ skipHealthChecks: true, timeout: 300 }).then(() => 'started', (e) => e),
+      1500,
+    );
+    assert(outcome instanceof StartupTimeoutError, `got ${outcome}`);
+    assertEquals(outcome.phase, 'init');
+  });
+});
+
+Deno.test('start - Scan that never answers fails typed within --timeout', async () => {
+  await withFakeNet(async (net) => {
+    Reflect.set(net, 'readinessDelayMs', { initial: 20, max: 20 });
+    Reflect.set(
+      net,
+      'getValidatorState',
+      () => Promise.resolve({ isHealthy: true, validatorParty: 'p::ns' }),
+    );
+    globalThis.fetch = hangingFetch((url) => url.endsWith('/api/scan/status'));
+    const outcome = await within(
+      net.start({ skipHealthChecks: true, timeout: 300 }).then(() => 'started', (e) => e),
+      1500,
+    );
+    assert(outcome instanceof StartupTimeoutError, `got ${outcome}`);
+    assertEquals(outcome.phase, 'init');
+  });
+});
+
+Deno.test('start - an instance whose config says version 1 resumes, with one warning', async () => {
+  const warnings: LocalNetWarning[] = [];
+  await withFakeNet(async (net, fake) => {
+    fake.seedExisting(ALL_NAMES, 'running');
+    await net.start(START);
+    assertEquals(net.currentState, 'running');
+  }, (config) => {
+    config.version = '1';
+  }, { onWarning: (w) => warnings.push(w) });
+  assertEquals(warnings.map((w) => w.path), ['version']);
+  assertStringIncludes(warnings[0].message, "'1'");
+});
 
 Deno.test('start - a party that cannot be set up fails a fresh start, typed, and rolls it back', async () => {
   await withFakeNet(async (net, fake) => {

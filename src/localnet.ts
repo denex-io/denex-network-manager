@@ -238,6 +238,14 @@ const STARTUP_LOG_LINES = 20;
  */
 export const DEFAULT_START_TIMEOUT_MS = 600_000;
 
+/** Largest delay setTimeout takes; a longer one overflows and fires at once. */
+const MAX_TIMER_MS = 2 ** 31 - 1;
+
+/** Milliseconds left until `deadline`, at least 0 and at most what a timer can wait. */
+function msUntil(deadline: number): number {
+  return Math.min(MAX_TIMER_MS, Math.max(0, deadline - Date.now()));
+}
+
 /** What is left of one `start()` call's timeout: every pull, health wait and readiness wait. */
 interface StartBudget {
   /** Epoch milliseconds by which the start must be done. */
@@ -1188,10 +1196,17 @@ export class LocalNet {
    * unhealthy or still initializing. The result is cached for 30 seconds, including an unhealthy
    * one.
    *
+   * @param options - `signal` ends the health, participant-ID and validator-party requests when it
+   *   aborts (an aborted health check counts as unhealthy); the Keycloak token request is not
+   *   covered.
    * @throws If the instance is not running or the name is unknown.
    */
-  async getValidatorState(validatorName: string): Promise<ApiValidatorState> {
+  async getValidatorState(
+    validatorName: string,
+    options?: { signal?: AbortSignal },
+  ): Promise<ApiValidatorState> {
     await this.requireRunning('getValidatorState');
+    const signal = options?.signal;
 
     const cacheKey = `validator:${validatorName}`;
     const cached = this.getCached<ApiValidatorState>(cacheKey);
@@ -1204,14 +1219,14 @@ export class LocalNet {
       throw new Error(`Unknown validator: ${validatorName}`);
     }
 
-    const isHealthy = await cantonClient.healthCheck();
+    const isHealthy = await cantonClient.healthCheck(signal);
     let participantId = '';
     let validatorParty: string | undefined;
 
     if (isHealthy) {
       try {
-        participantId = await cantonClient.getParticipantId();
-        validatorParty = await validatorClient.getValidatorParty();
+        participantId = await cantonClient.getParticipantId(signal);
+        validatorParty = await validatorClient.getValidatorParty(signal);
       } catch {
         // Participant might not be fully initialized
       }
@@ -2401,7 +2416,7 @@ export class LocalNet {
       this.pullProgressIntervalMs,
     );
     const abort = new AbortController();
-    const expiry = setTimeout(() => abort.abort(), Math.max(0, budget.deadline - Date.now()));
+    const expiry = setTimeout(() => abort.abort(), msUntil(budget.deadline));
     try {
       await this.client.pullImage(image, undefined, abort.signal);
     } catch (error) {
@@ -2441,7 +2456,10 @@ export class LocalNet {
       for (let i = 0; i < maxRetries; i++) {
         try {
           onProgress?.(`Checking API readiness for ${name}...`);
-          const state = await this.getValidatorState(name);
+          // Each attempt ends with the start's deadline, so an API that accepts and never
+          // answers cannot hold the start past its timeout.
+          const signal = budget ? AbortSignal.timeout(msUntil(budget.deadline)) : undefined;
+          const state = await this.getValidatorState(name, { signal });
           if (state.isHealthy && state.validatorParty) {
             onProgress?.(`${name} API is ready`);
             break;
@@ -2489,9 +2507,8 @@ export class LocalNet {
       try {
         onProgress?.('Checking Scan readiness...');
         const scanPort = getSvInternalPorts(this.config.basePort).scanAdmin;
-        const response = await fetch(
-          `http://localhost:${scanPort}/api/scan/status`,
-        );
+        const signal = budget ? AbortSignal.timeout(msUntil(budget.deadline)) : undefined;
+        const response = await fetch(`http://localhost:${scanPort}/api/scan/status`, { signal });
         if (!response.ok) {
           throw new Error(`Scan status returned ${response.status}`);
         }

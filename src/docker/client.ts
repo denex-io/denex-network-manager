@@ -39,8 +39,9 @@ export class DockerClient {
   }
 
   /**
-   * Pull an image. Aborting `signal` closes the pull's connection, which ends the pull, and
-   * rejects with the signal's reason.
+   * Pull an image. Aborting `signal` closes the pull's connection, which ends the pull, also
+   * before the daemon has answered the request: the pull then rejects with the request's abort
+   * error, and once it streams, with the signal's reason.
    */
   async pullImage(
     image: string,
@@ -48,7 +49,8 @@ export class DockerClient {
     signal?: AbortSignal,
   ): Promise<void> {
     signal?.throwIfAborted();
-    const stream = await this.docker.pull(image) as Readable;
+    // The signal goes on the request itself, so a deadline before the daemon answers ends it too.
+    const stream = await this.docker.pull(image, signal ? { abortSignal: signal } : {}) as Readable;
     return new Promise((resolve, reject) => {
       const onAbort = () => {
         stream.destroy();

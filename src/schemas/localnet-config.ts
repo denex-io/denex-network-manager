@@ -262,12 +262,22 @@ function shown(value: string): string {
 }
 
 function partyHintIssue(hint: string, path: Array<string | number>): z.ZodIssue | undefined {
-  if (CANTON_PARTY_HINT.test(hint) && !hint.includes('::')) return undefined;
+  if (hint.includes('::') || hint.endsWith(':')) {
+    // Canton refuses '::' in a hint. A trailing ':' it allocates, but the party id
+    // '<hint>:::<namespace>' reads back as another hint, so every start allocates it again.
+    return {
+      code: z.ZodIssueCode.custom,
+      path,
+      message: `Party hint '${shown(hint)}' must not contain '::' or end in ':': a party id is ` +
+        `'<hint>::<namespace>', split at its first '::' by Canton and dnm`,
+    };
+  }
+  if (CANTON_PARTY_HINT.test(hint)) return undefined;
   return {
     code: z.ZodIssueCode.custom,
     path,
     message: `Party hint '${shown(hint)}' is not one Canton accepts: 1 to 185 letters, digits, ` +
-      `':', '-', '_' or spaces, without '::'`,
+      `':', '-', '_' or spaces`,
   };
 }
 
@@ -276,21 +286,13 @@ function partyHintIssue(hint: string, path: Array<string | number>): z.ZodIssue 
  * port limit for the validator count, lowercase and unique validator names that neither
  * equal the reserved `sv` nor derive a Keycloak realm name already in use, and lowercase user
  * ids (Keycloak lowercases usernames) that both Keycloak and Canton accept, user party
- * references (`primaryParty`, `parties[].hint`) that Canton accepts as a party hint, and no
- * `CanActAsAnyParty` right when `spliceVersion` names a release before 0.9. Also `version` must be
- * `'1.0'`, and `packages[].uploadTo`: when present it must be non-empty and name only `sv` or
- * configured validators.
+ * references (`primaryParty`, `parties[].hint`) that Canton accepts as a party hint and that read
+ * back as themselves (no `::`, no trailing `:`), and no `CanActAsAnyParty` right when
+ * `spliceVersion` names a release before 0.9. Also `packages[].uploadTo`: when present it must be
+ * non-empty and name only `sv` or configured validators.
  */
 function checkConfigInvariants(parsed: ParsedLocalNetConfig): z.ZodIssue[] {
   const issues: z.ZodIssue[] = [];
-  if (parsed.version !== CONFIG_DEFAULTS.version) {
-    issues.push({
-      code: z.ZodIssueCode.custom,
-      path: ['version'],
-      message: `Config version '${shown(parsed.version)}' is not supported; this version of ` +
-        `denex-network-manager reads version '${CONFIG_DEFAULTS.version}'`,
-    });
-  }
   const count = typeof parsed.validators === 'number'
     ? parsed.validators
     : parsed.validators.length;
@@ -458,12 +460,41 @@ function untestedSpliceVersionWarning(version: string | undefined): ConfigWarnin
   };
 }
 
+/** A `version` other than `'1.0'` is accepted with a warning: refusing it would strand instances. */
+function configVersionWarning(version: string): ConfigWarning | undefined {
+  if (version === CONFIG_DEFAULTS.version) return undefined;
+  return {
+    source: 'config',
+    path: 'version',
+    message: `version is '${shown(version)}'; this release reads config version ` +
+      `'${CONFIG_DEFAULTS.version}' and uses the file as that`,
+  };
+}
+
+/**
+ * Configs this module returned, with the value warnings their parse gave. Parsing one of them
+ * again (`dnm start` and the builder parse, then `LocalNet.fromConfig` parses that output) gives
+ * those warnings once only; a changed value warns again. Unknown-key warnings need no such record:
+ * the first parse removes the keys.
+ */
+const valueWarningsOf = new WeakMap<object, string>();
+
+function valueWarnings(input: unknown, data: ParsedLocalNetConfig): ConfigWarning[] {
+  const warnings = [
+    untestedSpliceVersionWarning(data.spliceVersion),
+    configVersionWarning(data.version),
+  ].filter((w): w is ConfigWarning => w !== undefined);
+  const key = warnings.map((w) => w.message).join('\n');
+  const given = typeof input === 'object' && input !== null && valueWarningsOf.get(input) === key;
+  valueWarningsOf.set(data, key);
+  return given ? [] : warnings;
+}
+
 function parseInput(input: unknown): InputResult {
   const warnings = unknownKeyWarnings(input);
   const result = LocalNetConfigSchema.safeParse(input);
   if (!result.success) return { success: false, errors: result.error, warnings };
-  const untested = untestedSpliceVersionWarning(result.data.spliceVersion);
-  if (untested) warnings.push(untested);
+  warnings.push(...valueWarnings(input, result.data));
   const issues = checkConfigInvariants(result.data);
   if (issues.length > 0) return { success: false, errors: new z.ZodError(issues), warnings };
   return { success: true, data: result.data, warnings };

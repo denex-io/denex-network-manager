@@ -127,6 +127,7 @@ export class CantonClient {
     method: string,
     path: string,
     body?: unknown,
+    signal?: AbortSignal,
   ): Promise<T> {
     const authHeaders = await this.getAuthHeaders();
     const url = `${this.baseUrl}${path}`;
@@ -141,6 +142,7 @@ export class CantonClient {
       method,
       headers,
       body: body ? JSON.stringify(body) : undefined,
+      signal,
     });
 
     if (!response.ok) {
@@ -156,10 +158,13 @@ export class CantonClient {
     return {} as T;
   }
 
-  async getParticipantId(): Promise<string> {
+  /** @param signal - Ends the request when it aborts (the Keycloak token request is not covered). */
+  async getParticipantId(signal?: AbortSignal): Promise<string> {
     const result = await this.request<{ participantId: string }>(
       'GET',
       '/v2/parties/participant-id',
+      undefined,
+      signal,
     );
     return result.participantId;
   }
@@ -325,10 +330,12 @@ export class CantonClient {
     await this.uploadDar(darContent);
   }
 
-  async healthCheck(): Promise<boolean> {
+  /** @param signal - Ends the request when it aborts, which counts as not healthy. */
+  async healthCheck(signal?: AbortSignal): Promise<boolean> {
     try {
       const response = await fetch(`${this.baseUrl}/livez`, {
         method: 'GET',
+        signal,
       });
       return response.ok;
     } catch {

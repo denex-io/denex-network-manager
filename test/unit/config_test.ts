@@ -830,12 +830,36 @@ Deno.test('validateLocalNetConfig - a spliceVersion outside the tested set warns
   parseStoredLocalNetConfig({ validators: 1, auth: AUTH, spliceVersion: '0.10.1' });
 });
 
-Deno.test('validateLocalNetConfig - only config version 1.0 is read', () => {
-  assert(validateLocalNetConfig({ version: '1.0', validators: 1, auth: AUTH }).success);
-  const result = validateLocalNetConfig({ version: '2.0', validators: 1, auth: AUTH });
-  assert(!result.success);
-  assertEquals(result.errors.issues[0].path, ['version']);
-  assertStringIncludes(result.errors.issues[0].message, "'1.0'");
+Deno.test('validateLocalNetConfig - a config version other than 1.0 is read, with a warning', () => {
+  const warnings: ConfigWarning[] = [];
+  const record = { onWarning: (w: ConfigWarning) => warnings.push(w) };
+  assert(validateLocalNetConfig({ version: '1.0', validators: 1, auth: AUTH }, record).success);
+  assert(validateLocalNetConfig({ validators: 1, auth: AUTH }, record).success);
+  assertEquals(warnings, []);
+  for (const v of ['1', '2.0']) {
+    warnings.length = 0;
+    assert(validateLocalNetConfig({ version: v, validators: 1, auth: AUTH }, record).success, v);
+    assertEquals(warnings.map((w) => [w.source, w.path]), [['config', 'version']], v);
+    assertStringIncludes(warnings[0].message, `'${v}'`);
+    assertStringIncludes(warnings[0].message, "'1.0'");
+  }
+});
+
+Deno.test('parseLocalNetConfig - value warnings are not repeated when its output is parsed again', () => {
+  const warnings: ConfigWarning[] = [];
+  const record = { onWarning: (w: ConfigWarning) => warnings.push(w) };
+  const first = parseLocalNetConfig(
+    { version: '1', spliceVersion: '0.10.1', validators: 1, auth: AUTH },
+    record,
+  );
+  assertEquals(warnings.map((w) => w.path), ['spliceVersion', 'version']);
+  warnings.length = 0;
+  // `dnm start` and the builder parse once, then LocalNet.fromConfig parses that output again.
+  const second = parseLocalNetConfig(first, record);
+  assertEquals(warnings, []);
+  // A changed value is a new config and warns again.
+  parseLocalNetConfig({ ...second, spliceVersion: '0.10.3' }, record);
+  assertEquals(warnings.map((w) => w.path), ['spliceVersion', 'version']);
 });
 
 // Canton 3.6.4 and 3.7.3 (github.com/digital-asset/canton, tags v3.6.4 and v3.7.3, identical):
@@ -854,7 +878,6 @@ Deno.test('validateLocalNetConfig - user party references follow what Canton acc
   }
   const user = ['validators', 0, 'users', 0];
   const cases: Array<[Record<string, unknown>, Array<string | number>]> = [
-    [{ primaryParty: 'alice::ns' }, [...user, 'primaryParty']],
     [{ primaryParty: 'bob.smith' }, [...user, 'primaryParty']],
     [{ parties: [{ hint: 'alicé' }] }, [...user, 'parties', 0, 'hint']],
     [{ parties: [{ hint: 'a'.repeat(186) }] }, [...user, 'parties', 0, 'hint']],
@@ -864,6 +887,14 @@ Deno.test('validateLocalNetConfig - user party references follow what Canton acc
     assert(!result.success, JSON.stringify(bad));
     assertEquals(result.errors.issues.map((i) => i.path), [path]);
     assertStringIncludes(result.errors.issues[0].message, 'not one Canton accepts');
+  }
+  // A party id is '<hint>::<namespace>', read back by splitting at its first '::', so a hint that
+  // contains '::' or ends in ':' does not survive the round trip.
+  for (const bad of ['ops::x', 'ops:']) {
+    const result = validateLocalNetConfig(withUser({ primaryParty: bad }));
+    assert(!result.success, bad);
+    assertEquals(result.errors.issues.map((i) => i.path), [[...user, 'primaryParty']]);
+    assertStringIncludes(result.errors.issues[0].message, "split at its first '::'");
   }
 });
 

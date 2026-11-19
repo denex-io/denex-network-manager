@@ -29,6 +29,8 @@ All notable changes to this project will be documented in this file. The format 
   must report the release version. The tag must be on `main` and equal the `deno.json` version. Pull
   requests also check formatting, the frozen lockfile and `install.sh` (shellcheck, and an install
   in a clean `ubuntu:24.04` container), with Deno pinned to 2.9.3.
+- A config `version` other than `'1.0'` is read with a warning naming it; before, it was accepted
+  without one.
 - `LocalNetWarning.source` can be `'instance'`: an existing instance resumes as it was created
   although it differs from the current config and options (for example another image).
 
@@ -79,9 +81,9 @@ All notable changes to this project will be documented in this file. The format 
   128 characters of letters, digits and ``@^$.!`-#+'~_|:()`` (Keycloak usernames are at least 3
   characters, Canton 3.6/3.7 user ids at most 128 of these; before, any lowercase string), and a
   user's `primaryParty` or `parties[].hint` that Canton does not accept as a party hint (letters,
-  digits, `:`, `-`, `_` and spaces, at most 185 characters, no `::`; before, any non-empty string).
-  `version` must be `'1.0'`; before, any string was accepted and ignored. Stored instance labels are
-  not checked, so existing instances stay stoppable.
+  digits, `:`, `-`, `_` and spaces, at most 185 characters, no `::` and no trailing `:`, which do
+  not read back as the same hint; before, any non-empty string). Stored instance labels are not
+  checked, so existing instances stay stoppable.
 - The bundled default stays Splice 0.9.4. Splice 0.10 moves to Canton 3.7 and protocol version 37
   (per its release notes), where `GenerateExternalPartyTopology` returns v31 topology transactions
   unless the request pins protocol version 36, which changes external-party onboarding for SDK

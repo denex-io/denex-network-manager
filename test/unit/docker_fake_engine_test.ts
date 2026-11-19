@@ -531,3 +531,35 @@ Deno.test(
     }
   },
 );
+
+Deno.test({
+  name: 'pullImage - a deadline that fires before the daemon answers the pull ends it',
+  ...opts,
+  async fn() {
+    const client = new DockerClient();
+    let requestSignal: AbortSignal | undefined;
+    // Like docker-modem: the pull request ends when its abortSignal fires, and not otherwise.
+    const stub = {
+      pull: (_image: string, o?: { abortSignal?: AbortSignal }) =>
+        new Promise((_resolve, reject) => {
+          requestSignal = o?.abortSignal;
+          o?.abortSignal?.addEventListener('abort', () => reject(new Error('request aborted')), {
+            once: true,
+          });
+        }),
+      modem: { followProgress: () => {} },
+    };
+    (client as unknown as { docker: unknown }).docker = stub;
+    const abort = new AbortController();
+    setTimeout(() => abort.abort(new Error('deadline')), 20);
+    const outcome = await Promise.race([
+      client.pullImage('img:1', undefined, abort.signal).then(
+        () => 'resolved',
+        (e: Error) => `rejected: ${e.message}`,
+      ),
+      new Promise((r) => setTimeout(() => r('still pulling 1s after the deadline'), 1000)),
+    ]);
+    assertEquals(outcome, 'rejected: request aborted');
+    assertEquals(requestSignal, abort.signal);
+  },
+});
