@@ -1,0 +1,85 @@
+name: Integration
+
+# The full integration suite on every tested Splice release: each job starts real LocalNets in
+# Docker on the runner. publish.yml calls it as the release gate; run it by hand from the Actions
+# tab against any branch.
+
+'on':
+  workflow_call:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  integration:
+    name: Integration (Splice ${{ matrix.splice }})
+    runs-on: ubuntu-latest
+    # One run took 97 minutes on a 10-CPU Docker Desktop VM with the images already pulled
+    # (2026-11-18). A hosted runner has 4 vCPUs and pulls every image (about 6.4 GB per release);
+    # 180 minutes leaves that run almost 2x.
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix:
+        splice: ['0.9.4', '0.10.2']
+    env:
+      DNM_TEST_SPLICE_VERSION: ${{ matrix.splice }}
+
+    steps:
+      # @v7.0.0
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+
+      # @v2.0.5
+      - uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed
+        name: Setup Deno
+        with:
+          deno-version: v2.9.3
+
+      # A release's images take about 6.4 GB; the runner image's preinstalled SDKs are not needed.
+      - name: Free disk space
+        run: |
+          set -euo pipefail
+          df -h /
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          df -h /
+
+      - name: Install Dependencies (frozen lockfile)
+        run: deno install --frozen
+
+      - name: Install Chromium for the browser tests
+        run: deno run --allow-all npm:playwright@1.57.0 install --with-deps chromium
+
+      # The rest of the run is evidence for one Splice release only if the LocalNets really run it:
+      # this test starts one and checks the canton and splice image tags, and the suite runs only
+      # if it passes (as `deno task test:integration` does).
+      - name: Version check (Splice ${{ matrix.splice }})
+        run: deno test --allow-all --junit-path=junit-version.xml test/integration/splice_version_test.ts
+
+      - name: Integration suite (Splice ${{ matrix.splice }})
+        run: >-
+          deno test --allow-all --junit-path=junit-suite.xml
+          --ignore=test/integration/splice_version_test.ts test/integration/
+
+      - name: Collect container logs
+        if: failure()
+        run: |
+          mkdir -p container-logs
+          docker ps -a > container-logs/docker-ps.txt
+          for id in $(docker ps -aq); do
+            name="$(docker inspect --format '{{.Name}}' "$id" | sed 's#^/##')"
+            docker logs --timestamps "$id" > "container-logs/$name.log" 2>&1 ||
+              echo "docker logs $name failed with exit $?" >> container-logs/docker-ps.txt
+          done
+          df -h / >> container-logs/docker-ps.txt
+
+      # @v4.3.3
+      - uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0abb4808
+        name: Upload test reports and container logs
+        if: always()
+        with:
+          name: integration-splice-${{ matrix.splice }}
+          path: |
+            junit-*.xml
+            container-logs/
+          if-no-files-found: warn

@@ -72,8 +72,11 @@ a spec — only the `spliceVersion` config field is implemented; the rest is not
 
 The npm release pipeline lives in `scripts/build_npm.ts` (SDK-only npm package via `dnt`) and
 `.github/workflows/publish.yml` (tag-triggered; `deno compile` builds the five platform CLI
-binaries). These are not covered by a dedicated `agents/*.md` file; read those files directly when
-doing release work.
+binaries, `verify-binaries` installs each runnable one and checks `--version`, and the `integration`
+job — `.github/workflows/integration.yml`, the full suite on every tested Splice release — gates the
+publish). `ci.yml` runs the fast checks and `scripts/install-smoke.sh` (an `install.sh` run in a
+clean container) on every push. These are not covered by a dedicated `agents/*.md` file; read those
+files directly when doing release work.
 
 ## Subject-specific context
 

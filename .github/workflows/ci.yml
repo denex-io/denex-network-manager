@@ -12,6 +12,9 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+# Fast checks for every push and pull request. The full integration suite, which starts real
+# LocalNets on every tested Splice release, is the release gate in publish.yml (integration.yml).
+
 jobs:
   lint-and-test:
     name: Lint And Unit Test
@@ -25,7 +28,7 @@ jobs:
       - uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed
         name: Setup Deno
         with:
-          deno-version: v2.x
+          deno-version: v2.9.3
 
       # @v6.1.0
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
@@ -38,14 +41,63 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-deno-
 
-      - name: Check Types
-        run: deno task check
+      - name: Install Dependencies (frozen lockfile)
+        run: |
+          set -euo pipefail
+          deno install --frozen
+          git diff --exit-code deno.lock
+
+      - name: Format Check
+        run: deno task fmt:check
 
       - name: Lint
         run: deno task lint
+
+      - name: Check Types
+        run: |
+          set -euo pipefail
+          deno task check
+          deno check test/
+
+      - name: Splice Version Selection Tests
+        run: >-
+          deno test --allow-all test/unit/splice_version_test.ts
+          test/unit/integration_splice_version_test.ts test/unit/integration_config_guard_test.ts
 
       - name: Unit Tests
         run: deno task test:unit
 
       - name: Smoke Tests
         run: deno task test:smoke
+
+      - name: Shellcheck
+        run: shellcheck install.sh scripts/install-smoke.sh
+
+  install-smoke:
+    name: Install Script In A Clean Container
+    runs-on: ubuntu-latest
+
+    steps:
+      # @v7.0.0
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+
+      # @v2.0.5
+      - uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed
+        name: Setup Deno
+        with:
+          deno-version: v2.9.3
+
+      # The archive and SHA256SUMS layout publish.yml releases, installed by install.sh through
+      # DNM_BASE_URL in a fresh ubuntu:24.04 container. The unstamped binary reports
+      # src/cli/version.ts, so this also fails if that and deno.json disagree.
+      - name: Compile and archive linux/x64
+        run: |
+          set -euo pipefail
+          mkdir dist
+          deno compile --allow-all --frozen --target x86_64-unknown-linux-gnu --output dist/dnm src/cli/mod.ts
+          tar -czf dist/dnm-linux-x64.tar.gz -C dist dnm
+          rm dist/dnm
+          (cd dist && sha256sum dnm-*.tar.gz > SHA256SUMS && cat SHA256SUMS)
+
+      - name: Install with install.sh and run dnm
+        run: scripts/install-smoke.sh dist "$(jq -r '.version' deno.json)"

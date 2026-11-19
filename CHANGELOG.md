@@ -20,6 +20,15 @@ All notable changes to this project will be documented in this file. The format 
   untested and which config shape (0.9 or 0.10) it gets; a tag that is not a release number, such as
   `dev-snapshot`, gets the 0.10 shape. Only a value that cannot be a Docker tag is refused, as
   before.
+- `install.sh` reads `DNM_BASE_URL`: the URL of a directory holding the release archives and
+  `SHA256SUMS` (for example `file:///tmp/dist` or a mirror), used instead of the GitHub release. CI
+  uses it to install the archives it has just built.
+- Release checks: a release runs the full integration suite on Splice 0.9.4 and 0.10.2 before
+  anything is published or the `latest` dist-tag moves, and installs each binary a hosted runner can
+  execute (linux-x64, linux-arm64, darwin-arm64 through `install.sh`; win-x64 from its zip), which
+  must report the release version. The tag must be on `main` and equal the `deno.json` version. Pull
+  requests also check formatting, the frozen lockfile and `install.sh` (shellcheck, and an install
+  in a clean `ubuntu:24.04` container), with Deno pinned to 2.9.3.
 - `LocalNetWarning.source` can be `'instance'`: an existing instance resumes as it was created
   although it differs from the current config and options (for example another image).
 
