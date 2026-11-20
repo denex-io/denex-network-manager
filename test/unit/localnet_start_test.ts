@@ -232,8 +232,16 @@ class FakeDockerClient {
     this.calls.push(`stopDone:${idOrName}`);
   }
 
+  /** removeContainer for these names rejects; the container stays. */
+  failRemove = new Set<string>();
+  /** removeNetwork rejects with this error; the network stays. */
+  removeNetworkError: Error | null = null;
+
   removeContainer(idOrName: string): Promise<void> {
     const f = this.find(idOrName);
+    if (f && this.failRemove.has(f.name)) {
+      return Promise.reject(new Error(`remove failed: ${f.name}`));
+    }
     if (f) this.containers.delete(f.name);
     this.calls.push(`removeContainer:${idOrName}`);
     return Promise.resolve();
@@ -259,6 +267,7 @@ class FakeDockerClient {
   }
 
   removeNetwork(name: string): Promise<void> {
+    if (this.removeNetworkError) return Promise.reject(this.removeNetworkError);
     this.networkExists = false;
     this.calls.push(`removeNetwork:${name}`);
     return Promise.resolve();
@@ -371,6 +380,36 @@ Deno.test('start rollback - failed fresh start removes containers, network and v
     assert(fake.mutations.some((m) => m.startsWith('createNetwork:')));
     assert(fake.mutations.includes(`removeVolume:${VOLUME}`));
     assertEquals(net.getContainerId(`${ID}-postgres`), undefined);
+  });
+});
+
+Deno.test('start rollback - a rollback that cannot undo everything says what it left behind', async () => {
+  const progress: string[] = [];
+  await withFakeNet(async (net, fake) => {
+    fake.failStart.add(`${ID}-splice`);
+    fake.failRemove.add(`${ID}-postgres`);
+    fake.removeNetworkError = new Error('network has active endpoints');
+    const err = await assertRejects(
+      () => net.start({ ...START, onProgress: (m) => progress.push(m) }),
+      Error,
+      'start failed',
+    );
+    // The startup error is still the one thrown; the rollback failure rides on it.
+    assertStringIncludes(err.message, `start failed: ${ID}-splice`);
+    assertStringIncludes(err.message, 'left behind');
+    assertStringIncludes(err.message, `container ${ID}-postgres`);
+    assertStringIncludes(err.message, `network denex.localnet-${ID}`);
+    const failure = (err as Error & { rollbackFailure?: { leftBehind: string[] } }).rollbackFailure;
+    assertEquals(failure?.leftBehind.sort(), [
+      `container ${ID}-postgres`,
+      `network denex.localnet-${ID}`,
+    ]);
+    assert(
+      progress.some((m) => m.includes('left behind') && m.includes(`container ${ID}-postgres`)),
+      progress.join('\n'),
+    );
+    assert(fake.containers.has(`${ID}-postgres`));
+    assertEquals(fake.volumeExists, false);
   });
 });
 

@@ -111,3 +111,22 @@ export class InitializationError extends LocalNetError {
     super(message, options);
   }
 }
+
+/**
+ * What a failed `start()` could not undo. The error `start()` throws is still the startup error;
+ * when the rollback could not remove or restore everything this start changed, it carries this as
+ * `rollbackFailure`, and its message ends with the same list.
+ */
+export interface RollbackFailure {
+  /** What is left, e.g. `container default-postgres`, `network denex.localnet-default`. */
+  readonly leftBehind: readonly string[];
+  /** The errors that stopped each of those steps, in the same order. */
+  readonly errors: readonly unknown[];
+}
+
+/** The {@link RollbackFailure} a failed `start()` attached to its error, if there was one. */
+export function rollbackFailureOf(error: unknown): RollbackFailure | undefined {
+  return typeof error === 'object' && error !== null
+    ? (error as { rollbackFailure?: RollbackFailure }).rollbackFailure
+    : undefined;
+}

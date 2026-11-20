@@ -16,6 +16,8 @@ export {
   type InstanceDifference,
   InstanceMismatchError,
   LocalNetError,
+  type RollbackFailure,
+  rollbackFailureOf,
   SpliceVersionConflictError,
   StartupTimeoutError,
 } from '../errors.ts';

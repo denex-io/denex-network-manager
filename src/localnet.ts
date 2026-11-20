@@ -43,6 +43,7 @@ import {
   type InstanceDifference,
   InstanceMismatchError,
   LocalNetError,
+  type RollbackFailure,
   StartupTimeoutError,
 } from './errors.ts';
 import { loadConfigFile } from './utils/yaml.ts';
@@ -597,7 +598,9 @@ export class LocalNet {
    * below, when it leaves them running). A failed first start therefore leaves
    * nothing behind, while a failed resume (for example a timeout) leaves the
    * stopped containers, the network and the postgres data volume intact. The
-   * instance state returns to `'stopped'`.
+   * instance state returns to `'stopped'`. If the rollback cannot undo everything, the error thrown
+   * is still the startup error, with what was left behind (and why) appended to its message and
+   * attached as `rollbackFailure` (see {@link rollbackFailureOf}); `onProgress` names it too.
    *
    * Returns without changes, marking this object running, only when every
    * container the instance should have is running. A partially running
@@ -861,10 +864,23 @@ export class LocalNet {
         rb.restarted.size > 0
       ) {
         options?.onProgress?.('Startup failed; removing resources created by this attempt...');
+        // The startup error stays the one thrown; what the rollback could not undo rides on it.
+        let failure: RollbackFailure | undefined;
         try {
-          await this.rollbackStart(rb);
-        } catch {
-          // Swallow — the original error below is what matters.
+          failure = await this.rollbackStart(rb);
+        } catch (rollbackError) {
+          failure = {
+            leftBehind: ['unknown (the rollback itself failed)'],
+            errors: [rollbackError],
+          };
+        }
+        if (failure) {
+          options?.onProgress?.(
+            `Rollback incomplete; left behind: ${failure.leftBehind.join(', ')}`,
+          );
+          this.internalState = 'stopped';
+          this.startedAt = undefined;
+          throw withRollbackFailure(error, failure);
         }
       }
       this.internalState = 'stopped';
@@ -943,18 +959,39 @@ export class LocalNet {
    * A failed resume therefore leaves existing containers, network and data
    * volume in place (stopped), while a failed fresh start leaves nothing.
    */
-  private async rollbackStart(rb: StartRollback): Promise<void> {
+  private async rollbackStart(rb: StartRollback): Promise<RollbackFailure | undefined> {
+    // Every step still runs when another fails; each failure is recorded, not dropped.
+    const leftBehind: string[] = [];
+    const errors: unknown[] = [];
+    const record = async (what: string, results: Promise<PromiseSettledResult<unknown>[]>) => {
+      for (const r of await results) {
+        if (r.status === 'rejected') {
+          leftBehind.push(what);
+          errors.push(r.reason);
+        }
+      }
+    };
+    const each = <T>(
+      entries: Array<[string, T]>,
+      label: (name: string) => string,
+      op: (v: T) => Promise<unknown>,
+    ) => Promise.all(entries.map(([name, v]) => record(label(name), Promise.allSettled([op(v)]))));
+
     // Dependents that were running before this call and were stopped to restart.
     // Start them first, while their upstreams still run: nginx has static
     // proxy_pass hostnames and no resolver, and Docker DNS drops stopped
     // containers, so an nginx started after its upstreams stop crash-loops with
     // "host not found in upstream".
-    await Promise.allSettled(
-      [...rb.restarted.values()].map((id) => this.client.startContainer(id)),
+    await each(
+      [...rb.restarted.entries()],
+      (name) => `container ${name} (stopped, not started again)`,
+      (id) => this.client.startContainer(id),
     );
 
-    await Promise.allSettled(
-      [...rb.created.values()].map((id) => this.client.removeContainer(id, true)),
+    await each(
+      [...rb.created.entries()],
+      (name) => `container ${name}`,
+      (id) => this.client.removeContainer(id, true),
     );
 
     // Stop later layers first so dependents go down before their dependencies;
@@ -966,8 +1003,11 @@ export class LocalNet {
     // After a 409 another process may be mid-start: leave what this call started alone.
     if (!rb.conflict) {
       for (const layer of [...byLayer.keys()].sort((a, b) => b - a)) {
-        await Promise.allSettled(
-          (byLayer.get(layer) ?? []).map((id) => this.client.stopContainer(id, 30)),
+        const names = [...rb.started.entries()].filter(([, v]) => v.layer === layer);
+        await each(
+          names,
+          (name) => `container ${name} (still running)`,
+          (v) => this.client.stopContainer(v.id, 30),
         );
       }
     }
@@ -975,15 +1015,23 @@ export class LocalNet {
     // After a 409 the other process may already build on the network and volume
     // this call created: leave them for it (or for a retry) as well.
     if (rb.networkCreated && !rb.conflict) {
-      await this.networkManager.remove(this.options.instanceId).catch(() => {});
+      const network = this.networkManager.getExpectedNetworkName(this.options.instanceId);
+      await record(
+        `network ${network}`,
+        Promise.allSettled([
+          this.networkManager.remove(this.options.instanceId),
+        ]),
+      );
     }
     if (rb.volumeCreated && !rb.conflict) {
-      await this.client.removeVolume(`${this.options.instanceId}-postgres-data`).catch(() => {});
+      const volume = `${this.options.instanceId}-postgres-data`;
+      await record(`volume ${volume}`, Promise.allSettled([this.client.removeVolume(volume)]));
     }
 
     for (const name of rb.created.keys()) {
       this.containerIds.delete(name);
     }
+    return leftBehind.length > 0 ? { leftBehind, errors } : undefined;
   }
 
   /**
@@ -2822,13 +2870,29 @@ export class LocalNet {
 }
 
 /**
- * Postgres init script that creates each database named by a CREATE_DATABASE_*
- * environment variable. Written into the container's init dir at startup.
+ * The startup error, with what the rollback could not undo attached as `rollbackFailure` and
+ * appended to its message, so neither the caller nor the CLI loses it.
  */
+function withRollbackFailure(error: unknown, failure: RollbackFailure): Error {
+  const target = error instanceof Error
+    ? error
+    : new LocalNetError(errorMessage(error), { cause: error });
+  const reasons = failure.errors.map(errorMessage).join('; ');
+  target.message += `\nRollback incomplete, left behind: ${
+    failure.leftBehind.join(', ')
+  } (${reasons})`;
+  Object.defineProperty(target, 'rollbackFailure', { value: failure, enumerable: true });
+  return target;
+}
+
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+/**
+ * Postgres init script that creates each database named by a CREATE_DATABASE_*
+ * environment variable. Written into the container's init dir at startup.
+ */
 function buildPostgresInitScript(): string {
   return `#!/bin/bash
 set -e

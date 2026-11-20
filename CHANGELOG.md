@@ -84,6 +84,10 @@ All notable changes to this project will be documented in this file. The format 
 - `createUser()` creates the Canton user only when looking it up returns 404. Any other lookup error
   fails it with a `LocalNetError` carrying the cause; before, every lookup error led to a create
   attempt, and the lookup error was lost.
+- A failed `start()` whose rollback cannot undo everything says what it left behind: the startup
+  error is still the one thrown, with the leftover containers, network or volume and the reasons
+  appended to its message and attached as `rollbackFailure` (`rollbackFailureOf()`), and
+  `onProgress` names them. Before, every rollback failure was ignored without a word.
 - `createUser()` checks the user id by the same rule before it creates anything; before, an id
   Keycloak refused left the Canton user behind.
 - Keycloak users keep the email `<id>@localnet.localhost` when the id is a valid email local part.
