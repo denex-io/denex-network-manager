@@ -1,0 +1,187 @@
+name: Example integration tests
+
+# PROBE (temporary): proves a LocalNet starts on a GitHub-hosted ubuntu-24.04 runner with dnm's
+# healthchecks on, and measures a cold start against an image cache restored with actions/cache.
+# The real job, which runs examples/integration-tests, replaces this.
+
+'on':
+  push:
+    branches: [work/ci-example]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  LOCALNET_INSTANCE: probe
+
+jobs:
+  probe:
+    name: LocalNet probe (cold pull)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: examples/integration-tests
+
+    steps:
+      # @v7.0.0
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        timeout-minutes: 5
+
+      - name: Runner facts
+        timeout-minutes: 2
+        run: |
+          set -euo pipefail
+          nproc
+          free -m
+          df -h /
+          docker version --format 'Docker {{.Server.Version}}'
+
+      - name: Install dnm (version pinned in package.json)
+        timeout-minutes: 3
+        run: |
+          set -euo pipefail
+          scripts/install-dnm.sh
+          echo "$PWD/.dnm/bin" >> "$GITHUB_PATH"
+
+      # A failed first start removes the containers it created, so their logs must be copied while
+      # they run.
+      - name: Follow container logs
+        timeout-minutes: 1
+        run: |
+          mkdir -p logs
+          nohup sh -c '
+            while :; do
+              for id in $(docker ps -aq --filter "label=denex.localnet.instance=$LOCALNET_INSTANCE"); do
+                [ -e "logs/.$id" ] && continue
+                touch "logs/.$id"
+                name="$(docker inspect --format "{{.Name}}" "$id" | sed "s#^/##")"
+                docker logs --follow --timestamps "$id" > "logs/$name.log" 2>&1 &
+              done
+              sleep 2
+            done' > /dev/null 2>&1 &
+
+      - name: Start LocalNet (cold, healthchecks on)
+        timeout-minutes: 25
+        run: |
+          set -euo pipefail
+          t0=$(date +%s)
+          dnm start --instance "$LOCALNET_INSTANCE" --timeout 1200000
+          echo "cold start (pulls included): $(( $(date +%s) - t0 )) s" | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Inspect the running LocalNet
+        timeout-minutes: 5
+        run: |
+          set -euo pipefail
+          dnm status --instance "$LOCALNET_INSTANCE"
+          dnm parties --instance "$LOCALNET_INSTANCE"
+          dnm entitlements --instance "$LOCALNET_INSTANCE"
+          docker stats --no-stream --format 'table {{.Name}}\t{{.MemUsage}}\t{{.CPUPerc}}'
+          free -m
+          docker system df
+          df -h /
+          mkdir -p /tmp/images
+          docker ps --filter "label=denex.localnet.instance=$LOCALNET_INSTANCE" --format '{{.Image}}' \
+            | sort -u > /tmp/images/list.txt
+          cat /tmp/images/list.txt
+
+      - name: Save images for the cache measurement
+        timeout-minutes: 10
+        run: |
+          set -euo pipefail
+          t0=$(date +%s)
+          # shellcheck disable=SC2046
+          docker save -o /tmp/images/images.tar $(cat /tmp/images/list.txt)
+          echo "docker save: $(( $(date +%s) - t0 )) s, $(du -h /tmp/images/images.tar | cut -f1)" \
+            | tee -a "$GITHUB_STEP_SUMMARY"
+
+      # @v6.1.0
+      - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        name: Save image cache (probe key, deleted by the next job)
+        timeout-minutes: 15
+        with:
+          path: /tmp/images
+          key: probe-images-${{ github.run_id }}
+
+      - name: Destroy LocalNet
+        if: always()
+        timeout-minutes: 5
+        run: dnm destroy --instance "$LOCALNET_INSTANCE" --force
+
+      # @v4.3.3
+      - uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0abb4808
+        name: Upload container logs
+        if: always()
+        timeout-minutes: 5
+        with:
+          name: probe-container-logs
+          path: examples/integration-tests/logs/*.log
+          if-no-files-found: warn
+
+  cache-restore:
+    name: LocalNet probe (images from actions/cache)
+    needs: [probe]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    permissions:
+      contents: read
+      # To delete the probe's cache entry afterwards.
+      actions: write
+    defaults:
+      run:
+        working-directory: examples/integration-tests
+
+    steps:
+      # @v7.0.0
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        timeout-minutes: 5
+
+      - name: Install dnm (version pinned in package.json)
+        timeout-minutes: 3
+        run: |
+          set -euo pipefail
+          scripts/install-dnm.sh
+          echo "$PWD/.dnm/bin" >> "$GITHUB_PATH"
+
+      # @v6.1.0
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        name: Restore image cache
+        timeout-minutes: 15
+        with:
+          path: /tmp/images
+          key: probe-images-${{ github.run_id }}
+          fail-on-cache-miss: true
+
+      - name: Load images
+        timeout-minutes: 10
+        run: |
+          set -euo pipefail
+          t0=$(date +%s)
+          docker load -i /tmp/images/images.tar
+          echo "docker load: $(( $(date +%s) - t0 )) s" | tee -a "$GITHUB_STEP_SUMMARY"
+          rm -f /tmp/images/images.tar
+
+      - name: Start LocalNet (images present)
+        timeout-minutes: 20
+        run: |
+          set -euo pipefail
+          t0=$(date +%s)
+          dnm start --instance "$LOCALNET_INSTANCE" --timeout 1200000
+          echo "warm start (no pulls): $(( $(date +%s) - t0 )) s" | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Destroy LocalNet
+        if: always()
+        timeout-minutes: 5
+        run: dnm destroy --instance "$LOCALNET_INSTANCE" --force
+
+      - name: Delete the probe cache entry
+        if: always()
+        timeout-minutes: 2
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh cache delete "probe-images-${{ github.run_id }}" --repo "$GITHUB_REPOSITORY"
