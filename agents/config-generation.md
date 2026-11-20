@@ -52,7 +52,12 @@ environment, and Nginx setup needed by the LocalNet.
   tested tag (`git -C <splice> show <tag>:<path>`) and start each tested version before merging.
   Splice ignores unknown keys, but a known key it reads with a different shape fails (Splice 0.6.6's
   `RateLimitersConfig` has no defaults, so `_rate_limiting` repeats `default` and `rate-limiters`).
-  Golden fixtures pin the 0.9.4 output (`test/unit/fixtures/generated-0.9.4/`).
+  Golden fixtures pin the 0.9.4 output (`test/unit/fixtures/generated-0.9.4/`). The 0.10 shape also
+  adds `canton.features.enable-repair-commands = yes` and
+  `canton.parameters.enable-key-download =
+  yes` (`generateFullCantonConfig`), which Canton 3.7
+  turns off by default and which Scan's ACS export and the validator's identities dump need; Canton
+  3.6.4 has no `enable-key-download`.
 - Storage pools are `max-connections = 8` for Canton and Splice. A participant opens
   `1.5 × max-connections + 23` Postgres connections and the sequencer `2 × max-connections`; at 32,
   SV + 2 validators opened 475.

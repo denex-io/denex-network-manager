@@ -2,6 +2,7 @@ import { assertEquals, assertRejects, assertStringIncludes } from '@std/assert';
 import { LocalNet } from '../../src/localnet.ts';
 import { DockerClient } from '../../src/docker/client.ts';
 import { reconstructConfigFromLabels } from '../../src/api/discovery-utils.ts';
+import { InstanceMismatchError } from '../../src/errors.ts';
 import { isDockerAvailable, testConfig } from './helpers.ts';
 
 Deno.test('config recovery from running instance via Docker labels', async () => {
@@ -106,7 +107,7 @@ Deno.test('Tier 3 method throws on stopped instance', async () => {
   );
 });
 
-Deno.test('start with mismatched config throws', async () => {
+Deno.test('start with mismatched config throws InstanceMismatchError and changes nothing', async () => {
   if (!await isDockerAvailable()) {
     console.warn('Skipped: Docker unavailable');
     return;
@@ -136,11 +137,19 @@ Deno.test('start with mismatched config throws', async () => {
       { instanceId },
     );
 
-    await assertRejects(
+    const client = new DockerClient();
+    const snapshot = async () =>
+      (await client.listContainers({ 'denex.localnet.instance': instanceId }))
+        .map((c) => `${c.name} ${c.id} ${c.state}`).sort();
+    const before = await snapshot();
+
+    const err = await assertRejects(
       () => localnet2.start({ skipHealthChecks: true, skipInitialization: true }),
-      Error,
+      InstanceMismatchError,
       'already running with a different config',
     );
+    assertEquals(err.instanceId, instanceId);
+    assertEquals(await snapshot(), before);
   } finally {
     await localnet1.destroy({ removeVolumes: true });
   }

@@ -898,12 +898,27 @@ Deno.test('validateLocalNetConfig - user party references follow what Canton acc
   }
 });
 
+// A user id is a Canton user id (canton v3.6.4/v3.7.3 IdString.scala:336-338) and a Keycloak
+// username (Keycloak 26.1.0: 3 to 255 characters, UsernameProhibitedCharactersValidator.java:44),
+// lowercase because Keycloak lowercases usernames. dnm derives nothing else from it. Live on 0.10.2
+// (2026-11-19), 'ops|rt(2)' was refused by Keycloak's user API and an imported 'ops|team(1)' could
+// not log in.
 Deno.test('validateLocalNetConfig - user ids are what both Keycloak and Canton accept', () => {
   const withId = (id: string) => ({ validators: [{ name: 'v1', users: [{ id }] }], auth: AUTH });
-  for (const ok of ['ops', 'a'.repeat(128), 'ops.team@corp', "a-b_c|d:e(f)+g'h~i#j$k^l!m`n"]) {
+  const accepted = [
+    ...['ops', 'a'.repeat(128), 'ops@corp.example', 'ops-team_1+x', 'a.b.c'],
+    // Not valid email local parts, which no longer matters: dnm sets no email.
+    ...['.ops', 'ops.', 'ops..x', `${'a'.repeat(70)}@corp`],
+  ];
+  for (const ok of accepted) {
     assert(validateLocalNetConfig(withId(ok)).success, `id '${ok}'`);
   }
-  for (const bad of ['ab', 'a'.repeat(129), 'has space', 'ops/1', 'opsé']) {
+  const refused = [
+    // Canton accepts these; Keycloak's username rule does not.
+    ...['ops|team(1)', "o'neil", 'ops:1', 'ops!', 'ops~1', 'ops^1', 'ops#1', 'ops$1', 'ops`1'],
+    ...['ab', 'a'.repeat(129), 'has space', 'opsé'],
+  ];
+  for (const bad of refused) {
     const result = validateLocalNetConfig(withId(bad));
     assert(!result.success, `id '${bad}' must be rejected`);
     assertEquals(result.errors.issues.map((i) => i.path), [['validators', 0, 'users', 0, 'id']]);

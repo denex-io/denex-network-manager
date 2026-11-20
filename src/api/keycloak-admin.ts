@@ -1,3 +1,5 @@
+import { keycloakUserEmail } from '../generator/keycloak.ts';
+
 /**
  * Minimal Keycloak admin API client. Public surface is intentionally locked to
  * {`getToken`, `findUser`, `createUser`}. Cross-runtime: uses only `globalThis.fetch`.
@@ -85,14 +87,12 @@ export class KeycloakAdminClient {
     const body = {
       username: opts.username,
       enabled: true,
-      // The realm-level "Verify Profile" required action otherwise rejects password
-      // grants on accounts missing firstName/lastName/email/emailVerified, with
-      // "Account is not fully set up" — even when `requiredActions: []`. Mirror the
-      // shape produced by the realm-import users in src/generator/keycloak.ts:331-336
-      // so runtime-created users behave identically to startup-defined users.
+      // The realm's Verify Profile action refuses password grants ("Account is not fully set
+      // up") to users without a valid email and first and last name. Same values as the realm
+      // import (src/generator/keycloak.ts), so runtime users match config users.
       firstName: opts.username,
       lastName: 'User',
-      email: `${opts.username}@localnet.localhost`,
+      email: keycloakUserEmail(opts.username),
       emailVerified: true,
       // Keycloak issue #36108: without `requiredActions: []`, Keycloak adds default
       // VERIFY_EMAIL / UPDATE_PASSWORD actions that block the password grant with

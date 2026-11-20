@@ -28,6 +28,7 @@ import {
   type UserRight,
 } from './types/config.ts';
 import { parseLocalNetConfig, parseStoredLocalNetConfig } from './schemas/mod.ts';
+import { userIdProblem } from './schemas/localnet-config.ts';
 import {
   BOOTSTRAP_ADMIN_USERNAME,
   generateAllRealmsJson,
@@ -1553,13 +1554,10 @@ export class LocalNet {
       parties?: Array<{ hint: string; rights?: PerPartyRight[] }>;
     },
   ): Promise<ApiUserInfo> {
-    const lowerUserId = userId.toLowerCase();
-    if (userId !== lowerUserId) {
-      throw new Error(
-        `User id '${userId}' must be lowercase (Keycloak lowercases usernames); ` +
-          `use '${lowerUserId}'`,
-      );
-    }
+    // The config rule, checked before anything is created: an id Keycloak refuses would otherwise
+    // leave a Canton user behind.
+    const idProblem = userIdProblem(userId);
+    if (idProblem) throw new LocalNetError(idProblem);
     await this.requireRunning('createUser');
 
     const client = this.cantonClients.get(validatorName);

@@ -183,3 +183,24 @@ Deno.test('initializeResources - Scan that never becomes active fails it, typed,
     globalThis.fetch = realFetch;
   }
 });
+
+Deno.test('createUser - an id Keycloak or Canton refuses fails before anything is created', async () => {
+  const { net, created } = await createUserWith(() =>
+    Promise.reject(new CantonApiError(404, 'GET /v2/users/x: USER_NOT_FOUND'))
+  );
+  let keycloakCalls = 0;
+  Reflect.set(net, 'getKeycloakAdminClient', () => ({
+    createUser: () => {
+      keycloakCalls++;
+      return Promise.resolve({ id: 'k' });
+    },
+  }));
+  const err = await assertRejects(
+    () => net.createUser('ops|rt(2)', 'validator-1'),
+    LocalNetError,
+    '3 to 128 characters',
+  );
+  assertStringIncludes(err.message, "'ops|rt(2)'");
+  assertEquals(created, []);
+  assertEquals(keycloakCalls, 0);
+});

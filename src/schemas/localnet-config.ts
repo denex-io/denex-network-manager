@@ -250,11 +250,33 @@ function unknownKeyWarnings(input: unknown): ConfigWarning[] {
 // letters, digits, ':', '-', '_' and space (community/daml-lf/data/src/main/scala/com/
 // digitalasset/daml/lf/data/IdString.scala:297-298) — without '::' and at most 185 characters
 // (community/base/src/main/scala/com/digitalasset/canton/topology/Identifier.scala:99-111). A user
-// id is 1 to 128 of [a-zA-Z0-9@^$.!`\-#+'~_|:()] (IdString.scala:336-338); Keycloak 26.1.0's
-// default user profile requires a username of 3 to 255 characters
-// (services/src/main/resources/org/keycloak/userprofile/config/keycloak-default-user-profile.json).
+// id is 1 to 128 of [a-zA-Z0-9@^$.!`\-#+'~_|:()] (IdString.scala:336-338). It is also the Keycloak
+// username, which Keycloak 26.1.0 (tag 26.1.0) holds to 3 to 255 characters
+// (services/src/main/resources/org/keycloak/userprofile/config/keycloak-default-user-profile.json)
+// without <>&"' whitespace $%!#?§,;:*~/\|^=[]{}()` (services/src/main/java/org/keycloak/
+// userprofile/validator/UsernameProhibitedCharactersValidator.java:44), and lowercases it. What
+// both accept, lowercase: 3 to 128 of a-z 0-9 @ . - + _. dnm sets no email or name on the
+// Keycloak user, so nothing narrows it further. Live on 0.10.2 (2026-11-19), Keycloak's user API
+// refused 'ops|rt(2)' and an imported 'ops|team(1)' could not log in.
 const CANTON_PARTY_HINT = /^[A-Za-z0-9:_ -]{1,185}$/;
-const USER_ID = /^[a-zA-Z0-9@^$.!`\-#+'~_|:()]{3,128}$/;
+const USER_ID = /^[a-z0-9@._+-]{3,128}$/;
+
+/**
+ * Why `id` cannot be a user id, or `undefined` if it can: it must be lowercase (Keycloak lowercases
+ * usernames) and something both Keycloak and Canton accept. Config input and
+ * {@link LocalNet.createUser} both check it before anything is created.
+ */
+export function userIdProblem(id: string): string | undefined {
+  const lower = id.toLowerCase();
+  if (id !== lower) {
+    return `User id '${shown(id)}' must be lowercase (Keycloak lowercases usernames); ` +
+      `use '${shown(lower)}'`;
+  }
+  if (USER_ID.test(id)) return undefined;
+  return `User id '${shown(id)}' (${id.length} characters) must be 3 to 128 characters of ` +
+    `lowercase letters, digits, '@', '.', '-', '+' and '_': what both a Keycloak username and a ` +
+    `Canton user id accept`;
+}
 
 /** `value` for an error message, shortened when long. */
 function shown(value: string): string {
@@ -360,22 +382,12 @@ function checkConfigInvariants(parsed: ParsedLocalNetConfig): z.ZodIssue[] {
     const user = (i: number, j: number) => ['validators', i, 'users', j];
     parsed.validators.forEach((v: ValidatorConfig, i: number) => {
       (v.users ?? []).forEach((u, j) => {
-        const lower = u.id.toLowerCase();
-        if (u.id !== lower) {
+        const idProblem = userIdProblem(u.id);
+        if (idProblem) {
           issues.push({
             code: z.ZodIssueCode.custom,
             path: [...user(i, j), 'id'],
-            message:
-              `User id '${shown(u.id)}' must be lowercase (Keycloak lowercases usernames); ` +
-              `use '${shown(lower)}'`,
-          });
-        } else if (!USER_ID.test(u.id)) {
-          issues.push({
-            code: z.ZodIssueCode.custom,
-            path: [...user(i, j), 'id'],
-            message: `User id '${shown(u.id)}' (${u.id.length} characters) must be 3 to 128 ` +
-              `characters, each a letter, a digit or one of @^$.!\`-#+'~_|:() (Keycloak usernames ` +
-              `are at least 3 characters, Canton user ids at most 128 of these)`,
+            message: idProblem,
           });
         }
         const primary = u.primaryParty === undefined

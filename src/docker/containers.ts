@@ -177,9 +177,16 @@ export interface GeneratedConfigs {
   keycloakRealms: Record<string, string>;
 }
 
-// PLACEHOLDER (M3, not yet sized): every healthCheck startPeriod below is unchanged from
-// 0.1.0-beta.3. Each gets sized from its container's measured time-to-healthy on the 0.10.2 full
-// suite, with the margin stated here, before this branch is pushed.
+// Health check sizing. Docker reports a container unhealthy after startPeriod + retries x
+// interval, and start() fails on the first unhealthy, so that deadline is at least 2x the slowest
+// measured time from container start to its first healthy check: the rule the start timeout uses
+// (2x a cold start). Slowest of four runs (2026-11-19/20: warm image cache on Docker Desktop for
+// Splice 0.9.4 and 0.10.2; cold, images just pulled, in DinD for both releases), quantized to the
+// check interval (5.0 s means the first check passed), against each deadline:
+//   postgres 5.1 s cold (70 s), keycloak 25.0 s cold (170 s), canton 10.1 s cold (55 s),
+//   splice 5.3 s cold (180 s), web UIs 5.1 s cold (15 s), nginx 5.0 s (15 s).
+// Every value here is unchanged from 0.1.0-beta.3 and meets the rule. test/unit/docker_test.ts
+// holds the measurements and checks it.
 
 const DEFAULT_DB_USER = 'cnadmin';
 const DEFAULT_DB_PASSWORD = 'supersafe';
@@ -296,7 +303,8 @@ export function buildCantonContainer(
     networks: [options.networkName],
     healthCheck: {
       type: 'http',
-      target: `http://localhost:${svPorts.httpHealth}/health`,
+      // Readiness, not liveness: Canton 3.6.4 and 3.7.3 both serve it on the http health server.
+      target: `http://localhost:${svPorts.httpHealth}/health/ready`,
       interval: 5,
       timeout: 30,
       retries: 10,

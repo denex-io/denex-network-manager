@@ -2,8 +2,8 @@ import { SpliceVersionConflictError } from '../errors.ts';
 
 /**
  * The Splice release a LocalNet runs when its config sets no `spliceVersion`. It stays 0.9.4 while
- * 0.10.x founds the synchronizer on protocol version 37, which changes the topology transactions
- * external-party onboarding returns.
+ * 0.10.x is configured for protocol version 37 (Canton 3.7 adds PV 37, per the Splice 0.10.0
+ * release notes), which changes the topology transactions external-party onboarding returns.
  */
 export const DEFAULT_SPLICE_VERSION = '0.9.4';
 

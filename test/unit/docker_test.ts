@@ -105,6 +105,14 @@ Deno.test('buildCantonContainer - correct health check params', () => {
   assertEquals(container.healthCheck?.startPeriod, 5);
 });
 
+Deno.test('buildCantonContainer - the health check asks Canton whether it is ready', () => {
+  // /health/ready, which Canton 3.6.4 (Splice 0.9.4) and 3.7.3 (Splice 0.10.2) both serve on the
+  // http health server, measured live on 2026-11-19; 3.7 holds it until migrations are done.
+  const container = buildCantonContainer(TEST_CONFIG, TEST_OPTIONS);
+  assertEquals(container.healthCheck?.type, 'http');
+  assertStringIncludes(String(container.healthCheck?.target), '/health/ready');
+});
+
 Deno.test('buildCantonContainer - depends on postgres', () => {
   const container = buildCantonContainer(TEST_CONFIG, TEST_OPTIONS);
 
@@ -315,6 +323,33 @@ Deno.test('buildWalletWebUiContainers - correct health check params', () => {
     assertEquals(container.healthCheck?.interval, 5);
     assertEquals(container.healthCheck?.timeout, 5);
     assertEquals(container.healthCheck?.retries, 3);
+  }
+});
+
+// Slowest measured time from container start to its first healthy check, in seconds, of four runs
+// (2026-11-19/20): warm image cache on Docker Desktop for Splice 0.9.4 and 0.10.2, and cold (images
+// just pulled) in DinD for both. Quantized to the check interval: 5.0 means the first check
+// passed. All maxima here are from the cold DinD runs. Docker reports unhealthy after startPeriod +
+// retries x interval; that must be at least 2x the measurement, the rule the start timeout uses.
+const MEASURED_TIME_TO_HEALTHY: Record<string, number> = {
+  postgres: 5.1,
+  canton: 10.1,
+  keycloak: 25.0,
+  splice: 5.3,
+  nginx: 5.0,
+  'web UI': 5.1,
+};
+
+Deno.test('buildAllContainers - every health check allows 2x the measured time to healthy', () => {
+  for (const c of buildAllContainers(TEST_CONFIG, TEST_OPTIONS)) {
+    const key = c.name in MEASURED_TIME_TO_HEALTHY ? c.name : 'web UI';
+    const hc = c.healthCheck;
+    assertExists(hc, c.name);
+    const deadline = (hc.startPeriod ?? 0) + (hc.retries ?? 0) * (hc.interval ?? 0);
+    assert(
+      deadline >= 2 * MEASURED_TIME_TO_HEALTHY[key],
+      `${c.name}: unhealthy after ${deadline}s, measured ${MEASURED_TIME_TO_HEALTHY[key]}s`,
+    );
   }
 });
 

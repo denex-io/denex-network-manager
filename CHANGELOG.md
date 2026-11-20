@@ -10,6 +10,11 @@ All notable changes to this project will be documented in this file. The format 
 - Splice 0.10.2 support. `spliceVersion: '0.10.2'` generates the Splice 0.10 config shape: each
   Splice app's participant Admin API client is a `client-config` plus an `auth-config`, which 0.10
   requires. The tested releases are 0.9.4 and 0.10.2.
+- For app builders on 0.10.2: Splice 0.10 accepts an external-party transfer or allocation only if
+  its `requestedAt` is within the past 24 hours (per the Splice 0.10 release notes;
+  `assertInPast24Hours` in `ExternalPartyAmuletRules.daml` at 0.10.2). At 0.9.4 any time in the past
+  was accepted. dnm sets no `requestedAt`; a test that fixes one in the past may need a current
+  time. See `docs/splice-version-support-plan.md` for this and the protocol-version change.
 - Typed errors: `LocalNetError` (base), `InstanceMismatchError`, `SpliceVersionConflictError`,
   `ContainerStartupError`, `StartupTimeoutError` and `InitializationError`, exported from the
   package root and `/sdk`, so callers can tell these failures apart with `instanceof`.
@@ -29,6 +34,11 @@ All notable changes to this project will be documented in this file. The format 
   must report the release version. The tag must be on `main` and equal the `deno.json` version. Pull
   requests also check formatting, the frozen lockfile and `install.sh` (shellcheck, and an install
   in a clean `ubuntu:24.04` container), with Deno pinned to 2.9.3.
+- On Splice 0.10.2, LocalNets enable Canton's participant repair service and key download
+  (`canton.features.enable-repair-commands` and `canton.parameters.enable-key-download`, which
+  Canton 3.7 turns off by default), so Scan's ACS export (`/v0/acs/{party}`) and the validator's
+  identities dump (`/v0/admin/participant/identities`) work as they do on 0.9.4. Upstream's own
+  0.10.2 LocalNet sets neither. 0.9.4 is unchanged.
 - A config `version` other than `'1.0'` is read with a warning naming it; before, it was accepted
   without one.
 - `LocalNetWarning.source` can be `'instance'`: an existing instance resumes as it was created
@@ -72,22 +82,34 @@ All notable changes to this project will be documented in this file. The format 
 - `createUser()` creates the Canton user only when looking it up returns 404. Any other lookup error
   fails it with a `LocalNetError` carrying the cause; before, every lookup error led to a create
   attempt, and the lookup error was lost.
+- `createUser()` checks the user id by the same rule before it creates anything; before, an id
+  Keycloak refused left the Canton user behind.
+- Keycloak users keep the email `<id>@localnet.localhost` when the id is a valid email local part.
+  Any other allowed id (one with `@`, longer than 64 characters, or with a leading, trailing or
+  doubled `.`) gets a hashed address at `id.localnet.localhost` instead, so every allowed id can log
+  in; before, such a user was created but Keycloak answered its login with "Account is not fully set
+  up".
+- The canton container's health check asks `/health/ready` instead of `/health` on the SV's HTTP
+  health port: readiness rather than liveness. Canton 3.6.4 (Splice 0.9.4) and 3.7.3 (Splice 0.10.2)
+  both serve it.
 - Health waits follow Docker's own verdict: `start()` fails on the first `unhealthy` Docker reports
   (after the health check's start period and retries) instead of after its own poll count, polls
   every second instead of every 5–10, and prints the elapsed time and last health status every 10
   seconds.
 - **Breaking:** config input refuses, with an error naming the field, what was only refused at
   startup before (by Keycloak or Canton, after the containers were up): a user id that is not 3 to
-  128 characters of letters, digits and ``@^$.!`-#+'~_|:()`` (Keycloak usernames are at least 3
-  characters, Canton 3.6/3.7 user ids at most 128 of these; before, any lowercase string), and a
-  user's `primaryParty` or `parties[].hint` that Canton does not accept as a party hint (letters,
-  digits, `:`, `-`, `_` and spaces, at most 185 characters, no `::` and no trailing `:`, which do
-  not read back as the same hint; before, any non-empty string). Stored instance labels are not
-  checked, so existing instances stay stoppable.
-- The bundled default stays Splice 0.9.4. Splice 0.10 moves to Canton 3.7 and protocol version 37
-  (per its release notes), where `GenerateExternalPartyTopology` returns v31 topology transactions
-  unless the request pins protocol version 36, which changes external-party onboarding for SDK
-  users.
+  128 characters of lowercase letters, digits, `@`, `.`, `-`, `+` and `_`, what both a Keycloak
+  username and a Canton user id accept (before, any lowercase string, and an id such as
+  `ops|team(1)` started healthy but could not log in), and a user's `primaryParty` or
+  `parties[].hint` that Canton does not accept as a party hint (letters, digits, `:`, `-`, `_` and
+  spaces, at most 185 characters, no `::` and no trailing `:`, which do not read back as the same
+  hint; before, any non-empty string). Stored instance labels are not checked, so existing instances
+  stay stoppable.
+- The bundled default stays Splice 0.9.4. Splice 0.10 moves to Canton 3.7 and is configured for
+  protocol version 37 (Canton 3.7 adds PV 37, per the Splice 0.10.0 release notes; the running SV
+  app's config has `initial-protocol-version` 37 on 0.10.2 and 36 on 0.9.4), where
+  `GenerateExternalPartyTopology` returns v31 topology transactions unless the request pins protocol
+  version 36, which changes external-party onboarding for SDK users.
 - The SV app config no longer sets `comet-bft-config`. Splice 0.10.2 removed CometBFT; at 0.9.4
   leaving it unset is the same as the `enabled = false` dnm wrote.
 
