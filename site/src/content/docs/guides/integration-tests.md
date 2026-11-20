@@ -119,6 +119,15 @@ In your own repository it is the same job, without the `working-directory` and w
 - `timeout-minutes` on the job and on every step, because nothing inside the run bounds it (see
   `--timeout` below).
 
+### Image pulls are not the slow part
+
+Measured on a hosted `ubuntu-24.04` runner on 2026-11-20, with dnm 0.1.0-beta.3 (Splice 0.9.4) and
+this example's SV and two validators: a cold `dnm start`, pulling every image, took 4 min 9 s. With
+the images already present it took 3 min 38 s. The pulls cost about half a minute; the rest is
+initialization. Restoring the images from `actions/cache` took 17 s and `docker load` another 33 s,
+more than the pulls they replace, so the example does not cache images and plain pulls are the
+default. Budget about four minutes for the LocalNet, every run.
+
 ### Other CI systems
 
 Nothing in the command depends on GitHub Actions. Any CI system works that gives the job a Linux
@@ -131,8 +140,11 @@ post steps, and set a job timeout.
 
 - **Linux runners only.** GitHub's hosted macOS runners have no Docker, and Windows is not
   supported by `install.sh`.
-- **Memory.** The SV and two validators use about 3.2 GiB at idle (measured for 0.1.0-beta.3; see
-  the [changelog](/denex-network-manager/help/changelog/)). One validator fewer uses less.
+- **Memory.** Right after `start`, on the same hosted runner, the containers of the SV and two
+  validators used about 4.9 GiB, 2.9 GiB of it Canton. Once idle the same topology settles at about
+  3.2 GiB (measured on Docker Desktop for 0.1.0-beta.3; see the
+  [changelog](/denex-network-manager/help/changelog/)). Hosted runners have 16 GB; size a
+  self-hosted runner or a Docker VM for the higher figure. One validator fewer uses less.
 - **`--timeout` is not a wall-clock limit in 0.1.0-beta.3.** `start --timeout` is in milliseconds
   (default `300000`) and is checked only before each layer of containers starts, so image pulls
   within a layer, health-check waits and initialization can all run past it. `stop` and `destroy`

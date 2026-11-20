@@ -16,8 +16,8 @@ this repository's source. Why each piece is shaped the way it is:
 
 ## Prerequisites
 
-- Linux or macOS with Docker. The LocalNet (the SV and two validators) uses about 3.2 GiB of memory
-  at idle, so Docker needs that to spare.
+- Linux or macOS with Docker. The LocalNet (the SV and two validators) uses about 4.9 GiB of memory
+  just after it starts and about 3.2 GiB once idle, so Docker needs that to spare.
 - Node.js 22.18 or later, which runs the TypeScript scripts directly.
 - dpm, with the Daml SDK version in [`daml/daml.yaml`](daml/daml.yaml):
   `curl -fsSL https://get.digitalasset.com/install/install.sh | sh`, then `dpm install` in `daml/`.
@@ -30,8 +30,8 @@ npm run test:integration
 ```
 
 That installs the pinned `dnm` into `.dnm/bin`, builds the DAR, starts the LocalNet (or reuses one
-that is running), runs the tests, and destroys the LocalNet if it created it. A cold first start
-takes several minutes.
+that is running), runs the tests, and destroys the LocalNet if it created it. Starting the LocalNet
+takes about four minutes.
 
 While working on the app, keep the LocalNet up and rerun only the tests:
 

@@ -117,7 +117,9 @@ jobs:
         timeout-minutes: 3
         run: sh scripts/install-dnm.sh
 
-      # The same command a developer runs. On a fresh runner it also pulls every LocalNet image.
+      # The same command a developer runs. On a fresh runner it also pulls every LocalNet image. They
+      # are not cached: measured on this runner, restoring and loading them took longer than pulling
+      # them (see the guide).
       - name: Integration tests
         timeout-minutes: 35
         run: npm run ${{ matrix.script }}
