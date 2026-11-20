@@ -49,6 +49,9 @@ jobs:
         run: deno install --frozen
 
       - name: Install Chromium for the browser tests
+        # Normally 1 to 3 minutes. Once it hung for 28 minutes right after the download reached 100%
+        # (run 44798831470); the limit makes a hang fail here, not at the job's 180 minutes.
+        timeout-minutes: 10
         run: deno run --allow-all npm:playwright@1.57.0 install --with-deps chromium
 
       # The rest of the run is evidence for one Splice release only if the LocalNets really run it:
