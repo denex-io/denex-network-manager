@@ -32,6 +32,15 @@ console.log(
 );
 
 /**
+ * Pulls `image` only if the daemon does not have it. A test that pulls an image it already has
+ * depends on the registry on every call; Docker Hub dropping one such request (HTTP 500 "failed to
+ * resolve reference … EOF") once failed four tests. Only the test of pulling itself should pull.
+ */
+export async function ensureImage(client: DockerClient, image: string): Promise<void> {
+  if (!(await client.imageExists(image))) await client.pullImage(image);
+}
+
+/**
  * Every LocalNet config the integration suite defines goes through this, so it runs
  * {@link SELECTED_SPLICE_VERSION}. `test/unit/integration_config_guard_test.ts` checks that none
  * skips it.

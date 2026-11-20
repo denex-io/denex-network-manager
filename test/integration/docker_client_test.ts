@@ -2,6 +2,7 @@ import { assertEquals, assertExists } from '@std/assert';
 import {
   cleanupTestResources,
   createTestDockerClient,
+  ensureImage,
   generateTestInstanceId,
   TEST_IMAGES,
 } from './helpers.ts';
@@ -49,7 +50,7 @@ Deno.test({
     const instanceId = generateTestInstanceId();
 
     try {
-      await client.pullImage(TEST_IMAGES.alpine);
+      await ensureImage(client, TEST_IMAGES.alpine);
 
       const containerId = await client.createContainer({
         name: `${instanceId}-test-container`,
@@ -82,7 +83,7 @@ Deno.test({
     const instanceId = generateTestInstanceId();
 
     try {
-      await client.pullImage(TEST_IMAGES.alpine);
+      await ensureImage(client, TEST_IMAGES.alpine);
 
       const containerId = await client.createContainer({
         name: `${instanceId}-start-stop-test`,
@@ -118,7 +119,7 @@ Deno.test({
     const instanceId = generateTestInstanceId();
 
     try {
-      await client.pullImage(TEST_IMAGES.alpine);
+      await ensureImage(client, TEST_IMAGES.alpine);
 
       await client.createContainer({
         name: `${instanceId}-list-test-1`,
@@ -155,11 +156,12 @@ async function startSleeper(
   client: ReturnType<typeof createTestDockerClient>,
   instanceId: string,
   command: string[] = ['sleep', '3600'],
+  image: string = TEST_IMAGES.alpine,
 ): Promise<string> {
-  await client.pullImage(TEST_IMAGES.alpine);
+  await ensureImage(client, image);
   const containerId = await client.createContainer({
     name: `${instanceId}-exec-test`,
-    image: TEST_IMAGES.alpine,
+    image,
     command,
     labels: {
       'localnet.instance': instanceId,
@@ -283,6 +285,40 @@ Deno.test({
       await reader.cancel();
     } finally {
       await cleanupTestResources(client, instanceId);
+    }
+  },
+});
+
+// A test helper that pulls an image the daemon already has depends on the registry on every call:
+// a Docker Hub hiccup (HTTP 500 "failed to resolve reference … EOF") once failed four tests here.
+// This image exists only on the local daemon, so a helper that pulls it anyway fails.
+const LOCAL_ONLY_IMAGE = 'dnm-test.invalid/alpine:3.19';
+
+async function docker(args: string[]): Promise<void> {
+  const result = await new Deno.Command('docker', { args, stdout: 'null', stderr: 'piped' })
+    .output();
+  if (!result.success) {
+    throw new Error(`docker ${args.join(' ')}: ${new TextDecoder().decode(result.stderr)}`);
+  }
+}
+
+Deno.test({
+  name: 'test helpers - an image the daemon already has is used without the registry',
+  ignore: !dockerAvailable,
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    const client = createTestDockerClient();
+    const instanceId = generateTestInstanceId();
+    await ensureImage(client, TEST_IMAGES.alpine);
+    await docker(['tag', TEST_IMAGES.alpine, LOCAL_ONLY_IMAGE]);
+    try {
+      const containerId = await startSleeper(client, instanceId, ['sleep', '60'], LOCAL_ONLY_IMAGE);
+      const result = await client.execInContainer(containerId, ['echo', 'local']);
+      assertEquals(result.output, 'local\n');
+    } finally {
+      await cleanupTestResources(client, instanceId);
+      await docker(['rmi', LOCAL_ONLY_IMAGE]);
     }
   },
 });

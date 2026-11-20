@@ -9,6 +9,7 @@ import { assertEquals } from '@std/assert';
 import {
   cleanupTestResources,
   createTestDockerClient,
+  ensureImage,
   generateTestInstanceId,
   isDockerAvailable,
   TEST_CONFIG,
@@ -102,7 +103,7 @@ for (const image of ['postgres:18-alpine', 'postgres:16-alpine']) {
       };
 
       try {
-        await client.pullImage(image);
+        await ensureImage(client, image);
         await client.createVolume(spec.volumes![0].source, { [LABEL_INSTANCE]: instanceId });
 
         const first = await startAndWait(client, spec);
