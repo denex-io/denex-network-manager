@@ -14,10 +14,12 @@ import { INSTANCE, LOGS_DIR } from './dnm.ts';
 const exec = promisify(execFile);
 
 /** Starts following every container of the instance, including ones created later. */
-export function followContainerLogs(): { stop(): void } {
+export function followContainerLogs(): { stop(): Promise<void> } {
   rmSync(LOGS_DIR, { recursive: true, force: true });
   mkdirSync(LOGS_DIR, { recursive: true });
   const followed = new Map<string, ChildProcess>();
+  const closed: Promise<void>[] = [];
+  let stopped = false;
 
   const poll = async () => {
     const { stdout } = await exec('docker', [
@@ -30,11 +32,16 @@ export function followContainerLogs(): { stop(): void } {
     ]);
     for (const line of stdout.split('\n').filter(Boolean)) {
       const [id, name] = line.split(' ');
-      if (followed.has(id)) continue;
+      // A poll still running when stop() is called must not start new followers: on a LocalNet
+      // that stays up they would never exit, and neither would this process.
+      if (stopped || followed.has(id)) continue;
       const file = createWriteStream(join(LOGS_DIR, `${name}.log`), { flags: 'a' });
       const child = spawn('docker', ['logs', '--follow', '--timestamps', id]);
-      child.stdout.pipe(file);
-      child.stderr.pipe(file);
+      // Two sources share the file, so neither may end it; close it when the follower exits.
+      child.stdout.pipe(file, { end: false });
+      child.stderr.pipe(file, { end: false });
+      child.on('close', () => file.end());
+      closed.push(new Promise((resolve) => file.on('close', () => resolve())));
       followed.set(id, child);
     }
   };
@@ -43,9 +50,12 @@ export function followContainerLogs(): { stop(): void } {
   const timer = setInterval(tick, 2000);
 
   return {
-    stop() {
+    /** Stops following; resolves once every log file is written and closed. */
+    async stop() {
+      stopped = true;
       clearInterval(timer);
       for (const child of followed.values()) child.kill();
+      await Promise.all(closed);
     },
   };
 }

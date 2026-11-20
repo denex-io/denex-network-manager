@@ -10,7 +10,7 @@ import { APP_VALIDATORS, CONFIG, DAR, INSTANCE, LOGS_DIR } from '../scripts/dnm.
 
 let net: LocalNet | undefined;
 let created = false;
-let logs: { stop(): void } | undefined;
+let logs: { stop(): Promise<void> } | undefined;
 
 /** The instance if any of its containers exist, running or not; null if there is none. */
 async function attach(): Promise<LocalNet | null> {
@@ -43,7 +43,7 @@ export async function setup(project: TestProject): Promise<void> {
     await net.uploadDar(DAR, APP_VALIDATORS);
     project.provide('localnet', await net.getEnvironment());
   } catch (error) {
-    logs.stop();
+    await logs.stop();
     printLogTails();
     if (created && net) await net.destroy();
     throw error;
@@ -51,7 +51,7 @@ export async function setup(project: TestProject): Promise<void> {
 }
 
 export async function teardown(): Promise<void> {
-  logs?.stop();
+  await logs?.stop();
   console.log(`Container logs: ${LOGS_DIR}`);
   // Containers outlive the test run, so teardown is explicit.
   if (created) await net?.destroy();

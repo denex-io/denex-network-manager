@@ -90,7 +90,7 @@ async function test(): Promise<number> {
   } catch (error) {
     console.error(`\n${error instanceof Error ? error.message : error}`);
   } finally {
-    logs.stop();
+    await logs.stop();
   }
 
   if (passed) rmSync(LOGS_DIR, { recursive: true, force: true });

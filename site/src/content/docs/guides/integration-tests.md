@@ -110,8 +110,8 @@ In your own repository it is the same job, without the `working-directory` and w
   under exactly that key. No fallback keys: the install step skips when dpm is present, so a cache
   from another SDK version would quietly leave the wrong one in place. The cache is saved right
   after the install, so a failed test run does not throw it away.
-- `npm ci`, a type check, and the integration command itself, which is the only step that knows
-  about LocalNets.
+- `npm ci`, a type check, and the integration command itself, which is the only step that starts
+  a LocalNet.
 - On failure, `logs/` is uploaded as an artifact (see below).
 - An `if: always()` step destroys the instance if a cancelled or timed-out job left it behind. On a
   hosted runner the VM is discarded anyway; on a self-hosted one it is what keeps containers from
