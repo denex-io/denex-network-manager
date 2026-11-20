@@ -1,12 +1,22 @@
 name: Example integration tests
 
-# PROBE (temporary): proves a LocalNet starts on a GitHub-hosted ubuntu-24.04 runner with dnm's
-# healthchecks on, and measures a cold start against an image cache restored with actions/cache.
-# The real job, which runs examples/integration-tests, replaces this.
+# Runs examples/integration-tests as an app project's CI would: the same npm script a developer
+# runs locally, against a LocalNet started on the runner. It is also how this repository keeps the
+# example from rotting. To adapt it to your own project, see the "Integration tests and CI" guide.
 
 'on':
   push:
-    branches: [work/ci-example]
+    paths:
+      - 'examples/integration-tests/**'
+      - '.github/workflows/example-integration-tests.yml'
+  pull_request:
+    paths:
+      - 'examples/integration-tests/**'
+      - '.github/workflows/example-integration-tests.yml'
+  schedule:
+    # Weekly, for drift the pins do not cover: runner image updates and floating image tags such as
+    # postgres:18.
+    - cron: '17 5 * * 1'
   workflow_dispatch:
 
 permissions:
@@ -16,172 +26,120 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
-env:
-  LOCALNET_INSTANCE: probe
-
 jobs:
-  probe:
-    name: LocalNet probe (cold pull)
+  test:
+    name: Integration tests (${{ matrix.lifecycle }})
+    # Linux only: hosted macOS runners have no Docker. Pinned because ubuntu-latest moves (it became
+    # 26.04).
     runs-on: ubuntu-24.04
     timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # scripts/localnet.ts drives the dnm CLI around the tests.
+          - lifecycle: cli
+            script: test:integration
+          # The vitest global setup drives the SDK.
+          - lifecycle: sdk
+            script: test:integration:sdk
     defaults:
       run:
         working-directory: examples/integration-tests
+    env:
+      # One instance per job. On a self-hosted runner whose Docker daemon is shared, also give each
+      # job its own LOCALNET_BASE_PORT.
+      LOCALNET_INSTANCE: ci-${{ matrix.lifecycle }}
 
     steps:
       # @v7.0.0
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
         timeout-minutes: 5
 
-      - name: Runner facts
-        timeout-minutes: 2
-        run: |
-          set -euo pipefail
-          nproc
-          free -m
-          df -h /
-          docker version --format 'Docker {{.Server.Version}}'
-
-      - name: Install dnm (version pinned in package.json)
-        timeout-minutes: 3
-        run: |
-          set -euo pipefail
-          scripts/install-dnm.sh
-          echo "$PWD/.dnm/bin" >> "$GITHUB_PATH"
-
-      # A failed first start removes the containers it created, so their logs must be copied while
-      # they run.
-      - name: Follow container logs
-        timeout-minutes: 1
-        run: |
-          mkdir -p logs
-          nohup sh -c '
-            while :; do
-              for id in $(docker ps -aq --filter "label=denex.localnet.instance=$LOCALNET_INSTANCE"); do
-                [ -e "logs/.$id" ] && continue
-                touch "logs/.$id"
-                name="$(docker inspect --format "{{.Name}}" "$id" | sed "s#^/##")"
-                docker logs --follow --timestamps "$id" > "logs/$name.log" 2>&1 &
-              done
-              sleep 2
-            done' > /dev/null 2>&1 &
-
-      - name: Start LocalNet (cold, healthchecks on)
-        timeout-minutes: 25
-        run: |
-          set -euo pipefail
-          t0=$(date +%s)
-          dnm start --instance "$LOCALNET_INSTANCE" --timeout 1200000
-          echo "cold start (pulls included): $(( $(date +%s) - t0 )) s" | tee -a "$GITHUB_STEP_SUMMARY"
-
-      - name: Inspect the running LocalNet
+      # @v7.0.0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        name: Setup Node
         timeout-minutes: 5
-        run: |
-          set -euo pipefail
-          dnm status --instance "$LOCALNET_INSTANCE"
-          dnm parties --instance "$LOCALNET_INSTANCE"
-          dnm entitlements --instance "$LOCALNET_INSTANCE"
-          docker stats --no-stream --format 'table {{.Name}}\t{{.MemUsage}}\t{{.CPUPerc}}'
-          free -m
-          docker system df
-          df -h /
-          mkdir -p /tmp/images
-          docker ps --filter "label=denex.localnet.instance=$LOCALNET_INSTANCE" --format '{{.Image}}' \
-            | sort -u > /tmp/images/list.txt
-          cat /tmp/images/list.txt
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: examples/integration-tests/package-lock.json
 
-      - name: Save images for the cache measurement
+      - name: Read the Daml SDK version
+        id: daml
+        timeout-minutes: 1
+        run: echo "sdk=$(awk '/^sdk-version:/ { print $2 }' daml/daml.yaml)" >> "$GITHUB_OUTPUT"
+
+      # Exact key, no restore-keys: the install below skips when dpm is present, so a cache from
+      # another SDK version would quietly leave the wrong one in place.
+      # @v6.1.0
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        name: Restore dpm
+        id: dpm-cache
+        timeout-minutes: 5
+        with:
+          path: ~/.dpm
+          key: dpm-${{ runner.os }}-${{ runner.arch }}-${{ steps.daml.outputs.sdk }}
+
+      - name: Install dpm
         timeout-minutes: 10
+        env:
+          SDK_VERSION: ${{ steps.daml.outputs.sdk }}
         run: |
           set -euo pipefail
-          t0=$(date +%s)
-          # shellcheck disable=SC2046
-          docker save -o /tmp/images/images.tar $(cat /tmp/images/list.txt)
-          echo "docker save: $(( $(date +%s) - t0 )) s, $(du -h /tmp/images/images.tar | cut -f1)" \
-            | tee -a "$GITHUB_STEP_SUMMARY"
+          if [ ! -x "$HOME/.dpm/bin/dpm" ]; then
+            curl -fsSL -o "$RUNNER_TEMP/dpm-install.sh" https://get.digitalasset.com/install/install.sh
+            sh "$RUNNER_TEMP/dpm-install.sh" "$SDK_VERSION"
+          fi
+          echo "$HOME/.dpm/bin" >> "$GITHUB_PATH"
 
+      # Saved straight away, so a later failure does not throw the install away.
       # @v6.1.0
       - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
-        name: Save image cache (probe key, deleted by the next job)
-        timeout-minutes: 15
-        with:
-          path: /tmp/images
-          key: probe-images-${{ github.run_id }}
-
-      - name: Destroy LocalNet
-        if: always()
+        name: Save dpm
+        if: steps.dpm-cache.outputs.cache-hit != 'true'
         timeout-minutes: 5
-        run: dnm destroy --instance "$LOCALNET_INSTANCE" --force
+        with:
+          path: ~/.dpm
+          key: dpm-${{ runner.os }}-${{ runner.arch }}-${{ steps.daml.outputs.sdk }}
+
+      - name: Install dependencies
+        timeout-minutes: 5
+        run: npm ci
+
+      - name: Type check
+        timeout-minutes: 5
+        run: npm run check
+
+      # The dnm CLI at the version pinned in package.json. The sdk job does not need it for the
+      # tests; it is installed for the teardown step below.
+      - name: Install dnm
+        timeout-minutes: 3
+        run: sh scripts/install-dnm.sh
+
+      # The same command a developer runs. On a fresh runner it also pulls every LocalNet image.
+      - name: Integration tests
+        timeout-minutes: 35
+        run: npm run ${{ matrix.script }}
 
       # @v4.3.3
       - uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0abb4808
         name: Upload container logs
-        if: always()
+        if: failure()
         timeout-minutes: 5
         with:
-          name: probe-container-logs
-          path: examples/integration-tests/logs/*.log
+          name: container-logs-${{ matrix.lifecycle }}
+          path: examples/integration-tests/logs/
           if-no-files-found: warn
 
-  cache-restore:
-    name: LocalNet probe (images from actions/cache)
-    needs: [probe]
-    runs-on: ubuntu-24.04
-    timeout-minutes: 40
-    permissions:
-      contents: read
-      # To delete the probe's cache entry afterwards.
-      actions: write
-    defaults:
-      run:
-        working-directory: examples/integration-tests
-
-    steps:
-      # @v7.0.0
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
-        timeout-minutes: 5
-
-      - name: Install dnm (version pinned in package.json)
-        timeout-minutes: 3
-        run: |
-          set -euo pipefail
-          scripts/install-dnm.sh
-          echo "$PWD/.dnm/bin" >> "$GITHUB_PATH"
-
-      # @v6.1.0
-      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
-        name: Restore image cache
-        timeout-minutes: 15
-        with:
-          path: /tmp/images
-          key: probe-images-${{ github.run_id }}
-          fail-on-cache-miss: true
-
-      - name: Load images
-        timeout-minutes: 10
-        run: |
-          set -euo pipefail
-          t0=$(date +%s)
-          docker load -i /tmp/images/images.tar
-          echo "docker load: $(( $(date +%s) - t0 )) s" | tee -a "$GITHUB_STEP_SUMMARY"
-          rm -f /tmp/images/images.tar
-
-      - name: Start LocalNet (images present)
-        timeout-minutes: 20
-        run: |
-          set -euo pipefail
-          t0=$(date +%s)
-          dnm start --instance "$LOCALNET_INSTANCE" --timeout 1200000
-          echo "warm start (no pulls): $(( $(date +%s) - t0 )) s" | tee -a "$GITHUB_STEP_SUMMARY"
-
-      - name: Destroy LocalNet
+      # The test command tears down what it started, but not if the job was cancelled or timed out
+      # mid-run. Irrelevant on a hosted runner, whose VM is discarded; it matters on a self-hosted
+      # one.
+      - name: Destroy any leftover LocalNet
         if: always()
         timeout-minutes: 5
-        run: dnm destroy --instance "$LOCALNET_INSTANCE" --force
-
-      - name: Delete the probe cache entry
-        if: always()
-        timeout-minutes: 2
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: gh cache delete "probe-images-${{ github.run_id }}" --repo "$GITHUB_REPOSITORY"
+        run: |
+          set -euo pipefail
+          if .dnm/bin/dnm instances --ids-only | grep -qx "$LOCALNET_INSTANCE"; then
+            .dnm/bin/dnm destroy --instance "$LOCALNET_INSTANCE" --force
+          fi
