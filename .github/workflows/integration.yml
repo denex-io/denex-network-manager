@@ -14,7 +14,8 @@ permissions:
 jobs:
   integration:
     name: Integration (Splice ${{ matrix.splice }})
-    runs-on: ubuntu-latest
+    # Pinned: ubuntu-latest became 26.04, where Playwright 1.57.0 cannot install Chromium.
+    runs-on: ubuntu-24.04
     # One run took 97 minutes on a 10-CPU Docker Desktop VM with the images already pulled
     # (2026-11-18). A hosted runner has 4 vCPUs and pulls every image (about 6.4 GB per release);
     # 180 minutes leaves that run almost 2x.
