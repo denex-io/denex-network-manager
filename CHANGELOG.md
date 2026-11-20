@@ -5,6 +5,8 @@ All notable changes to this project will be documented in this file. The format 
 
 ## [Unreleased]
 
+## [0.1.0-beta.4] — 2026-11-20
+
 ### Added
 
 - Splice 0.10.2 support. `spliceVersion: '0.10.2'` generates the Splice 0.10 config shape: each
