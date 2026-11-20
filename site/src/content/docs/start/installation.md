@@ -37,10 +37,31 @@ curl -fsSL https://raw.githubusercontent.com/denex-io/denex-network-manager/main
 This installs to `~/.dnm/bin` and verifies the download against the release checksums. Set
 `DNM_INSTALL_DIR` to install elsewhere, or `DNM_VERSION` (for example `v0.1.0-beta.3`) to pin a version.
 
+The installer does not change your `PATH`. If its directory is not on `PATH`, it ends by printing
+the line to run, with your install directory spelled out:
+
+```bash
+export PATH="$HOME/.dnm/bin:$PATH"
+```
+
+That lasts for the current shell. To make it permanent, add that line to your shell profile
+(`~/.zshrc`, `~/.bashrc`, or equivalent). If you set `DNM_INSTALL_DIR`, use that directory instead
+of `$HOME/.dnm/bin`. Then check that your shell finds `dnm`:
+
+```bash
+dnm --version
+```
+
 Prefer not to pipe a script to your shell? Download the archive for your platform from the
 [latest release](https://github.com/denex-io/denex-network-manager/releases/latest), verify it
 against `SHA256SUMS`, then extract `dnm` onto your `PATH`. Builds are provided for Linux x64/arm64,
 macOS x64/arm64, and Windows x64 (`dnm-win-x64.zip`).
+
+`install.sh` runs on Linux and macOS only. On Windows it stops and points you to the release page,
+so install by hand: download `dnm-win-x64.zip` from the
+[latest release](https://github.com/denex-io/denex-network-manager/releases/latest), verify it
+against `SHA256SUMS`, extract `dnm.exe` into a directory on your `PATH`, and check it with
+`dnm --version`.
 
 Or run from source (requires Deno 2.0+ and a repo checkout):
 
