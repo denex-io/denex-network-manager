@@ -1,0 +1,7 @@
+sdk-version: 3.5.4
+name: rsvp
+source: daml
+version: 0.1.0
+dependencies:
+  - daml-prim
+  - daml-stdlib

@@ -77,6 +77,7 @@ export default defineConfig({
           items: [
             { label: 'Using the SDK', slug: 'guides/sdk' },
             { label: 'Building a dev stack', slug: 'guides/dev-stack' },
+            { label: 'Integration tests and CI', slug: 'guides/integration-tests' },
             { label: 'Discovery server', slug: 'guides/discovery' },
           ],
         },

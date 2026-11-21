@@ -1,0 +1,30 @@
+-- | A host invites a guest to an event; the guest replies. The reply is signed by both, so neither
+-- side can forge or retract it alone.
+module Rsvp where
+
+template Invitation
+  with
+    host : Party
+    guest : Party
+    event : Text
+    date : Date
+  where
+    signatory host
+    observer guest
+
+    -- | Only the guest can answer. Answering archives the invitation.
+    choice Respond : ContractId Reply
+      with
+        going : Bool
+      controller guest
+      do create Reply with host; guest; event; date; going
+
+template Reply
+  with
+    host : Party
+    guest : Party
+    event : Text
+    date : Date
+    going : Bool
+  where
+    signatory host, guest

@@ -1,0 +1,30 @@
+# The LocalNet the integration tests run against: the Super Validator, which dnm always creates,
+# plus two validators, so alice and bob are hosted on different participants as they would be in
+# production.
+#
+# LOCALNET_BASE_PORT moves the whole port block (basePort through basePort + 280), so this can run
+# beside another LocalNet on the same Docker daemon. Give each concurrent copy its own instance id
+# too (LOCALNET_INSTANCE, read by scripts/localnet.ts).
+version: '1.0'
+basePort: ${LOCALNET_BASE_PORT:6600}
+
+validators:
+  - name: org-a
+    users:
+      - id: alice
+        primaryParty: alice
+  - name: org-b
+    users:
+      - id: bob
+        primaryParty: bob
+
+# Uploaded at the end of initialization, to the SV and every validator. dnm 0.1.0-beta.3 only warns
+# when an upload fails, so scripts/localnet.ts checks the package arrived.
+packages:
+  - name: rsvp
+    dar: ./daml/.daml/dist/rsvp.dar
+
+auth:
+  keycloak:
+    admin: admin
+    password: admin

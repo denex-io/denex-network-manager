@@ -1,0 +1,147 @@
+name: Example integration tests
+
+# Runs examples/integration-tests as an app project's CI would: the same npm script a developer
+# runs locally, against a LocalNet started on the runner. It is also how this repository keeps the
+# example from rotting. To adapt it to your own project, see the "Integration tests and CI" guide.
+
+'on':
+  push:
+    paths:
+      - 'examples/integration-tests/**'
+      - '.github/workflows/example-integration-tests.yml'
+  pull_request:
+    paths:
+      - 'examples/integration-tests/**'
+      - '.github/workflows/example-integration-tests.yml'
+  schedule:
+    # Weekly, for drift the pins do not cover: runner image updates and floating image tags such as
+    # postgres:18.
+    - cron: '17 5 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Integration tests (${{ matrix.lifecycle }})
+    # Linux only: hosted macOS runners have no Docker. Pinned because ubuntu-latest moves (it became
+    # 26.04).
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # scripts/localnet.ts drives the dnm CLI around the tests.
+          - lifecycle: cli
+            script: test:integration
+          # The vitest global setup drives the SDK.
+          - lifecycle: sdk
+            script: test:integration:sdk
+    defaults:
+      run:
+        working-directory: examples/integration-tests
+    env:
+      # One instance per job. On a self-hosted runner whose Docker daemon is shared, also give each
+      # job its own LOCALNET_BASE_PORT.
+      LOCALNET_INSTANCE: ci-${{ matrix.lifecycle }}
+
+    steps:
+      # @v7.0.0
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        timeout-minutes: 5
+
+      # @v7.0.0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        name: Setup Node
+        timeout-minutes: 5
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: examples/integration-tests/package-lock.json
+
+      - name: Read the Daml SDK version
+        id: daml
+        timeout-minutes: 1
+        run: echo "sdk=$(awk '/^sdk-version:/ { print $2 }' daml/daml.yaml)" >> "$GITHUB_OUTPUT"
+
+      # Exact key, no restore-keys: the install below skips when dpm is present, so a cache from
+      # another SDK version would quietly leave the wrong one in place.
+      # @v6.1.0
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        name: Restore dpm
+        id: dpm-cache
+        timeout-minutes: 5
+        with:
+          path: ~/.dpm
+          key: dpm-${{ runner.os }}-${{ runner.arch }}-${{ steps.daml.outputs.sdk }}
+
+      - name: Install dpm
+        timeout-minutes: 10
+        env:
+          SDK_VERSION: ${{ steps.daml.outputs.sdk }}
+        run: |
+          set -euo pipefail
+          if [ ! -x "$HOME/.dpm/bin/dpm" ]; then
+            curl -fsSL -o "$RUNNER_TEMP/dpm-install.sh" https://get.digitalasset.com/install/install.sh
+            sh "$RUNNER_TEMP/dpm-install.sh" "$SDK_VERSION"
+          fi
+          echo "$HOME/.dpm/bin" >> "$GITHUB_PATH"
+
+      # Saved straight away, so a later failure does not throw the install away.
+      # @v6.1.0
+      - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        name: Save dpm
+        if: steps.dpm-cache.outputs.cache-hit != 'true'
+        timeout-minutes: 5
+        with:
+          path: ~/.dpm
+          key: dpm-${{ runner.os }}-${{ runner.arch }}-${{ steps.daml.outputs.sdk }}
+
+      - name: Install dependencies
+        timeout-minutes: 5
+        run: npm ci
+
+      - name: Type check
+        timeout-minutes: 5
+        run: npm run check
+
+      # The dnm CLI at the version pinned in package.json. The sdk job does not need it for the
+      # tests; it is installed for the teardown step below.
+      - name: Install dnm
+        timeout-minutes: 3
+        run: sh scripts/install-dnm.sh
+
+      # The same command a developer runs. On a fresh runner it also pulls every LocalNet image. They
+      # are not cached: measured on this runner, restoring and loading them took longer than pulling
+      # them (see the guide).
+      - name: Integration tests
+        timeout-minutes: 35
+        run: npm run ${{ matrix.script }}
+
+      # @v4.3.3
+      - uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0abb4808
+        name: Upload container logs
+        if: failure()
+        timeout-minutes: 5
+        with:
+          name: container-logs-${{ matrix.lifecycle }}
+          path: examples/integration-tests/logs/
+          if-no-files-found: warn
+
+      # The test command tears down what it started, but not if the job was cancelled or timed out
+      # mid-run. Irrelevant on a hosted runner, whose VM is discarded; it matters on a self-hosted
+      # one.
+      - name: Destroy any leftover LocalNet
+        if: always()
+        timeout-minutes: 5
+        run: |
+          set -euo pipefail
+          if .dnm/bin/dnm instances --ids-only | grep -qx "$LOCALNET_INSTANCE"; then
+            .dnm/bin/dnm destroy --instance "$LOCALNET_INSTANCE" --force
+          fi

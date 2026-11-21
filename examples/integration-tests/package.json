@@ -1,0 +1,23 @@
+{
+  "name": "dnm-example-integration-tests",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.18"
+  },
+  "scripts": {
+    "build:dar": "cd daml && dpm build --output .daml/dist/rsvp.dar",
+    "localnet:up": "sh scripts/install-dnm.sh && npm run build:dar && node scripts/localnet.ts up",
+    "localnet:down": "sh scripts/install-dnm.sh && node scripts/localnet.ts down",
+    "test": "vitest run",
+    "test:integration": "sh scripts/install-dnm.sh && npm run build:dar && node scripts/localnet.ts test",
+    "test:integration:sdk": "npm run build:dar && LOCALNET_LIFECYCLE=sdk vitest run",
+    "check": "tsc"
+  },
+  "devDependencies": {
+    "@denex/network-manager": "0.1.0-beta.3",
+    "@types/node": "24.19.2",
+    "typescript": "7.0.2",
+    "vitest": "5.1.0"
+  }
+}

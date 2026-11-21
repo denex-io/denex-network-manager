@@ -1,0 +1,4 @@
+.dnm/
+node_modules/
+daml/.daml/
+logs/
