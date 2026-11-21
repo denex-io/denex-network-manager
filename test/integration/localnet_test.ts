@@ -10,27 +10,9 @@ import {
 import { LocalNet } from '../../src/localnet.ts';
 import { StartupTimeoutError } from '../../src/errors.ts';
 import type { LocalNetConfig } from '../../src/types/config.ts';
-import { waitForHealthy } from '../../src/docker/health.ts';
-import {
-  getKeycloakPort,
-  getSvInternalPorts,
-  getSvPorts,
-  getValidatorPorts,
-} from '../../src/utils/ports.ts';
 
 // Config for fast lifecycle tests
 const LIFECYCLE_TEST_CONFIG: LocalNetConfig = testConfig({
-  validators: 1,
-  auth: {
-    keycloak: {
-      admin: 'admin',
-      password: 'admin',
-    },
-  },
-});
-
-// Config for full end-to-end test
-const E2E_TEST_CONFIG: LocalNetConfig = testConfig({
   validators: 1,
   auth: {
     keycloak: {
@@ -70,31 +52,6 @@ Deno.test({
       Error,
       'Docker daemon is not available',
     );
-  },
-});
-
-Deno.test({
-  name: 'Lifecycle: start throws if already running',
-  ignore: !(await isDockerAvailable()),
-  sanitizeOps: false,
-  sanitizeResources: false,
-  async fn() {
-    const client = createTestDockerClient();
-    const instanceId = generateTestInstanceId();
-    const localnet = new LocalNet(LIFECYCLE_TEST_CONFIG, { instanceId });
-
-    try {
-      await localnet.start({ skipHealthChecks: true, skipInitialization: true });
-
-      await assertRejects(
-        () => localnet.start(),
-        Error,
-        'LocalNet is already running',
-      );
-    } finally {
-      await localnet.destroy();
-      await cleanupTestResources(client, instanceId);
-    }
   },
 });
 
@@ -259,144 +216,6 @@ Deno.test({
     assertEquals(options.instanceId, instanceId);
     assertEquals(options.dbUser, 'custom-user');
     assertEquals(options.dbPassword, 'supersafe');
-  },
-});
-
-// ============================================================================
-// END-TO-END TEST
-// This test verifies that a LocalNet actually works:
-// - Uses oauth2 mode (production-like)
-// - Waits for health checks (services actually ready)
-// - Verifies APIs respond
-// ============================================================================
-
-Deno.test({
-  name: 'E2E: Full LocalNet starts and APIs respond',
-  ignore: !(await isDockerAvailable()),
-  sanitizeOps: false,
-  sanitizeResources: false,
-  async fn() {
-    const client = createTestDockerClient();
-    const instanceId = generateTestInstanceId();
-    const localnet = new LocalNet(E2E_TEST_CONFIG, { instanceId });
-
-    try {
-      // Start WITHOUT skipHealthChecks - wait for everything to be ready
-      await localnet.start();
-
-      // Verify state
-      const status = await localnet.status();
-      assertEquals(status.state, 'running', 'LocalNet should be in running state');
-      assertExists(status.network, 'Network should exist');
-
-      // Verify all containers are running and healthy
-      for (const container of status.containers) {
-        assertEquals(
-          container.state,
-          'running',
-          `Container ${container.name} should be running, got ${container.state}`,
-        );
-        if (container.health && container.health !== 'none') {
-          assertEquals(
-            container.health,
-            'healthy',
-            `Container ${container.name} should be healthy, got ${container.health}`,
-          );
-        }
-      }
-
-      // Verify Keycloak is responding (oauth2 mode)
-      const keycloakHealth = await waitForHealthy(
-        { type: 'tcp', target: `localhost:${getKeycloakPort()}` },
-        { timeout: 5000, retries: 10, retryDelay: 1000 },
-      );
-      assertEquals(keycloakHealth.healthy, true, 'Keycloak should be healthy');
-
-      // Verify Canton JSON API is responding (SV)
-      const svJsonApiHealth = await waitForHealthy(
-        { type: 'http', target: `http://localhost:${getSvPorts().jsonApi}/livez` },
-        { timeout: 5000, retries: 10, retryDelay: 1000 },
-      );
-      assertEquals(svJsonApiHealth.healthy, true, 'SV JSON API should be healthy');
-
-      // Verify Canton JSON API is responding (Validator 1)
-      const validator1JsonApiHealth = await waitForHealthy(
-        { type: 'http', target: `http://localhost:${getValidatorPorts(0).jsonApi}/livez` },
-        { timeout: 5000, retries: 10, retryDelay: 1000 },
-      );
-      assertEquals(validator1JsonApiHealth.healthy, true, 'Validator 1 JSON API should be healthy');
-    } finally {
-      await localnet.destroy({ removeVolumes: true });
-      await cleanupTestResources(client, instanceId);
-    }
-  },
-});
-
-// ============================================================================
-// E2E Test: Two Validators with oauth2
-// ============================================================================
-
-const E2E_TWO_VALIDATORS_CONFIG: LocalNetConfig = testConfig({
-  validators: 2,
-  auth: {
-    keycloak: {
-      admin: 'admin',
-      password: 'admin',
-    },
-  },
-});
-
-Deno.test({
-  name: 'E2E: Two validators LocalNet starts and all APIs respond',
-  ignore: !(await isDockerAvailable()),
-  sanitizeOps: false,
-  sanitizeResources: false,
-  async fn() {
-    const client = createTestDockerClient();
-    const instanceId = generateTestInstanceId();
-    const localnet = new LocalNet(E2E_TWO_VALIDATORS_CONFIG, { instanceId });
-
-    try {
-      await localnet.start();
-
-      const status = await localnet.status();
-      assertEquals(status.state, 'running', 'LocalNet should be in running state');
-      assertEquals(status.containers.length, 10, 'Should have 10 containers for 2 validators');
-
-      // Verify SV JSON API
-      const svHealth = await waitForHealthy(
-        { type: 'http', target: `http://localhost:${getSvPorts().jsonApi}/livez` },
-        { timeout: 5000, retries: 10, retryDelay: 1000 },
-      );
-      assertEquals(svHealth.healthy, true, 'SV JSON API should be healthy');
-
-      // Verify Validator 1 JSON API
-      const v1Health = await waitForHealthy(
-        { type: 'http', target: `http://localhost:${getValidatorPorts(0).jsonApi}/livez` },
-        { timeout: 5000, retries: 10, retryDelay: 1000 },
-      );
-      assertEquals(v1Health.healthy, true, 'Validator 1 JSON API should be healthy');
-
-      // Verify Validator 2 JSON API
-      const v2Health = await waitForHealthy(
-        { type: 'http', target: `http://localhost:${getValidatorPorts(1).jsonApi}/livez` },
-        { timeout: 5000, retries: 10, retryDelay: 1000 },
-      );
-      assertEquals(v2Health.healthy, true, 'Validator 2 JSON API should be healthy');
-
-      // Verify Scan API
-      const scanHealth = await waitForHealthy(
-        {
-          type: 'http',
-          target: `http://localhost:${getSvInternalPorts().scanAdmin}/api/scan/status`,
-        },
-        { timeout: 5000, retries: 10, retryDelay: 1000 },
-      );
-      assertEquals(scanHealth.healthy, true, 'Scan API should be healthy');
-    } finally {
-      await localnet.destroy({ removeVolumes: true });
-      await cleanupTestResources(client, instanceId);
-    }
   },
 });
 

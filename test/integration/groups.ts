@@ -19,11 +19,21 @@ export interface IntegrationGroup {
 export const GROUPS: Record<string, IntegrationGroup> = {
   s1: {
     networks: ['S1'],
-    files: ['splice_version_test.ts', 'auth_confidence_test.ts', 'operator_apis_test.ts'],
+    files: [
+      'splice_version_test.ts',
+      'auth_confidence_test.ts',
+      'operator_apis_test.ts',
+      'localnet_running_test.ts',
+    ],
   },
   s2: {
     networks: ['S2'],
-    files: ['wallet_ui_test.ts', 'runtime_user_test.ts', 'transfer_test.ts'],
+    files: [
+      'wallet_ui_test.ts',
+      'runtime_user_test.ts',
+      'transfer_test.ts',
+      'localnet_two_validators_test.ts',
+    ],
   },
   init: {
     networks: ['INIT'],
