@@ -8,7 +8,10 @@
 export class LocalNetError extends Error {
   constructor(message: string, options?: { cause?: unknown }) {
     super(message, options);
-    this.name = new.target.name;
+    // Not `new.target.name`: dnt 0.42 treats the `new.target` meta-property like `import.meta`,
+    // adds its import.meta ponyfill to the npm build, and that ponyfill fails the build's type
+    // check against @types/node 26. The value is the same here.
+    this.name = this.constructor.name;
   }
 }
 

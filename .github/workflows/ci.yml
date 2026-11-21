@@ -73,6 +73,79 @@ jobs:
       - name: Shellcheck
         run: shellcheck install.sh scripts/install-smoke.sh
 
+  # The npm build publish.yml runs, without publishing. dnt type-checks the package it generates,
+  # which deno task check does not, so a change that breaks it fails on its pull request instead of
+  # after the release gate.
+  #
+  # Mirrors publish.yml's "Build and Publish" job up to and including "Inspect npm package": the same
+  # steps, verbatim, in the same order, because the build depends on them (Check Types creates the
+  # node_modules dnt resolves types from, and the cache decides which jsr versions dnt vendors).
+  # Two differences: the runner image is pinned rather than ubuntu-latest, and "Download release
+  # assets" is left out, because a pull request has no release artifact and build_npm.ts does not
+  # read dist/. Keep this in step with publish.yml.
+  npm-build:
+    name: Build npm Package (no publish)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+
+    steps:
+      # @v7.0.0
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+
+      # @v2.0.5
+      - uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed
+        name: Setup Deno
+        with:
+          deno-version: v2.9.3
+
+      # @v4.0.2
+      - uses: actions/setup-node@60edb5dd545a775178f52524783378180af0d1f8
+        name: Setup Node.js
+        with:
+          # Trusted publishing needs npm >= 11.5.1 and Node >= 22.14; Node 24 bundles a new enough npm.
+          node-version: '24'
+          registry-url: 'https://registry.npmjs.org'
+
+      # @v6.1.0 (same cache action as ci.yml)
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        name: Cache Deno Dependencies
+        with:
+          path: |
+            ~/.cache/deno
+            node_modules
+          key: ${{ runner.os }}-deno-${{ hashFiles('deno.lock', 'deno.json') }}
+          restore-keys: |
+            ${{ runner.os }}-deno-
+
+      - name: Check Types
+        run: deno task check
+
+      - name: Lint
+        run: deno task lint
+
+      - name: Format Check
+        run: deno task fmt:check
+
+      - name: Unit Tests
+        run: deno task test:unit
+
+      - name: Smoke Tests
+        run: deno task test:smoke
+
+      # publish.yml passes the release version; deno.json carries it.
+      - name: Build npm package (SDK only)
+        run: deno run --allow-all scripts/build_npm.ts "$(jq -r '.version' deno.json)"
+
+      - name: Inspect npm package
+        working-directory: npm
+        run: |
+          set -euo pipefail
+          npm pack --dry-run
+          if [ -e bin ]; then
+            echo '::error::npm/bin should not exist — the npm package is SDK-only'
+            exit 1
+          fi
+
   install-smoke:
     name: Install Script In A Clean Container
     runs-on: ubuntu-latest
