@@ -8,6 +8,9 @@ name: Integration
 'on':
   workflow_call:
   workflow_dispatch:
+  # DROP BEFORE HANDOVER: hosted measurement runs for this branch only.
+  push:
+    branches: [work/suite-speed]
 
 permissions:
   contents: read
