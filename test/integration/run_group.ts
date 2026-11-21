@@ -1,7 +1,13 @@
 /**
  * Runs one integration group (groups.ts):
  *
- *   deno run --allow-all test/integration/run_group.ts <group> [deno test flags]
+ *   deno run --allow-all test/integration/run_group.ts <group> [--expect-splice=<release>]
+ *     [deno test flags]
+ *
+ * With `--expect-splice`, before anything starts, the Splice images that the group's LocalNets
+ * would run (its shared networks', and what testConfig() gives every other test) are checked
+ * against that release, and a difference fails the group by name. It takes no LocalNet: the
+ * workflow passes its matrix entry, so a job the release did not reach cannot pass for it.
  *
  * The group's shared networks are started once, one after the other, before any test, and their
  * instance ids reach the test files in the environment (shared_localnet.ts). Then `deno test`
@@ -10,9 +16,17 @@
  * run, and with `--junit-path` the report holds that failure as one named test case.
  */
 
+import { buildSpliceImages } from '../../src/docker/containers.ts';
 import { LocalNet } from '../../src/localnet.ts';
+import type { LocalNetConfig } from '../../src/types/config.ts';
+import { resolveSpliceVersion } from '../../src/utils/splice-version.ts';
 import { GROUPS } from './groups.ts';
-import { cleanupTestResources, createTestDockerClient, generateTestInstanceId } from './helpers.ts';
+import {
+  cleanupTestResources,
+  createTestDockerClient,
+  generateTestInstanceId,
+  testConfig,
+} from './helpers.ts';
 import {
   SHARED_NETWORKS,
   SHARED_START_OPTIONS,
@@ -20,7 +34,10 @@ import {
   type SharedNetworkName,
 } from './shared_localnet.ts';
 
-const [groupName, ...testFlags] = Deno.args;
+const [groupName, ...args] = Deno.args;
+const expectFlag = args.find((arg) => arg.startsWith('--expect-splice='));
+const expectedSplice = expectFlag?.slice('--expect-splice='.length);
+const testFlags = args.filter((arg) => arg !== expectFlag);
 const group = groupName === undefined ? undefined : GROUPS[groupName];
 if (group === undefined) {
   console.error(
@@ -65,9 +82,8 @@ function junitPath(flags: string[]): string | undefined {
 const xmlEscape = (text: string) =>
   text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
-/** A JUnit report with one failed test case: the shared start, named after the network. */
-async function writeStartFailureReport(path: string, name: SharedNetworkName, reason: string) {
-  const testCase = `shared LocalNet ${name} starts (group ${groupName})`;
+/** A JUnit report with one failed test case, `testCase`, failing with `reason`. */
+async function writeFailureReport(path: string, testCase: string, reason: string) {
   await Deno.writeTextFile(
     path,
     '<?xml version="1.0" encoding="UTF-8"?>\n' +
@@ -81,6 +97,47 @@ async function writeStartFailureReport(path: string, name: SharedNetworkName, re
 
 const log = (message: string) =>
   console.log(`[group ${groupName}] ${new Date().toISOString()} ${message}`);
+
+/**
+ * The canton and splice images that do not run `expected` among those a LocalNet with `config`
+ * would run. Building the handle contacts nothing.
+ */
+function imagesNotAt(expected: string, what: string, config: LocalNetConfig): string[] {
+  const net = new LocalNet(config, { instanceId: 'splice-version-check' });
+  const images = {
+    ...buildSpliceImages(resolveSpliceVersion(net.getConfig())),
+    ...net.getOptions().images,
+  };
+  return (['canton', 'splice'] as const)
+    .filter((key) => images[key]?.split(':').at(-1) !== expected)
+    .map((key) => `${what} would run ${key} ${images[key]}`);
+}
+
+if (expectedSplice !== undefined) {
+  const subjects: Array<[string, LocalNetConfig]> = [
+    ...networks.map((name): [string, LocalNetConfig] => [
+      `shared LocalNet ${name}`,
+      SHARED_NETWORKS[name],
+    ]),
+    [
+      "a test's own LocalNet (testConfig())",
+      testConfig({ validators: 1, auth: { keycloak: { admin: 'admin', password: 'admin' } } }),
+    ],
+  ];
+  const wrong = subjects.flatMap(([what, config]) => imagesNotAt(expectedSplice, what, config));
+  if (wrong.length > 0) {
+    const reason = `expected Splice ${expectedSplice}: ${wrong.join('; ')}`;
+    console.error(
+      `::error title=Splice version of group ${groupName}::group '${groupName}' did not run: ${reason}`,
+    );
+    const report = junitPath(testFlags);
+    if (report !== undefined) {
+      await writeFailureReport(report, `group ${groupName} runs Splice ${expectedSplice}`, reason);
+    }
+    Deno.exit(1);
+  }
+  log(`Splice ${expectedSplice}: canton and splice images of every LocalNet of the group match`);
+}
 
 try {
   for (const name of networks) {
@@ -99,7 +156,13 @@ try {
           `failed to start, so group '${groupName}' did not run: ${reason}`,
       );
       const report = junitPath(testFlags);
-      if (report !== undefined) await writeStartFailureReport(report, name, reason);
+      if (report !== undefined) {
+        await writeFailureReport(
+          report,
+          `shared LocalNet ${name} starts (group ${groupName})`,
+          reason,
+        );
+      }
       throw error;
     }
     log(`ready shared LocalNet ${name} ${instanceId}`);
