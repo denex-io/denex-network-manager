@@ -140,9 +140,10 @@ const INIT: LocalNetConfig = testConfig({
 });
 
 /**
- * Started with skipInitialization, and nothing initializes it. Base port 8000, clear of INIT,
- * which is up at the same time. Users:
- * - alice and bob, with initialization's party-allocation config: initialization
+ * Started with skipInitialization, and nothing initializes it. Base port 8000, as
+ * keycloak_master_realm_test.ts had; the network "manual initializeResources works after
+ * skipInitialization" starts beside it uses 5000. Users:
+ * - alice and bob, with initialization's party-allocation config: skip_initialization_test.ts
  *   "skipInitialization prevents party/user creation";
  * - validator-1, no entries: keycloak_master_realm_test.ts (the Validator1 realm, and the
  *   bootstrap admin deleted by a start that skips initialization).

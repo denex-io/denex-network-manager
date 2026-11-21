@@ -1,55 +1,12 @@
 import { assertEquals, assertExists } from '@std/assert';
-import {
-  cleanupTestResources,
-  createTestDockerClient,
-  generateTestInstanceId,
-  isDockerAvailable,
-  testConfig,
-  waitForLedgerJsonApi,
-} from './helpers.ts';
-import {
-  acquireSharedLocalNet,
-  releaseSharedLocalNet,
-  SHARED_NETWORKS,
-} from './shared_localnet.ts';
+import { isDockerAvailable } from './helpers.ts';
+import { acquireSharedLocalNet, releaseSharedLocalNet } from './shared_localnet.ts';
 import { LocalNet } from '../../src/localnet.ts';
-import type { LocalNetConfig } from '../../src/types/config.ts';
-import { buildConfigEnvironmentInfo } from '../../src/utils/env-info.ts';
 
-// The tests run on the shared networks of the init group (shared_localnet.ts), under their own
-// validator names: INIT for those that read what initialization did (alice and bob with the
-// party-allocation config below; val1 with onb-alice, onb-alice-user and onb-admin-user; val1 and
-// val2 with idem-shared, idem-user-1 and idem-user-2), and SKIP, never initialized, for
-// "skipInitialization prevents party/user creation". "manual initializeResources works after
-// skipInitialization" initializes its network, so it starts its own, as before.
-
-// Config with parties defined for allocation testing. As this config it is only the network of
-// "manual initializeResources works after skipInitialization": base port 23000, clear of INIT
-// (5000) and SKIP (8000), which are up while it runs.
-const PARTY_ALLOCATION_CONFIG: LocalNetConfig = testConfig({
-  basePort: 23000,
-  validators: [
-    {
-      name: 'alice',
-      parties: [
-        { hint: 'alice', displayName: 'Alice' },
-        { hint: 'alice-bot', displayName: 'Alice Bot' },
-      ],
-    },
-    {
-      name: 'bob',
-      parties: [
-        { hint: 'bob', displayName: 'Bob' },
-      ],
-    },
-  ],
-  auth: {
-    keycloak: {
-      admin: 'admin',
-      password: 'admin',
-    },
-  },
-});
+// The tests run on the shared network INIT of the init group (shared_localnet.ts), under their
+// own validator names: alice and bob with the party-allocation entries; val1 with onb-alice,
+// onb-alice-user and onb-admin-user; val1 and val2 with idem-shared, idem-user-1 and idem-user-2.
+// The two skipInitialization tests are in skip_initialization_test.ts.
 
 // ============================================================================
 // PARTY ALLOCATION TESTS
@@ -224,71 +181,6 @@ Deno.test({
       assertExists(adminUser, 'onb-admin-user should be created on ledger');
     } finally {
       await releaseSharedLocalNet(localnet);
-    }
-  },
-});
-
-// ============================================================================
-// SKIP INITIALIZATION TESTS
-// ============================================================================
-
-Deno.test({
-  name: 'Initialization: skipInitialization prevents party/user creation',
-  ignore: !(await isDockerAvailable()),
-  sanitizeOps: false,
-  sanitizeResources: false,
-  async fn() {
-    // Started with skipInitialization (the shared network SKIP, which nothing initializes)
-    const localnet = await acquireSharedLocalNet('SKIP');
-
-    try {
-      // skipInitialization skips the readiness waits (LocalNet.start), so wait for alice's API.
-      await waitForLedgerJsonApi(
-        buildConfigEnvironmentInfo(SHARED_NETWORKS.SKIP).validators.alice.endpoints.jsonApi,
-      );
-
-      // Get parties for alice
-      const aliceParties = await localnet.getParties('alice');
-
-      // Should only have validator party (auto-created), not custom parties
-      const aliceParty = aliceParties.find((p) => p.hint === 'alice');
-      assertEquals(
-        aliceParty,
-        undefined,
-        'alice party should NOT be created when skipInitialization is true',
-      );
-    } finally {
-      await releaseSharedLocalNet(localnet);
-    }
-  },
-});
-
-Deno.test({
-  name: 'Initialization: manual initializeResources works after skipInitialization',
-  ignore: !(await isDockerAvailable()),
-  sanitizeOps: false,
-  sanitizeResources: false,
-  async fn() {
-    const client = createTestDockerClient();
-    const instanceId = generateTestInstanceId();
-    const localnet = new LocalNet(PARTY_ALLOCATION_CONFIG, { instanceId });
-
-    try {
-      // Start with skipInitialization
-      await localnet.start({ skipInitialization: true });
-
-      // Manually initialize
-      await localnet.initializeResources();
-
-      // Get parties for alice
-      const aliceParties = await localnet.getParties('alice');
-
-      // Now custom parties should exist
-      const aliceParty = aliceParties.find((p) => p.hint === 'alice');
-      assertExists(aliceParty, 'alice party should be created after manual initializeResources');
-    } finally {
-      await localnet.destroy({ removeVolumes: true });
-      await cleanupTestResources(client, instanceId);
     }
   },
 });

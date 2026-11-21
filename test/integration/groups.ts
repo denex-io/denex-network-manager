@@ -25,14 +25,20 @@ export const GROUPS: Record<string, IntegrationGroup> = {
     networks: ['S2'],
     files: ['wallet_ui_test.ts', 'runtime_user_test.ts', 'transfer_test.ts'],
   },
-  // initialization "manual initializeResources works after skipInitialization" initializes its
-  // network, so it starts its own.
   init: {
-    networks: ['INIT', 'SKIP'],
-    files: ['initialization_test.ts', 'entitlements_test.ts', 'keycloak_master_realm_test.ts'],
+    networks: ['INIT'],
+    files: ['initialization_test.ts', 'entitlements_test.ts'],
   },
-  // Dedicated networks only: each test that needs one starts it.
+  // "manual initializeResources works after skipInitialization" initializes its network, so it
+  // starts its own, beside SKIP.
+  skip: {
+    networks: ['SKIP'],
+    files: ['skip_initialization_test.ts', 'keycloak_master_realm_test.ts'],
+  },
+  // Dedicated networks only: each test that needs one starts it. One LocalNet start per group
+  // where a file has one test.
   packages: { files: ['packages_test.ts'] },
+  'packages-config': { files: ['packages_config_test.ts'] },
   e2e: { files: ['e2e_browser_test.ts'] },
   lifecycle: {
     files: [
