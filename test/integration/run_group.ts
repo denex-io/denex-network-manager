@@ -1,0 +1,107 @@
+/**
+ * Runs one integration group (groups.ts):
+ *
+ *   deno run --allow-all test/integration/run_group.ts <group> [deno test flags]
+ *
+ * The group's shared networks are started once, one after the other, before any test, and their
+ * instance ids reach the test files in the environment (shared_localnet.ts). Then `deno test`
+ * runs the group's files, with the given flags. The shared networks are destroyed in `finally`,
+ * whatever happened. If a shared start fails, that is the one failure reported: the files do not
+ * run.
+ */
+
+import { LocalNet } from '../../src/localnet.ts';
+import { GROUPS } from './groups.ts';
+import { cleanupTestResources, createTestDockerClient, generateTestInstanceId } from './helpers.ts';
+import {
+  SHARED_NETWORKS,
+  SHARED_START_OPTIONS,
+  sharedNetworkEnv,
+  type SharedNetworkName,
+} from './shared_localnet.ts';
+
+const [groupName, ...testFlags] = Deno.args;
+const group = groupName === undefined ? undefined : GROUPS[groupName];
+if (group === undefined) {
+  console.error(
+    `usage: run_group.ts <${Object.keys(GROUPS).join('|')}> [deno test flags]` +
+      (groupName === undefined ? '' : ` (no group '${groupName}')`),
+  );
+  Deno.exit(2);
+}
+
+// A group's tests must run one at a time. "runtime createUser: idempotency" and "Initialization:
+// initializeResources is idempotent" compare exact counts of whole listings on a shared network
+// before and after one call; they hold only because no other test of the group runs in between.
+// `--parallel` would run the group's files concurrently against the same networks.
+const parallel = testFlags.find((flag) => /^--(parallel|jobs)\b/.test(flag));
+if (parallel !== undefined) {
+  console.error(`run_group.ts: '${parallel}' is refused; a group's tests run one at a time`);
+  Deno.exit(2);
+}
+
+const { networks = [], files } = group;
+const client = createTestDockerClient();
+const env: Record<string, string> = {};
+const started: Array<{ name: SharedNetworkName; net: LocalNet }> = [];
+let child: Deno.ChildProcess | undefined;
+let startFailed = false;
+let code = 1;
+
+// Ctrl-C reaches the test process as well; outlive it so the networks are destroyed. A SIGTERM
+// is passed on to the test process, with the same effect.
+Deno.addSignalListener('SIGINT', () => {});
+Deno.addSignalListener('SIGTERM', () => child?.kill('SIGTERM'));
+
+const log = (message: string) =>
+  console.log(`[group ${groupName}] ${new Date().toISOString()} ${message}`);
+
+try {
+  for (const name of networks) {
+    const instanceId = generateTestInstanceId();
+    log(`create shared LocalNet ${name} ${instanceId}`);
+    const net = new LocalNet(SHARED_NETWORKS[name], { instanceId });
+    started.push({ name, net });
+    try {
+      await net.start({ ...SHARED_START_OPTIONS[name], onProgress: (m) => log(`${name}: ${m}`) });
+    } catch (error) {
+      startFailed = true;
+      const reason = error instanceof Error ? error.message : String(error);
+      // `::error::` makes it the run's headline on GitHub Actions; elsewhere it is one line.
+      console.error(
+        `::error title=shared LocalNet ${name}::shared LocalNet ${name} (${instanceId}) ` +
+          `failed to start, so group '${groupName}' did not run: ${reason}`,
+      );
+      throw error;
+    }
+    log(`ready shared LocalNet ${name} ${instanceId}`);
+    env[sharedNetworkEnv(name)] = instanceId;
+  }
+
+  child = new Deno.Command(Deno.execPath(), {
+    args: [
+      'test',
+      '--allow-all',
+      ...testFlags,
+      ...files.map((f) => new URL(f, import.meta.url).pathname),
+    ],
+    env,
+    stdout: 'inherit',
+    stderr: 'inherit',
+  }).spawn();
+  code = (await child.status).code;
+} catch (error) {
+  if (!startFailed) console.error(error);
+  code = 1;
+} finally {
+  for (const { name, net } of started.reverse()) {
+    log(`destroy shared LocalNet ${name} ${net.instanceId}`);
+    await net.destroy({ removeVolumes: true }).catch((error) =>
+      console.error(`destroying shared LocalNet ${name} failed: ${error}`)
+    );
+    await cleanupTestResources(client, net.instanceId);
+  }
+  log('done');
+}
+
+Deno.exit(code);
