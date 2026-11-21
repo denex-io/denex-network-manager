@@ -1,5 +1,4 @@
 import { assert, assertEquals, assertExists } from '@std/assert';
-import { chromium } from 'npm:playwright@1.57.0';
 import { createAuthHeader, TokenManager } from '../../src/api/auth.ts';
 import { CantonClient } from '../../src/api/canton.ts';
 
@@ -19,6 +18,7 @@ import {
   getSvPorts,
   getValidatorPorts,
 } from '../../src/utils/ports.ts';
+import { launchChrome } from './browser.ts';
 import {
   cleanupTestResources,
   createTestDockerClient,
@@ -75,7 +75,7 @@ async function loginAndObserveApi(
   password: string,
   successSelectors: string[],
 ): Promise<void> {
-  const browser = await chromium.launch({ headless: true });
+  const browser = await launchChrome();
 
   try {
     const context = await browser.newContext();

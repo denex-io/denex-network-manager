@@ -1,10 +1,10 @@
 import { LABEL_INSTANCE } from '../../src/api/discovery-utils.ts';
 import { assertEquals } from '@std/assert';
-import { chromium } from 'npm:playwright@1.57.0';
 import { LocalNet } from '../../src/localnet.ts';
 import type { LocalNetConfig } from '../../src/types/config.ts';
 import { localnetFetch } from '../../src/utils/fetch.ts';
 import { getSvPorts, getValidatorPorts } from '../../src/utils/ports.ts';
+import { launchChrome } from './browser.ts';
 import {
   cleanupTestResources,
   createTestDockerClient,
@@ -180,7 +180,7 @@ Deno.test({
       }
 
       console.log('[E2E] Browser login tests...');
-      const browser = await chromium.launch({ headless: true });
+      const browser = await launchChrome();
       try {
         const page = await browser.newPage();
 

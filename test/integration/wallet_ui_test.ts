@@ -1,4 +1,6 @@
 import { assertEquals } from '@std/assert';
+import type { Browser } from 'npm:playwright@1.57.0';
+import { launchChrome } from './browser.ts';
 import { LocalNet } from '../../src/mod.ts';
 import type { LocalNetConfig } from '../../src/types/config.ts';
 import { isDockerAvailable, testConfig } from './helpers.ts';
@@ -29,19 +31,6 @@ const TEST_CONFIG: LocalNetConfig = testConfig({
 
 function uniqueInstanceId(): string {
   return `wallet-ui-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-}
-
-// deno-lint-ignore no-explicit-any
-async function loadPlaywrightOrThrow(): Promise<any> {
-  try {
-    const pw = await import('npm:playwright@1.57.0');
-    return pw;
-  } catch (err) {
-    throw new Error(
-      `chromium-not-installed: run \`npx playwright install chromium\` first. ` +
-        `Original: ${err instanceof Error ? err.message : err}`,
-    );
-  }
 }
 
 async function loginAndAssertWalletWorks(
@@ -105,8 +94,7 @@ Deno.test({
     let browser: any;
     try {
       await localnet.start();
-      const pw = await loadPlaywrightOrThrow();
-      browser = await pw.chromium.launch({ headless: true });
+      browser = await launchChrome();
       const page = await browser.newPage();
       // Auto-onboarded user format: `${participantName}-wallet-admin` where
       // `participantName = name.replace(/-/g, '_')`. So `validator-1` →
@@ -145,8 +133,7 @@ Deno.test({
     let browser: any;
     try {
       await localnet.start();
-      const pw = await loadPlaywrightOrThrow();
-      browser = await pw.chromium.launch({ headless: true });
+      browser = await launchChrome();
       const page = await browser.newPage();
       await loginAndAssertWalletWorks(
         page,
@@ -174,8 +161,7 @@ Deno.test({
     let browser: any;
     try {
       await localnet.start();
-      const pw = await loadPlaywrightOrThrow();
-      browser = await pw.chromium.launch({ headless: true });
+      browser = await launchChrome();
       const page = await browser.newPage();
       await loginAndAssertWalletWorks(
         page,
@@ -205,8 +191,7 @@ Deno.test({
       await localnet.start();
       await localnet.createUser('alice', 'validator-1', { primaryParty: 'alice' });
 
-      const pw = await loadPlaywrightOrThrow();
-      browser = await pw.chromium.launch({ headless: true });
+      browser = await launchChrome();
       const page = await browser.newPage();
       await loginAndAssertWalletWorks(
         page,
@@ -230,7 +215,7 @@ Deno.test({
   sanitizeResources: false,
   async fn() {
     const localnet = await LocalNet.fromConfig(TEST_CONFIG, { instanceId: uniqueInstanceId() });
-    let browser: import('npm:playwright@1.57.0').Browser | undefined;
+    let browser: Browser | undefined;
     try {
       await localnet.start();
       const walletLogins = (await localnet.getCredentials()).filter((c) =>
@@ -243,10 +228,7 @@ Deno.test({
         'validator_2-wallet-admin',
       ]);
 
-      const pw = await loadPlaywrightOrThrow();
-      const launched: import('npm:playwright@1.57.0').Browser = await pw.chromium.launch({
-        headless: true,
-      });
+      const launched = await launchChrome();
       browser = launched;
       for (const cred of walletLogins) {
         const page = await launched.newPage();
