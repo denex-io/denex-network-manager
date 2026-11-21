@@ -73,6 +73,37 @@ jobs:
       - name: Shellcheck
         run: shellcheck install.sh scripts/install-smoke.sh
 
+  # The npm build publish.yml runs, without publishing. dnt type-checks the package it generates,
+  # which deno task check does not, so a change that breaks it fails on its pull request instead of
+  # after the release gate. Same Deno and Node as the publish job, on a pinned runner image.
+  npm-build:
+    name: Build npm Package (no publish)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+
+    steps:
+      # @v7.0.0
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+
+      # @v2.0.5
+      - uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed
+        name: Setup Deno
+        with:
+          deno-version: v2.9.3
+
+      # @v4.0.2
+      - uses: actions/setup-node@60edb5dd545a775178f52524783378180af0d1f8
+        name: Setup Node.js
+        with:
+          node-version: '24'
+
+      - name: Build npm package
+        run: deno run --allow-all scripts/build_npm.ts "$(jq -r '.version' deno.json)"
+
+      - name: Inspect npm package
+        working-directory: npm
+        run: npm pack --dry-run
+
   install-smoke:
     name: Install Script In A Clean Container
     runs-on: ubuntu-latest
