@@ -131,10 +131,13 @@ jobs:
         run: deno test --allow-all --junit-path=junit-version.xml test/integration/splice_version_test.ts
 
       - name: Integration group ${{ matrix.group.name }} (Splice ${{ matrix.splice }})
+        # Below the job's limit, so a hung test fails this step and the job still has time to
+        # collect the container logs.
+        timeout-minutes: 75
         run: deno test --allow-all --junit-path=junit-suite.xml ${{ matrix.group.files }}
 
       - name: Collect container logs
-        if: failure()
+        if: failure() || cancelled()
         run: |
           mkdir -p container-logs
           docker ps -a > container-logs/docker-ps.txt
