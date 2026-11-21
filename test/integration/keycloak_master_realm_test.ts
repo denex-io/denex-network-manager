@@ -1,24 +1,17 @@
 import { assert, assertEquals, assertExists } from '@std/assert';
-import { LocalNet } from '../../src/localnet.ts';
-import { getKeycloakUrl, type LocalNetConfig } from '../../src/types/config.ts';
+import { getKeycloakUrl } from '../../src/types/config.ts';
+import { isDockerAvailable } from './helpers.ts';
 import {
-  cleanupTestResources,
-  createTestDockerClient,
-  generateTestInstanceId,
-  isDockerAvailable,
-  testConfig,
-} from './helpers.ts';
+  acquireSharedLocalNet,
+  releaseSharedLocalNet,
+  SHARED_NETWORKS,
+} from './shared_localnet.ts';
 
-const MASTER_REALM_TEST_CONFIG: LocalNetConfig = testConfig({
-  basePort: 8000,
-  validators: 1,
-  auth: {
-    keycloak: {
-      admin: 'admin',
-      password: 'admin',
-    },
-  },
-});
+// Runs on the shared network SKIP (shared_localnet.ts): started with skipInitialization, as this
+// test's own network was, so assertion 5 still checks that a start that skips initialization
+// deletes the bootstrap admin. Its validator-1 gives the Validator1 realm; Keycloak admin
+// admin/admin, base port 8000.
+const MASTER_REALM_TEST_CONFIG = SHARED_NETWORKS.SKIP;
 
 Deno.test({
   name: 'Keycloak: master realm has SSL disabled and admin REST API works over plain HTTP',
@@ -26,13 +19,9 @@ Deno.test({
   sanitizeOps: false,
   sanitizeResources: false,
   async fn() {
-    const client = createTestDockerClient();
-    const instanceId = generateTestInstanceId();
-    const localnet = new LocalNet(MASTER_REALM_TEST_CONFIG, { instanceId });
+    const localnet = await acquireSharedLocalNet('SKIP');
 
     try {
-      await localnet.start({ skipInitialization: true });
-
       const keycloakUrl = getKeycloakUrl(MASTER_REALM_TEST_CONFIG);
 
       // Assertion 1: OIDC discovery works over plain HTTP
@@ -91,8 +80,7 @@ Deno.test({
       const j5 = await r5.json() as unknown[];
       assertEquals(j5.length, 0);
     } finally {
-      await localnet.destroy({ removeVolumes: true }).catch(() => {});
-      await cleanupTestResources(client, instanceId);
+      await releaseSharedLocalNet(localnet);
     }
   },
 });

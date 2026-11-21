@@ -3,8 +3,6 @@ import { createAuthHeader, TokenManager } from '../../src/api/auth.ts';
 import { CantonClient } from '../../src/api/canton.ts';
 
 import { ValidatorAdminClient } from '../../src/api/validator.ts';
-import { LocalNet } from '../../src/localnet.ts';
-import type { LocalNetConfig } from '../../src/types/config.ts';
 import {
   getKeycloakUrl,
   getLedgerApiUserClientId,
@@ -19,34 +17,16 @@ import {
   getValidatorPorts,
 } from '../../src/utils/ports.ts';
 import { launchChrome } from './browser.ts';
+import { isDockerAvailable } from './helpers.ts';
 import {
-  cleanupTestResources,
-  createTestDockerClient,
-  generateTestInstanceId,
-  isDockerAvailable,
-  testConfig,
-} from './helpers.ts';
+  acquireSharedLocalNet,
+  releaseSharedLocalNet,
+  SHARED_NETWORKS,
+} from './shared_localnet.ts';
 
-const AUTH_CONFIDENCE_CONFIG: LocalNetConfig = testConfig({
-  basePort: 7000,
-  validators: [
-    {
-      name: 'validator-1',
-      users: [
-        {
-          id: 'admin-user',
-          rights: ['ParticipantAdmin'],
-        },
-      ],
-    },
-  ],
-  auth: {
-    keycloak: {
-      admin: 'admin',
-      password: 'admin',
-    },
-  },
-});
+// Runs on the shared network S1 (one validator, validator-1); the config entry this test reads
+// is auth-admin-user (ParticipantAdmin) there (shared_localnet.ts).
+const AUTH_CONFIDENCE_CONFIG = SHARED_NETWORKS.S1;
 
 async function assertUnauthorized(url: string): Promise<void> {
   const response = await fetch(url);
@@ -130,10 +110,6 @@ Deno.test({
   sanitizeOps: false,
   sanitizeResources: false,
   async fn() {
-    const dockerClient = createTestDockerClient();
-    const instanceId = generateTestInstanceId();
-    const localnet = new LocalNet(AUTH_CONFIDENCE_CONFIG, { instanceId });
-
     const basePort = AUTH_CONFIDENCE_CONFIG.basePort ?? 5000;
     const keycloakUrl = getKeycloakUrl(AUTH_CONFIDENCE_CONFIG);
     const keycloakPort = getKeycloakPort(basePort);
@@ -146,9 +122,8 @@ Deno.test({
     const svUserClientId = getLedgerApiUserClientId('sv');
     const validatorUserClientId = getLedgerApiUserClientId('validator-1');
 
+    const localnet = await acquireSharedLocalNet('S1');
     try {
-      await localnet.start();
-
       const validatorStates = await localnet.getAllValidatorStates();
       assertEquals(validatorStates.length, 2);
       for (const state of validatorStates) {
@@ -184,8 +159,8 @@ Deno.test({
       const validatorAdminUserToken = await tokenManager.getPasswordToken({
         realm: validatorRealm,
         clientId: validatorUserClientId,
-        username: 'admin-user',
-        password: 'admin-user',
+        username: 'auth-admin-user',
+        password: 'auth-admin-user',
       });
 
       assert(svServiceToken.length > 20);
@@ -216,7 +191,7 @@ Deno.test({
       });
       const validatorAdminUserClient = CantonClient.forUser(
         `http://localhost:${validatorPorts.jsonApi}`,
-        'admin-user',
+        'auth-admin-user',
         {
           keycloakUrl,
           realm: validatorRealm,
@@ -243,8 +218,8 @@ Deno.test({
       assertEquals(Array.isArray(validatorParties), true);
 
       const adminUsers = await validatorAdminUserClient.listUsers();
-      assert(adminUsers.some((user) => user.id === 'admin-user'));
-      const adminUserRights = await validatorAdminUserClient.listApiUserRights('admin-user');
+      assert(adminUsers.some((user) => user.id === 'auth-admin-user'));
+      const adminUserRights = await validatorAdminUserClient.listApiUserRights('auth-admin-user');
       assert(adminUserRights.some((right) => 'ParticipantAdmin' in right.kind));
 
       const directSvUsersResponse = await assertOkWithToken(
@@ -326,8 +301,7 @@ Deno.test({
         ['#logged-in-user', '[data-testid="wallet-onboarding-welcome-title"]'],
       );
     } finally {
-      await localnet.destroy({ removeVolumes: true }).catch(() => undefined);
-      await cleanupTestResources(dockerClient, instanceId);
+      await releaseSharedLocalNet(localnet);
     }
   },
 });

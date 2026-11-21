@@ -1,18 +1,12 @@
 import { assertEquals, assertExists } from '@std/assert';
-import { LocalNet } from '../../src/localnet.ts';
+import { getLedgerApiUserClientId, getRealmName } from '../../src/types/config.ts';
+import { DEFAULT_BASE_PORT, getSvInternalPorts } from '../../src/utils/ports.ts';
+import { isDockerAvailable } from './helpers.ts';
 import {
-  getLedgerApiUserClientId,
-  getRealmName,
-  type LocalNetConfig,
-} from '../../src/types/config.ts';
-import { getSvInternalPorts } from '../../src/utils/ports.ts';
-import {
-  cleanupTestResources,
-  createTestDockerClient,
-  generateTestInstanceId,
-  isDockerAvailable,
-  testConfig,
-} from './helpers.ts';
+  acquireSharedLocalNet,
+  releaseSharedLocalNet,
+  SHARED_NETWORKS,
+} from './shared_localnet.ts';
 
 // What a LocalNet keeps working on every tested release, checked in one start:
 // - Operator APIs. Splice 0.10 (Canton 3.7) turns off the participant repair service, which Scan's
@@ -21,19 +15,13 @@ import {
 // - User ids at the edge of the rule (src/schemas/localnet-config.ts, userIdProblem): long, with
 //   '@', and not valid as an email local part. A user that is created must also log in; before,
 //   Keycloak could import a user whose password grant then failed ("Account is not fully set up").
-const BASE_PORT = 24000;
+// Runs on the shared network S1 (one validator, validator-1). CONFIG_USER (primary party
+// opsparty) and PLAIN_USER are its `ops*` config entries (shared_localnet.ts).
+const BASE_PORT = SHARED_NETWORKS.S1.basePort ?? DEFAULT_BASE_PORT;
 const CONFIG_USER = `ops.${'a'.repeat(100)}@corp.example`; // 117 characters
 const RUNTIME_USER = `.rt+${'b'.repeat(90)}@corp.example`; // 107 characters, leading '.'
 // Downstream tools sign in as <id>@localnet.localhost; ids that fit an email keep that address.
 const PLAIN_USER = 'ops-plain';
-const CONFIG: LocalNetConfig = testConfig({
-  basePort: BASE_PORT,
-  validators: [{
-    name: 'validator-1',
-    users: [{ id: CONFIG_USER, primaryParty: 'opsparty' }, { id: PLAIN_USER }],
-  }],
-  auth: { keycloak: { admin: 'admin', password: 'admin' } },
-});
 
 /** A Keycloak password grant on validator-1's realm, as CantonClient does per user. */
 async function login(user: string, password = user): Promise<string> {
@@ -61,12 +49,8 @@ Deno.test({
   sanitizeOps: false,
   sanitizeResources: false,
   async fn() {
-    const client = createTestDockerClient();
-    const instanceId = generateTestInstanceId();
-    const localnet = new LocalNet(CONFIG, { instanceId });
+    const localnet = await acquireSharedLocalNet('S1');
     try {
-      await localnet.start();
-
       // Every answer is collected before one assertion, so a run shows all that fail.
       const results: Record<string, string> = {};
       const scan = `http://localhost:${getSvInternalPorts(BASE_PORT).scanAdmin}/api/scan`;
@@ -112,8 +96,7 @@ Deno.test({
         'plain user login by email': 'ok',
       });
     } finally {
-      await localnet.destroy({ removeVolumes: true });
-      await cleanupTestResources(client, instanceId);
+      await releaseSharedLocalNet(localnet);
     }
   },
 });

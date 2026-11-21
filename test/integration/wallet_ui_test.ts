@@ -1,9 +1,8 @@
 import { assertEquals } from '@std/assert';
 import type { Browser } from 'npm:playwright@1.57.0';
 import { launchChrome } from './browser.ts';
-import { LocalNet } from '../../src/mod.ts';
-import type { LocalNetConfig } from '../../src/types/config.ts';
-import { isDockerAvailable, testConfig } from './helpers.ts';
+import { isDockerAvailable } from './helpers.ts';
+import { acquireSharedLocalNet, releaseSharedLocalNet } from './shared_localnet.ts';
 
 const EVIDENCE_DIR = '.sisyphus/evidence';
 const VALIDATOR_1_WALLET_URL = 'http://wallet.localhost:5180';
@@ -12,26 +11,9 @@ const PAGE_TIMEOUT_MS = 60_000;
 const NOT_ONBOARDED_REGEX =
   /not.{0,10}onboarded|onboarding.{0,10}(required|pending|in progress)|not yet provisioned|wallet.{0,10}not.{0,10}(installed|available)/i;
 
-const TEST_CONFIG: LocalNetConfig = testConfig({
-  validators: [
-    {
-      name: 'validator-1',
-      parties: [{ hint: 'bob' }],
-      users: [{ id: 'bob', primaryParty: 'bob' }],
-    },
-    { name: 'validator-2' },
-  ],
-  auth: {
-    keycloak: {
-      admin: 'admin',
-      password: 'admin',
-    },
-  },
-});
-
-function uniqueInstanceId(): string {
-  return `wallet-ui-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-}
+// Every test runs on the shared network S2 (validator-1 and validator-2, base port 5000). The
+// config entry Class 3 reads is wal-bob there: party wal-bob on validator-1 and user wal-bob with
+// that primary party (shared_localnet.ts). Class 4 creates wal-alice at run time.
 
 async function loginAndAssertWalletWorks(
   // deno-lint-ignore no-explicit-any
@@ -89,11 +71,10 @@ Deno.test({
   sanitizeOps: false,
   sanitizeResources: false,
   async fn() {
-    const localnet = await LocalNet.fromConfig(TEST_CONFIG, { instanceId: uniqueInstanceId() });
+    const localnet = await acquireSharedLocalNet('S2');
     // deno-lint-ignore no-explicit-any
     let browser: any;
     try {
-      await localnet.start();
       browser = await launchChrome();
       const page = await browser.newPage();
       // Auto-onboarded user format: `${participantName}-wallet-admin` where
@@ -111,7 +92,7 @@ Deno.test({
       );
     } finally {
       if (browser) await browser.close().catch(() => undefined);
-      await localnet.destroy({ removeVolumes: true }).catch(() => undefined);
+      await releaseSharedLocalNet(localnet);
     }
   },
 });
@@ -128,11 +109,10 @@ Deno.test({
     // `validator-1` is not onboarded, so we assert ONLY that OAuth round-trips;
     // the wallet UI may render an empty / "not onboarded" state, and that is
     // expected. It documents why the credentials must not list this login.
-    const localnet = await LocalNet.fromConfig(TEST_CONFIG, { instanceId: uniqueInstanceId() });
+    const localnet = await acquireSharedLocalNet('S2');
     // deno-lint-ignore no-explicit-any
     let browser: any;
     try {
-      await localnet.start();
       browser = await launchChrome();
       const page = await browser.newPage();
       await loginAndAssertWalletWorks(
@@ -145,7 +125,7 @@ Deno.test({
       );
     } finally {
       if (browser) await browser.close().catch(() => undefined);
-      await localnet.destroy({ removeVolumes: true }).catch(() => undefined);
+      await releaseSharedLocalNet(localnet);
     }
   },
 });
@@ -156,24 +136,23 @@ Deno.test({
   sanitizeOps: false,
   sanitizeResources: false,
   async fn() {
-    const localnet = await LocalNet.fromConfig(TEST_CONFIG, { instanceId: uniqueInstanceId() });
+    const localnet = await acquireSharedLocalNet('S2');
     // deno-lint-ignore no-explicit-any
     let browser: any;
     try {
-      await localnet.start();
       browser = await launchChrome();
       const page = await browser.newPage();
       await loginAndAssertWalletWorks(
         page,
         VALIDATOR_1_WALLET_URL,
-        'bob',
-        'bob',
+        'wal-bob',
+        'wal-bob',
         true,
         `${EVIDENCE_DIR}/task-11-class-3-yaml-bob.png`,
       );
     } finally {
       if (browser) await browser.close().catch(() => undefined);
-      await localnet.destroy({ removeVolumes: true }).catch(() => undefined);
+      await releaseSharedLocalNet(localnet);
     }
   },
 });
@@ -184,26 +163,25 @@ Deno.test({
   sanitizeOps: false,
   sanitizeResources: false,
   async fn() {
-    const localnet = await LocalNet.fromConfig(TEST_CONFIG, { instanceId: uniqueInstanceId() });
+    const localnet = await acquireSharedLocalNet('S2');
     // deno-lint-ignore no-explicit-any
     let browser: any;
     try {
-      await localnet.start();
-      await localnet.createUser('alice', 'validator-1', { primaryParty: 'alice' });
+      await localnet.createUser('wal-alice', 'validator-1', { primaryParty: 'wal-alice' });
 
       browser = await launchChrome();
       const page = await browser.newPage();
       await loginAndAssertWalletWorks(
         page,
         VALIDATOR_1_WALLET_URL,
-        'alice',
-        'alice',
+        'wal-alice',
+        'wal-alice',
         true,
         `${EVIDENCE_DIR}/task-11-class-4-runtime-alice.png`,
       );
     } finally {
       if (browser) await browser.close().catch(() => undefined);
-      await localnet.destroy({ removeVolumes: true }).catch(() => undefined);
+      await releaseSharedLocalNet(localnet);
     }
   },
 });
@@ -214,10 +192,9 @@ Deno.test({
   sanitizeOps: false,
   sanitizeResources: false,
   async fn() {
-    const localnet = await LocalNet.fromConfig(TEST_CONFIG, { instanceId: uniqueInstanceId() });
+    const localnet = await acquireSharedLocalNet('S2');
     let browser: Browser | undefined;
     try {
-      await localnet.start();
       const walletLogins = (await localnet.getCredentials()).filter((c) =>
         c.purpose.endsWith(' wallet')
       );
@@ -247,7 +224,7 @@ Deno.test({
       }
     } finally {
       if (browser) await browser.close().catch(() => undefined);
-      await localnet.destroy({ removeVolumes: true }).catch(() => undefined);
+      await releaseSharedLocalNet(localnet);
     }
   },
 });

@@ -1,36 +1,10 @@
 import { assertEquals, assertExists } from '@std/assert';
-import {
-  cleanupTestResources,
-  createTestDockerClient,
-  generateTestInstanceId,
-  isDockerAvailable,
-  testConfig,
-} from './helpers.ts';
-import { LocalNet } from '../../src/localnet.ts';
-import type { LocalNetConfig } from '../../src/types/config.ts';
+import { isDockerAvailable } from './helpers.ts';
+import { acquireSharedLocalNet, releaseSharedLocalNet } from './shared_localnet.ts';
 
-const TEST_CONFIG: LocalNetConfig = testConfig({
-  validators: [
-    {
-      name: 'validator-1',
-      users: [
-        { id: 'test-user-1', primaryParty: 'validator-1', rights: ['CanActAs', 'CanReadAs'] },
-      ],
-    },
-    {
-      name: 'validator-2',
-      users: [
-        { id: 'test-user-2', primaryParty: 'validator-2', rights: ['CanActAs', 'CanReadAs'] },
-      ],
-    },
-  ],
-  auth: {
-    keycloak: {
-      admin: 'admin',
-      password: 'admin',
-    },
-  },
-});
+// Both tests run on the shared network S2 (validator-1 and validator-2). The config entries the
+// first reads are test-user-1 (primary party validator-1) and test-user-2 (primary party
+// validator-2) there (shared_localnet.ts).
 
 Deno.test({
   name: 'E2E: LocalNet initializes parties and users for multiple validators',
@@ -38,22 +12,10 @@ Deno.test({
   sanitizeOps: false,
   sanitizeResources: false,
   async fn() {
-    const client = createTestDockerClient();
-    const instanceId = generateTestInstanceId();
-    const localnet = new LocalNet(TEST_CONFIG, { instanceId });
+    const localnet = await acquireSharedLocalNet('S2');
 
     try {
-      const messages: string[] = [];
-      await localnet.start({
-        onProgress: (msg) => messages.push(msg),
-      });
-
       assertEquals(localnet.currentState, 'running');
-
-      const initMessages = messages.filter((m) =>
-        m.includes('Initializing') || m.includes('party') || m.includes('user')
-      );
-      console.log('Initialization messages:', initMessages);
 
       const v1State = await localnet.getValidatorState('validator-1');
       assertExists(v1State.validatorParty, 'validator-1 should have a party');
@@ -66,8 +28,7 @@ Deno.test({
       const parties = await localnet.getParties();
       console.log('All parties:', parties.map((p) => ({ hint: p.hint, validator: p.validator })));
     } finally {
-      await localnet.destroy({ removeVolumes: true });
-      await cleanupTestResources(client, instanceId);
+      await releaseSharedLocalNet(localnet);
     }
   },
 });
@@ -78,29 +39,15 @@ Deno.test({
   sanitizeOps: false,
   sanitizeResources: false,
   async fn() {
-    const client = createTestDockerClient();
-    const instanceId = generateTestInstanceId();
-    const simpleConfig: LocalNetConfig = testConfig({
-      validators: 1,
-      auth: {
-        keycloak: {
-          admin: 'admin',
-          password: 'admin',
-        },
-      },
-    });
-    const localnet = new LocalNet(simpleConfig, { instanceId });
+    const localnet = await acquireSharedLocalNet('S2');
 
     try {
-      await localnet.start();
-
       const dsoPartyId = await localnet.getDsoPartyId();
 
       assertExists(dsoPartyId, 'DSO party ID should exist');
       console.log('DSO Party ID:', dsoPartyId);
     } finally {
-      await localnet.destroy({ removeVolumes: true });
-      await cleanupTestResources(client, instanceId);
+      await releaseSharedLocalNet(localnet);
     }
   },
 });

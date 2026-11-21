@@ -1,22 +1,17 @@
 import { assertEquals, assertExists } from '@std/assert';
-import { LocalNet } from '../../src/localnet.ts';
 import { DEFAULT_SPLICE_IMAGE_REPO } from '../../src/docker/containers.ts';
-import type { LocalNetConfig } from '../../src/types/config.ts';
 import { buildConfigEnvironmentInfo } from '../../src/utils/env-info.ts';
+import { createTestDockerClient, SELECTED_SPLICE_VERSION } from './helpers.ts';
 import {
-  cleanupTestResources,
-  createTestDockerClient,
-  generateTestInstanceId,
-  SELECTED_SPLICE_VERSION,
-  testConfig,
-} from './helpers.ts';
+  acquireSharedLocalNet,
+  releaseSharedLocalNet,
+  SHARED_NETWORKS,
+} from './shared_localnet.ts';
 
 // The suite wrapper runs this first, on its own: the rest of the run is evidence for one Splice
 // release only if the LocalNets really run it. Not ignored without Docker: no proof is a failure.
-const CONFIG: LocalNetConfig = testConfig({
-  validators: 1,
-  auth: { keycloak: { admin: 'admin', password: 'admin' } },
-});
+// In group s1 it checks the shared network S1 (one validator), which the group's other files use.
+const CONFIG = SHARED_NETWORKS.S1;
 
 Deno.test({
   name: 'Splice version: canton and splice run the selected release',
@@ -24,13 +19,12 @@ Deno.test({
   sanitizeResources: false,
   async fn() {
     const client = createTestDockerClient();
-    const instanceId = generateTestInstanceId();
-    const localnet = new LocalNet(CONFIG, { instanceId });
+    // A full start (the shared network's, or this test's own without the group runner): with
+    // skipInitialization the start can return before the APIs answer.
+    const localnet = await acquireSharedLocalNet('S1');
+    const instanceId = localnet.instanceId;
 
     try {
-      // A full start: with skipInitialization the start can return before the APIs answer.
-      await localnet.start();
-
       for (const [container, image] of [['canton', 'canton'], ['splice', 'splice-app']]) {
         const info = await client.findContainer(`${instanceId}-${container}`);
         assertExists(info, `${instanceId}-${container} does not exist`);
@@ -52,8 +46,7 @@ Deno.test({
       const version = JSON.parse(body).version;
       assertEquals(typeof version, 'string', `no version field in ${body}`);
     } finally {
-      await localnet.destroy({ removeVolumes: true }).catch(() => {});
-      await cleanupTestResources(client, instanceId);
+      await releaseSharedLocalNet(localnet);
     }
   },
 });
