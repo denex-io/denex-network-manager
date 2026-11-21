@@ -9,9 +9,11 @@
 # Environment variables:
 #   DNM_VERSION      Tag to install (e.g. v0.1.0-beta.1). Default: latest release.
 #   DNM_INSTALL_DIR  Install directory. Default: $HOME/.dnm/bin
+#   DNM_BASE_URL     Where the archives and SHA256SUMS are (e.g. file:///tmp/dist). Default: the
+#                    GitHub release for DNM_VERSION. Used by CI to install the archives it built.
 #
 # This installs a pre-compiled binary. The SDK is a separate npm package:
-#   npm install @denex/network-manager@beta
+#   npm install @denex/network-manager
 
 set -eu
 
@@ -53,7 +55,9 @@ archive="dnm-${target}.tar.gz"
 
 # ── Resolve download URLs ────────────────────────────────────────────────────
 
-if [ -n "${DNM_VERSION:-}" ]; then
+if [ -n "${DNM_BASE_URL:-}" ]; then
+  base_url="$DNM_BASE_URL"
+elif [ -n "${DNM_VERSION:-}" ]; then
   base_url="https://github.com/$REPO/releases/download/$DNM_VERSION"
 else
   base_url="https://github.com/$REPO/releases/latest/download"

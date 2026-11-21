@@ -31,10 +31,14 @@ user-facing schema, fills defaults, and feeds the generator and lifecycle layers
   (`getHighestPort(basePort, n)`) is at most `MAX_PORT` (65535).
 - `parties[].validator` and `users[].validator` no longer exist; on input they warn and are dropped.
 - `basePort` defaults to `5000` and must be between `1024` and `60000`.
-- `spliceVersion` is optional and must be a Docker tag. The `LocalNet` constructor turns it into
-  image overrides for the six Splice-family images (`buildSpliceImages()` in
-  `src/docker/containers.ts`), with `LocalNetOptions.images` merged on top. It is applied in the
-  constructor rather than `fromConfig()` so `fromInstanceId()` and repairs use it too.
+- `spliceVersion` is optional and must be a Docker tag; on input a value outside
+  `TESTED_SPLICE_VERSIONS` (`src/utils/splice-version.ts`: 0.9.4, 0.10.2) warns that it is untested.
+  Unset means `DEFAULT_SPLICE_VERSION` (0.9.4). The `LocalNet` constructor turns it into image
+  overrides for the six Splice-family images (`buildSpliceImages()` in `src/docker/containers.ts`),
+  with `LocalNetOptions.images` merged on top, and throws `SpliceVersionConflictError` if an image
+  override puts canton or splice-app on a release of the other config shape
+  (`assertImagesMatchSpliceVersion()`). It is applied in the constructor rather than `fromConfig()`
+  so `fromInstanceId()` and repairs use it too.
 - OAuth2 with Keycloak is the only auth mode; config stores `auth.keycloak.admin` and
   `auth.keycloak.password`.
 - `discovery` is deprecated; kept only for backward compatibility. The field is accepted and
@@ -49,9 +53,14 @@ user-facing schema, fills defaults, and feeds the generator and lifecycle layers
 - Input (YAML, objects given to `fromConfig()`/the `LocalNet` constructor, builder output) goes
   through `parseLocalNetConfig()`, `validateLocalNetConfig()` or `withDefaults()`: strip parse plus
   unknown-key warnings plus `checkConfigInvariants()` (port limit, lowercase and unique names,
-  lowercase user ids, reserved `sv`, Keycloak realm collisions via `getRealmName`,
-  `packages[].uploadTo` non-empty and naming `sv` or a configured validator). These invariants are
-  not in the exported Zod schema, so the schema type is unchanged.
+  lowercase user ids that Keycloak and Canton accept, user party references that Canton accepts as a
+  party hint and that read back as themselves, reserved `sv`, Keycloak realm collisions via
+  `getRealmName`, `packages[].uploadTo` non-empty and naming `sv` or a configured validator), and
+  warnings for a `version` other than `'1.0'` and a `spliceVersion` outside
+  `TESTED_SPLICE_VERSIONS`, given once per config even when its output is parsed again. These
+  invariants are not in the exported Zod schema, so the schema type is unchanged. The Canton and
+  Keycloak rules are cited at their tags beside `CANTON_PARTY_HINT` and `USER_ID` in
+  `src/schemas/localnet-config.ts`.
 - Stored labels (`fromInstanceId()`, `discover()`, `reconstructConfigFromLabels()`,
   `detectConfigMismatch()` on both sides) use `parseStoredLocalNetConfig()`: strip parse only, no
   warnings, no invariants. Instances created by older versions (11+ validators, case-variant names,
@@ -80,7 +89,10 @@ user-facing schema, fills defaults, and feeds the generator and lifecycle layers
   `discovery` object will see `undefined` now.
 - `PartyConfig.hint` and `ValidatorConfig.name` must match `/^[a-z][a-z0-9-]*$/i`; on input a
   validator name must also be lowercase (`checkConfigInvariants`), and user ids must be lowercase
-  too (`validators[i].users[j].id`). Stored labels stay lenient for both.
+  too (`validators[i].users[j].id`). Stored labels stay lenient for both. A user's `primaryParty`
+  and `parties[].hint` are held to Canton's looser party-hint rule instead (letters, digits, `:`,
+  `-`, `_`, space, at most 185, no `::`, no trailing `:`), so the top-level `parties[].hint` rule is
+  the stricter of the two.
 - `UserConfig.rights` accepts all rights for backward compatibility, but per-party rights should be
   modeled with `UserConfig.parties`.
 

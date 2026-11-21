@@ -2,6 +2,7 @@ import { assertEquals, assertExists } from '@std/assert';
 import {
   cleanupTestResources,
   createTestDockerClient,
+  ensureImage,
   generateTestInstanceId,
   TEST_IMAGES,
 } from './helpers.ts';
@@ -48,7 +49,7 @@ Deno.test({
     const networkName = `localnet-${instanceId}`;
 
     try {
-      await client.pullImage(TEST_IMAGES.alpine);
+      await ensureImage(client, TEST_IMAGES.alpine);
       await networkManager.create(instanceId);
 
       const server1Id = await client.createContainer({

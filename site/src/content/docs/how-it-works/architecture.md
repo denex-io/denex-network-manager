@@ -175,7 +175,7 @@ the data volume is first initialized.
   - SV Participant (with Sequencer and Mediator for Global Synchronizer)
   - Validator Participants (one per configured validator)
 - **Exposed Ports**: Ledger API, Admin API, JSON API for each participant
-- **Health Check**: HTTP `/health` on the SV's HTTP health port, `basePort + 0` (5000 at the default `basePort`)
+- **Health Check**: HTTP `/health/ready` on the SV's HTTP health port, `basePort + 0` (5000 at the default `basePort`)
 - **Dependencies**: postgres
 
 All participants run in a single Canton process, sharing the same JVM. This matches the upstream

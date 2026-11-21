@@ -10,6 +10,17 @@
  */
 
 export { createLocalNet, LocalNet, type LocalNetOptions } from '../localnet.ts';
+export {
+  ContainerStartupError,
+  InitializationError,
+  type InstanceDifference,
+  InstanceMismatchError,
+  LocalNetError,
+  type RollbackFailure,
+  rollbackFailureOf,
+  SpliceVersionConflictError,
+  StartupTimeoutError,
+} from '../errors.ts';
 export { LocalNetBuilder } from './builder.ts';
 export type { LocalNetBuilderConfig, UserSpec, ValidatorSpec } from './types.ts';
 export type { DiscoveredInstance } from '../api/discovery-utils.ts';

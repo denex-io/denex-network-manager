@@ -5,8 +5,10 @@ import {
   createTestDockerClient,
   generateTestInstanceId,
   isDockerAvailable,
+  testConfig,
 } from './helpers.ts';
 import { LocalNet } from '../../src/localnet.ts';
+import { StartupTimeoutError } from '../../src/errors.ts';
 import type { LocalNetConfig } from '../../src/types/config.ts';
 import { waitForHealthy } from '../../src/docker/health.ts';
 import {
@@ -17,7 +19,7 @@ import {
 } from '../../src/utils/ports.ts';
 
 // Config for fast lifecycle tests
-const LIFECYCLE_TEST_CONFIG: LocalNetConfig = {
+const LIFECYCLE_TEST_CONFIG: LocalNetConfig = testConfig({
   validators: 1,
   auth: {
     keycloak: {
@@ -25,10 +27,10 @@ const LIFECYCLE_TEST_CONFIG: LocalNetConfig = {
       password: 'admin',
     },
   },
-};
+});
 
 // Config for full end-to-end test
-const E2E_TEST_CONFIG: LocalNetConfig = {
+const E2E_TEST_CONFIG: LocalNetConfig = testConfig({
   validators: 1,
   auth: {
     keycloak: {
@@ -36,7 +38,7 @@ const E2E_TEST_CONFIG: LocalNetConfig = {
       password: 'admin',
     },
   },
-};
+});
 
 // ============================================================================
 // LIFECYCLE TESTS
@@ -82,7 +84,7 @@ Deno.test({
     const localnet = new LocalNet(LIFECYCLE_TEST_CONFIG, { instanceId });
 
     try {
-      await localnet.start({ skipHealthChecks: true, skipInitialization: true, timeout: 60000 });
+      await localnet.start({ skipHealthChecks: true, skipInitialization: true });
 
       await assertRejects(
         () => localnet.start(),
@@ -107,7 +109,7 @@ Deno.test({
     const localnet = new LocalNet(LIFECYCLE_TEST_CONFIG, { instanceId });
 
     try {
-      await localnet.start({ skipHealthChecks: true, skipInitialization: true, timeout: 60000 });
+      await localnet.start({ skipHealthChecks: true, skipInitialization: true });
       assertEquals(localnet.currentState, 'running');
 
       await localnet.stop();
@@ -135,7 +137,7 @@ Deno.test({
     const localnet = new LocalNet(LIFECYCLE_TEST_CONFIG, { instanceId });
 
     try {
-      await localnet.start({ skipHealthChecks: true, skipInitialization: true, timeout: 60000 });
+      await localnet.start({ skipHealthChecks: true, skipInitialization: true });
       await localnet.destroy({ removeVolumes: true });
 
       const containersAfter = await client.listContainers({
@@ -164,11 +166,11 @@ Deno.test({
     const localnet = new LocalNet(LIFECYCLE_TEST_CONFIG, { instanceId });
 
     try {
-      await localnet.start({ skipHealthChecks: true, skipInitialization: true, timeout: 60000 });
+      await localnet.start({ skipHealthChecks: true, skipInitialization: true });
       const initialStatus = await localnet.status();
       const initialContainerCount = initialStatus.containers.length;
 
-      await localnet.restart({ skipHealthChecks: true, skipInitialization: true, timeout: 60000 });
+      await localnet.restart({ skipHealthChecks: true, skipInitialization: true });
 
       assertEquals(localnet.currentState, 'running');
 
@@ -198,7 +200,7 @@ Deno.test({
     const localnet = new LocalNet(LIFECYCLE_TEST_CONFIG, { instanceId });
 
     try {
-      await localnet.start({ skipHealthChecks: true, skipInitialization: true, timeout: 60000 });
+      await localnet.start({ skipHealthChecks: true, skipInitialization: true });
 
       // No `.localnet` directory should be created in the working directory.
       const localnetDirExists = await Deno.stat(`${scratchCwd}/.localnet`)
@@ -280,7 +282,7 @@ Deno.test({
 
     try {
       // Start WITHOUT skipHealthChecks - wait for everything to be ready
-      await localnet.start({ timeout: 300000 });
+      await localnet.start();
 
       // Verify state
       const status = await localnet.status();
@@ -334,7 +336,7 @@ Deno.test({
 // E2E Test: Two Validators with oauth2
 // ============================================================================
 
-const E2E_TWO_VALIDATORS_CONFIG: LocalNetConfig = {
+const E2E_TWO_VALIDATORS_CONFIG: LocalNetConfig = testConfig({
   validators: 2,
   auth: {
     keycloak: {
@@ -342,7 +344,7 @@ const E2E_TWO_VALIDATORS_CONFIG: LocalNetConfig = {
       password: 'admin',
     },
   },
-};
+});
 
 Deno.test({
   name: 'E2E: Two validators LocalNet starts and all APIs respond',
@@ -355,7 +357,7 @@ Deno.test({
     const localnet = new LocalNet(E2E_TWO_VALIDATORS_CONFIG, { instanceId });
 
     try {
-      await localnet.start({ timeout: 300000 });
+      await localnet.start();
 
       const status = await localnet.status();
       assertEquals(status.state, 'running', 'LocalNet should be in running state');
@@ -416,7 +418,7 @@ Deno.test({
     const first = new LocalNet(config, { instanceId });
 
     try {
-      await first.start({ skipHealthChecks: true, skipInitialization: true, timeout: 60000 });
+      await first.start({ skipHealthChecks: true, skipInitialization: true });
       await first.stop();
 
       const before = await client.listContainers({ 'denex.localnet.instance': instanceId });
@@ -424,9 +426,12 @@ Deno.test({
       assertEquals(idsBefore.length > 0, true);
 
       const resumed = new LocalNet(config, { instanceId });
-      await assertRejects(() =>
-        resumed.start({ skipHealthChecks: true, skipInitialization: true, timeout: 1 })
+      // A 1 ms timeout is the point of this test: the resume must fail on it and change nothing.
+      const err = await assertRejects(
+        () => resumed.start({ skipHealthChecks: true, skipInitialization: true, timeout: 1 }),
+        StartupTimeoutError,
       );
+      assertEquals(err.phase, 'start');
 
       const after = await client.listContainers({ 'denex.localnet.instance': instanceId });
       assertEquals(after.map((c) => c.id).sort(), idsBefore);
@@ -456,7 +461,7 @@ Deno.test({
 
     try {
       await assertRejects(() =>
-        localnet.start({ skipHealthChecks: true, skipInitialization: true, timeout: 60000 })
+        localnet.start({ skipHealthChecks: true, skipInitialization: true })
       );
 
       const containers = await client.listContainers({ 'denex.localnet.instance': instanceId });
@@ -490,14 +495,26 @@ Deno.test({
     const webUiName = `${instanceId}-sv-web-ui`;
 
     try {
-      await first.start({ skipHealthChecks: true, skipInitialization: true, timeout: 120000 });
+      await first.start({ skipHealthChecks: true, skipInitialization: true });
       const before = await client.getContainerInfo(webUiName);
       assertExists(before);
       await client.stopContainer(before.id, 5);
-      assertEquals(await first.state(), 'partial');
+      // state() reads Docker's list API, which can still show a container as running for a few
+      // milliseconds after its stop returned: moby v28.0.4 wakes the stop call before it updates the
+      // list's view (daemon/monitor.go:120-130). Wait that out, bounded; any other state is final.
+      const listDeadline = Date.now() + 10_000;
+      let seen = await first.state();
+      while (seen === 'running' && Date.now() < listDeadline) {
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        seen = await first.state();
+      }
+      if (seen === 'running') {
+        throw new Error(`state() was still 'running' 10 s after ${webUiName} was stopped`);
+      }
+      assertEquals(seen, 'partial');
 
       const second = new LocalNet(config, { instanceId });
-      await second.start({ skipHealthChecks: true, skipInitialization: true, timeout: 120000 });
+      await second.start({ skipHealthChecks: true, skipInitialization: true });
 
       const after = await client.getContainerInfo(webUiName);
       assertExists(after);

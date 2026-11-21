@@ -8,6 +8,7 @@ import {
 } from '../types/config.ts';
 import { BOOTSTRAP_ADMIN_USERNAME } from '../generator/keycloak.ts';
 import type { PortBinding } from './types.ts';
+import { DEFAULT_SPLICE_VERSION } from '../utils/splice-version.ts';
 import {
   DEFAULT_BASE_PORT,
   getKeycloakPort,
@@ -66,7 +67,7 @@ export interface ContainerImages {
   keycloak: string;
 }
 
-export const DEFAULT_SPLICE_VERSION = '0.9.4';
+export { DEFAULT_SPLICE_VERSION };
 export const DEFAULT_SPLICE_IMAGE_REPO = 'ghcr.io/digital-asset/decentralized-canton-sync/docker';
 
 function spliceImage(name: string): string {
@@ -175,6 +176,17 @@ export interface GeneratedConfigs {
   /** Keycloak realm import files, keyed by filename (e.g. "SV-realm.json"). */
   keycloakRealms: Record<string, string>;
 }
+
+// Health check sizing. Docker reports a container unhealthy after startPeriod + retries x
+// interval, and start() fails on the first unhealthy, so that deadline is at least 2x the slowest
+// measured time from container start to its first healthy check: the rule the start timeout uses
+// (2x a cold start). Slowest of four runs (2026-11-19/20: warm image cache on Docker Desktop for
+// Splice 0.9.4 and 0.10.2; cold, images just pulled, in DinD for both releases), quantized to the
+// check interval (5.0 s means the first check passed), against each deadline:
+//   postgres 5.1 s cold (70 s), keycloak 25.0 s cold (170 s), canton 10.1 s cold (55 s),
+//   splice 5.3 s cold (180 s), web UIs 5.1 s cold (15 s), nginx 5.0 s (15 s).
+// Every value here is unchanged from 0.1.0-beta.3 and meets the rule. test/unit/docker_test.ts
+// holds the measurements and checks it.
 
 const DEFAULT_DB_USER = 'cnadmin';
 const DEFAULT_DB_PASSWORD = 'supersafe';
@@ -291,7 +303,8 @@ export function buildCantonContainer(
     networks: [options.networkName],
     healthCheck: {
       type: 'http',
-      target: `http://localhost:${svPorts.httpHealth}/health`,
+      // Readiness, not liveness: Canton 3.6.4 and 3.7.3 both serve it on the http health server.
+      target: `http://localhost:${svPorts.httpHealth}/health/ready`,
       interval: 5,
       timeout: 30,
       retries: 10,

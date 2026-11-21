@@ -28,3 +28,5 @@ export * from './api/mod.ts';
 export { type CredentialInfo, getCredentials } from './utils/credentials.ts';
 
 export { createLocalNet, LocalNet, type LocalNetOptions } from './localnet.ts';
+
+export * from './errors.ts';

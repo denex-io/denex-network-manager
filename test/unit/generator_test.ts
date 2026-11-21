@@ -626,3 +626,63 @@ Deno.test('generateFullSpliceConfig - Scan and SV turn off the per-client-IP rat
   const sv = config.slice(config.indexOf('sv-apps.sv {'));
   assertStringIncludes(sv, 'parameters.rate-limiting = ${_rate_limiting}');
 });
+
+Deno.test('generateFullCantonConfig - Splice 0.10 keeps the repair service and key download on; 0.9.4 is unchanged', () => {
+  const base = { validators: 1, auth: { keycloak: { admin: 'a', password: 'b' } } };
+  const v010 = generateFullCantonConfig({ ...base, spliceVersion: '0.10.2' });
+  assertStringIncludes(v010, 'canton.features.enable-repair-commands = yes');
+  assertStringIncludes(v010, 'canton.parameters.enable-key-download = yes');
+  // Canton 3.6.4 (Splice 0.9.4) has no enable-key-download and fails on unknown keys.
+  for (
+    const v094 of [
+      generateFullCantonConfig(base),
+      generateFullCantonConfig({ ...base, spliceVersion: '0.9.4' }),
+    ]
+  ) {
+    assert(!v094.includes('enable-key-download'), 'no enable-key-download on 0.9.4');
+    assert(!v094.includes('enable-repair-commands'), 'no enable-repair-commands on 0.9.4');
+  }
+});
+
+// Keycloak 26.1.0's email local part (server-spi-private/src/main/java/org/keycloak/utils/
+// EmailValidationUtil.java:17-26 at tag 26.1.0): at most 64 characters of dot-separated atoms.
+const KEYCLOAK_EMAIL =
+  /^(?=[^@]{1,64}@)[a-z0-9!#$%&'*+/=?^_`{|}~-]+(?:\.[a-z0-9!#$%&'*+/=?^_`{|}~-]+)*@[a-z0-9-]+(?:\.[a-z0-9-]+)+$/;
+
+Deno.test('generateValidatorRealm - every user gets a valid email: <id>@localnet.localhost when that is one', () => {
+  const ids = [
+    'alice',
+    'app-admin',
+    'ops@corp.example',
+    '.ops',
+    'ops..x',
+    'a'.repeat(70),
+    'b'.repeat(128),
+  ];
+  const realm = generateValidatorRealm(
+    { name: 'v1', users: ids.map((id) => ({ id })) },
+    0,
+    TEST_CONFIG,
+  );
+  const emails = new Map<string, string | undefined>();
+  for (const id of ids) {
+    const user = realm.users?.find((u) => u.username === id);
+    assertExists(user, id);
+    assert(
+      user.email !== undefined && KEYCLOAK_EMAIL.test(user.email),
+      `${id}: email ${user.email}`,
+    );
+    assertEquals([user.firstName, user.emailVerified], [id, true], id);
+    emails.set(id, user.email);
+  }
+  // Downstream tools build <id>@localnet.localhost themselves; ids it fits keep it.
+  assertEquals([emails.get('alice'), emails.get('app-admin')], [
+    'alice@localnet.localhost',
+    'app-admin@localnet.localhost',
+  ]);
+  // The rest get a hashed address on another domain, so it cannot be any <id>@localnet.localhost.
+  for (const id of ['ops@corp.example', '.ops', 'ops..x', 'a'.repeat(70), 'b'.repeat(128)]) {
+    assertStringIncludes(String(emails.get(id)), '@id.localnet.localhost', id);
+  }
+  assertEquals(new Set(emails.values()).size, ids.length, 'emails are distinct');
+});

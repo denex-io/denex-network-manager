@@ -2,6 +2,7 @@ import { assertEquals } from '@std/assert';
 import {
   cleanupTestResources,
   createTestDockerClient,
+  ensureImage,
   generateTestInstanceId,
   TEST_CONFIG,
   TEST_IMAGES,
@@ -21,7 +22,7 @@ Deno.test({
     const hostPort = 15432;
 
     try {
-      await client.pullImage(TEST_IMAGES.postgres);
+      await ensureImage(client, TEST_IMAGES.postgres);
 
       const containerId = await client.createContainer({
         name: containerName,
@@ -74,7 +75,7 @@ Deno.test({
     const hostPort = 15433;
 
     try {
-      await client.pullImage(TEST_IMAGES.postgres);
+      await ensureImage(client, TEST_IMAGES.postgres);
 
       const containerId = await client.createContainer({
         name: containerName,

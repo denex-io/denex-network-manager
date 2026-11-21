@@ -1,7 +1,7 @@
 import { assertEquals } from '@std/assert';
 import { LocalNet } from '../../src/mod.ts';
 import type { LocalNetConfig } from '../../src/types/config.ts';
-import { isDockerAvailable } from './helpers.ts';
+import { isDockerAvailable, testConfig } from './helpers.ts';
 
 const EVIDENCE_DIR = '.sisyphus/evidence';
 const VALIDATOR_1_WALLET_URL = 'http://wallet.localhost:5180';
@@ -10,7 +10,7 @@ const PAGE_TIMEOUT_MS = 60_000;
 const NOT_ONBOARDED_REGEX =
   /not.{0,10}onboarded|onboarding.{0,10}(required|pending|in progress)|not yet provisioned|wallet.{0,10}not.{0,10}(installed|available)/i;
 
-const TEST_CONFIG: LocalNetConfig = {
+const TEST_CONFIG: LocalNetConfig = testConfig({
   validators: [
     {
       name: 'validator-1',
@@ -25,7 +25,7 @@ const TEST_CONFIG: LocalNetConfig = {
       password: 'admin',
     },
   },
-};
+});
 
 function uniqueInstanceId(): string {
   return `wallet-ui-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -104,7 +104,7 @@ Deno.test({
     // deno-lint-ignore no-explicit-any
     let browser: any;
     try {
-      await localnet.start({ timeout: 300_000 });
+      await localnet.start();
       const pw = await loadPlaywrightOrThrow();
       browser = await pw.chromium.launch({ headless: true });
       const page = await browser.newPage();
@@ -144,7 +144,7 @@ Deno.test({
     // deno-lint-ignore no-explicit-any
     let browser: any;
     try {
-      await localnet.start({ timeout: 300_000 });
+      await localnet.start();
       const pw = await loadPlaywrightOrThrow();
       browser = await pw.chromium.launch({ headless: true });
       const page = await browser.newPage();
@@ -173,7 +173,7 @@ Deno.test({
     // deno-lint-ignore no-explicit-any
     let browser: any;
     try {
-      await localnet.start({ timeout: 300_000 });
+      await localnet.start();
       const pw = await loadPlaywrightOrThrow();
       browser = await pw.chromium.launch({ headless: true });
       const page = await browser.newPage();
@@ -202,7 +202,7 @@ Deno.test({
     // deno-lint-ignore no-explicit-any
     let browser: any;
     try {
-      await localnet.start({ timeout: 300_000 });
+      await localnet.start();
       await localnet.createUser('alice', 'validator-1', { primaryParty: 'alice' });
 
       const pw = await loadPlaywrightOrThrow();
@@ -232,7 +232,7 @@ Deno.test({
     const localnet = await LocalNet.fromConfig(TEST_CONFIG, { instanceId: uniqueInstanceId() });
     let browser: import('npm:playwright@1.57.0').Browser | undefined;
     try {
-      await localnet.start({ timeout: 300_000 });
+      await localnet.start();
       const walletLogins = (await localnet.getCredentials()).filter((c) =>
         c.purpose.endsWith(' wallet')
       );

@@ -5,6 +5,7 @@
  * the massive 2300-line exports from Keycloak admin console.
  */
 
+import { createHash } from 'node:crypto';
 import type { LocalNetConfig, ValidatorConfig } from '../types/config.ts';
 import {
   DEFAULT_AUDIENCE,
@@ -324,17 +325,30 @@ function createPqsClient(validatorName: string): KeycloakClient {
   };
 }
 
+/** Keycloak's email local-part rule, for the ids it fits (EmailValidationUtil.java:17-26, 26.1.0). */
+const EMAIL_LOCAL_PART = /^(?=.{1,64}$)[a-z0-9_+-]+(?:\.[a-z0-9_+-]+)*$/;
+
+/**
+ * The email dnm gives a Keycloak user: `<id>@localnet.localhost` when the id is a valid email local
+ * part, which downstream tools build themselves and use to sign in; otherwise (an id with `@`,
+ * longer than 64 characters, or with a leading, trailing or doubled `.`) the first 32 hex digits of
+ * its SHA-256 at `id.localnet.localhost`, a domain no `<id>@localnet.localhost` can be on. Keycloak
+ * requires a valid email (and first and last name) before a user can log in.
+ */
+export function keycloakUserEmail(id: string): string {
+  if (EMAIL_LOCAL_PART.test(id)) return `${id}@localnet.localhost`;
+  return `${createHash('sha256').update(id).digest('hex').slice(0, 32)}@id.localnet.localhost`;
+}
+
 function createUser(
   username: string,
   password: string = username,
-  email?: string,
 ): KeycloakUser {
-  const userEmail = email ?? `${username}@localnet.localhost`;
   return {
     username,
     firstName: username,
     lastName: 'User',
-    email: userEmail,
+    email: keycloakUserEmail(username),
     emailVerified: true,
     enabled: true,
     credentials: [

@@ -16,6 +16,7 @@ import {
   createTestDockerClient,
   generateTestInstanceId,
   isDockerAvailable,
+  testConfig,
 } from './helpers.ts';
 import { LocalNet } from '../../src/localnet.ts';
 import type { LocalNetConfig } from '../../src/types/config.ts';
@@ -27,17 +28,17 @@ import type { LocalNetConfig } from '../../src/types/config.ts';
 const BASE_PORT_A = 17000;
 const BASE_PORT_B = 18000;
 
-const INSTANCE_CONFIG_A: LocalNetConfig = {
+const INSTANCE_CONFIG_A: LocalNetConfig = testConfig({
   validators: 1,
   basePort: BASE_PORT_A,
   auth: { keycloak: { admin: 'admin', password: 'admin' } },
-};
+});
 
-const INSTANCE_CONFIG_B: LocalNetConfig = {
+const INSTANCE_CONFIG_B: LocalNetConfig = testConfig({
   validators: 1,
   basePort: BASE_PORT_B,
   auth: { keycloak: { admin: 'admin', password: 'admin' } },
-};
+});
 
 // ============================================================================
 // Concurrent startup isolation
@@ -58,8 +59,8 @@ Deno.test({
     try {
       // Start both concurrently — must not port-conflict.
       await Promise.all([
-        netA.start({ skipHealthChecks: true, skipInitialization: true, timeout: 120_000 }),
-        netB.start({ skipHealthChecks: true, skipInitialization: true, timeout: 120_000 }),
+        netA.start({ skipHealthChecks: true, skipInitialization: true }),
+        netB.start({ skipHealthChecks: true, skipInitialization: true }),
       ]);
 
       assertEquals(netA.currentState, 'running');
@@ -117,8 +118,8 @@ Deno.test({
 
     try {
       await Promise.all([
-        netA.start({ skipHealthChecks: true, skipInitialization: true, timeout: 120_000 }),
-        netB.start({ skipHealthChecks: true, skipInitialization: true, timeout: 120_000 }),
+        netA.start({ skipHealthChecks: true, skipInitialization: true }),
+        netB.start({ skipHealthChecks: true, skipInitialization: true }),
       ]);
 
       const volsA = await client.listVolumes({ 'denex.localnet.instance': idA });
@@ -158,8 +159,8 @@ Deno.test({
 
     try {
       await Promise.all([
-        netA.start({ skipHealthChecks: true, skipInitialization: true, timeout: 120_000 }),
-        netB.start({ skipHealthChecks: true, skipInitialization: true, timeout: 120_000 }),
+        netA.start({ skipHealthChecks: true, skipInitialization: true }),
+        netB.start({ skipHealthChecks: true, skipInitialization: true }),
       ]);
 
       const containerCountB = (await client.listContainers({ 'denex.localnet.instance': idB }))
@@ -214,25 +215,27 @@ Deno.test({
     const idB = generateTestInstanceId();
     const sharedPort = 19000;
 
-    const configA: LocalNetConfig = {
+    const configA: LocalNetConfig = testConfig({
       validators: 1,
       basePort: sharedPort,
       auth: { keycloak: { admin: 'admin', password: 'admin' } },
-    };
-    const configB: LocalNetConfig = {
+    });
+    const configB: LocalNetConfig = testConfig({
       validators: 1,
       basePort: sharedPort, // same — must be rejected
       auth: { keycloak: { admin: 'admin', password: 'admin' } },
-    };
+    });
 
     const netA = new LocalNet(configA, { instanceId: idA });
     const netB = new LocalNet(configB, { instanceId: idB });
 
     try {
-      await netA.start({ skipHealthChecks: true, skipInitialization: true, timeout: 120_000 });
+      await netA.start({ skipHealthChecks: true, skipInitialization: true });
 
       let threw = false;
       try {
+        // Expected to fail fast on the port check, which runs before any pull or timeout check;
+        // the short bound only keeps a regression from turning into a full start.
         await netB.start({ skipHealthChecks: true, skipInitialization: true, timeout: 30_000 });
       } catch (err) {
         threw = true;

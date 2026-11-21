@@ -7,7 +7,7 @@ file.
 regular validators, Keycloak, PostgreSQL, Nginx, and the web UIs without maintaining the upstream
 LocalNet config tree yourself.
 
-> **Pre-1.0 beta:** This is a beta release. The API may change in minor versions (0.x). Check the
+> **0.x API stability:** The API may change in minor versions (0.x). Check the
 > [CHANGELOG](./CHANGELOG.md) before upgrading.
 
 📖 **Full documentation:
@@ -26,7 +26,8 @@ built-ins and are intended to work on Deno, Node.js, and Bun.
 **Bun caveat:** Bun does not support Docker Unix sockets reliably through `node:http`. If you use
 the SDK from Bun, configure Docker to listen on a TCP socket.
 
-> This release runs Splice **0.9.4** (Canton 3.6.4) by default. To run another release, set
+> This release runs Splice **0.9.4** (Canton 3.6.4) by default and is also tested on Splice
+> **0.10.2** (Canton 3.7.3): set `spliceVersion: '0.10.2'`. To run another release, set
 > `spliceVersion` in the config or call `LocalNetBuilder.withSpliceVersion()`. From the SDK, pass
 > `images` in `LocalNetOptions` to override individual images.
 
@@ -41,7 +42,7 @@ curl -fsSL https://raw.githubusercontent.com/denex-io/denex-network-manager/main
 ```
 
 This installs to `~/.dnm/bin` and verifies the download against the release checksums. Set
-`DNM_INSTALL_DIR` to install elsewhere, or `DNM_VERSION` (e.g. `v0.1.0-beta.3`) to pin a version.
+`DNM_INSTALL_DIR` to install elsewhere, or `DNM_VERSION` (e.g. `v0.1.0`) to pin a version.
 
 Prefer not to pipe a script to your shell? Download the archive for your platform from the
 [latest release](https://github.com/denex-io/denex-network-manager/releases/latest), verify it
@@ -61,13 +62,13 @@ The npm package contains the SDK only — use one of the CLI options above for `
 **Node.js / npm:**
 
 ```bash
-npm install @denex/network-manager@beta
+npm install @denex/network-manager
 ```
 
 **Bun:**
 
 ```bash
-bun add @denex/network-manager@beta
+bun add @denex/network-manager
 ```
 
 Then import:
@@ -149,7 +150,7 @@ one stopped instance, and print a stderr notice when they fall back or ignore ot
 `--instance <id>` when a tier holds several. `dnm config -y` overwrites an existing file after
 saving it as `<file>.bak`.
 
-`--timeout` units differ per command: `start --timeout` is in **milliseconds** (default `300000`),
+`--timeout` units differ per command: `start --timeout` is in **milliseconds** (default `600000`),
 while `stop --timeout` and `destroy --timeout` are in **seconds** (default `30`). The
 [CLI reference](https://denex-io.github.io/denex-network-manager/reference/cli/) documents every
 flag.
@@ -158,7 +159,7 @@ Useful options:
 
 ```bash
 dnm config -y -o localnet.yaml
-dnm start --instance demo --timeout 300000
+dnm start --instance demo
 dnm start --skip-init
 dnm start --skip-health-checks
 dnm env --json

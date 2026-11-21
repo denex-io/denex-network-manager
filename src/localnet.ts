@@ -28,6 +28,7 @@ import {
   type UserRight,
 } from './types/config.ts';
 import { parseLocalNetConfig, parseStoredLocalNetConfig } from './schemas/mod.ts';
+import { userIdProblem } from './schemas/localnet-config.ts';
 import {
   BOOTSTRAP_ADMIN_USERNAME,
   generateAllRealmsJson,
@@ -35,6 +36,16 @@ import {
   generateFullSpliceConfig,
 } from './generator/mod.ts';
 import { getSvInternalPorts, getSvPorts, getValidatorPorts } from './utils/ports.ts';
+import { assertImagesMatchSpliceVersion, resolveSpliceVersion } from './utils/splice-version.ts';
+import {
+  ContainerStartupError,
+  InitializationError,
+  type InstanceDifference,
+  InstanceMismatchError,
+  LocalNetError,
+  type RollbackFailure,
+  StartupTimeoutError,
+} from './errors.ts';
 import { loadConfigFile } from './utils/yaml.ts';
 import { buildConfigEnvironmentInfo } from './utils/env-info.ts';
 import { type CredentialInfo, getCredentials as getCredentialsList } from './utils/credentials.ts';
@@ -46,6 +57,7 @@ import type {
 } from './types/state.ts';
 import {
   type ApiUserRight,
+  CantonApiError,
   CantonClient,
   createCanActAs,
   createCanActAsAnyParty,
@@ -218,6 +230,31 @@ interface CacheEntry<T> {
   expiresAt: number;
 }
 
+/** How many of a failed container's last log lines a {@link ContainerStartupError} carries. */
+const STARTUP_LOG_LINES = 20;
+
+/**
+ * Default `start()` timeout: a wall-clock limit on the whole start, pulls included. A cold start
+ * (fresh container, linux-arm64, every image pulled) took 290.7 s on 2026-11-18; this is 2x that,
+ * rounded up to a whole minute.
+ */
+export const DEFAULT_START_TIMEOUT_MS = 600_000;
+
+/** Largest delay setTimeout takes; a longer one overflows and fires at once. */
+const MAX_TIMER_MS = 2 ** 31 - 1;
+
+/** Milliseconds left until `deadline`, at least 0 and at most what a timer can wait. */
+function msUntil(deadline: number): number {
+  return Math.min(MAX_TIMER_MS, Math.max(0, deadline - Date.now()));
+}
+
+/** What is left of one `start()` call's timeout: every pull, health wait and readiness wait. */
+interface StartBudget {
+  /** Epoch milliseconds by which the start must be done. */
+  deadline: number;
+  timeoutMs: number;
+}
+
 /**
  * What a single `start()` call has changed in Docker, so a failure can undo
  * exactly that and nothing else. `created` maps container name to id; `started`
@@ -283,6 +320,14 @@ export class LocalNet {
   private keycloakAdminClient: KeycloakAdminClient | null = null;
   private apiCache: Map<string, CacheEntry<unknown>> = new Map();
   private cacheTtlMs = 30_000;
+  /** How often a running image pull reports its elapsed time. */
+  private pullProgressIntervalMs = 10_000;
+  /** How often a health wait polls Docker; undefined is 1 s. Tests shorten it. */
+  private healthPollMs: number | undefined = undefined;
+  /** How often a health wait reports elapsed time and the last health status. */
+  private healthProgressIntervalMs = 10_000;
+  /** Backoff of the API and Scan readiness waits (first delay, cap). Tests shorten it. */
+  private readinessDelayMs = { initial: 1000, max: 10_000 };
   private baseHost = 'localhost';
   private attachedToRunning = false;
   /**
@@ -312,6 +357,11 @@ export class LocalNet {
       });
       this.configWarnings = warnings;
     }
+    assertImagesMatchSpliceVersion(
+      resolveSpliceVersion(this.config),
+      options?.images,
+      this.config.spliceVersion === undefined ? 'the default' : 'spliceVersion',
+    );
     const instanceId = options?.instanceId ?? DEFAULT_INSTANCE_ID;
     const labelPrefix = options?.labelPrefix ?? DEFAULT_LABEL_PREFIX;
     this.options = {
@@ -548,7 +598,9 @@ export class LocalNet {
    * below, when it leaves them running). A failed first start therefore leaves
    * nothing behind, while a failed resume (for example a timeout) leaves the
    * stopped containers, the network and the postgres data volume intact. The
-   * instance state returns to `'stopped'`.
+   * instance state returns to `'stopped'`. If the rollback cannot undo everything, the error thrown
+   * is still the startup error, with what was left behind (and why) appended to its message and
+   * attached as `rollbackFailure` (see {@link rollbackFailureOf}); `onProgress` names it too.
    *
    * Returns without changes, marking this object running, only when every
    * container the instance should have is running. A partially running
@@ -581,21 +633,32 @@ export class LocalNet {
    *
    * Initialization ({@link LocalNet.initializeResources}) waits for every validator's APIs and
    * for Scan to become ready, allocates the configured parties, creates the configured users
-   * and uploads the configured `packages`. A party or user that fails is reported
-   * through `onProgress` and a package that fails through `onWarning`; neither fails
-   * `start()`, but a readiness wait that times out does.
+   * and uploads the configured `packages`. A party or user that cannot be set up fails `start()`
+   * with {@link InitializationError}, naming it and the cause (before 0.1.0 it was only
+   * reported through `onProgress` and `start()` succeeded without it); a party or user that
+   * already exists counts as set up. Like any failure, it rolls back a fresh start and removes
+   * nothing on a resume. A package that fails is still only a warning, through `onWarning`.
    *
-   * @param options - `timeout` (milliseconds, default 300000) is checked before each layer of
-   *   containers is started, not enforced as a wall-clock limit; health-check waits and
-   *   initialization can run past it. `parallel` (default `true`) starts the containers of one
-   *   layer concurrently. `skipHealthChecks` skips waiting for Docker health checks.
-   *   `skipInitialization` skips initialization, including the readiness waits and the package
-   *   upload. `onProgress` receives progress and warning messages.
+   * @param options - `timeout` (milliseconds) is a wall-clock limit on the whole start: image
+   *   pulls, starting each layer of containers, the health waits, and initialization's waits for
+   *   the validator APIs and Scan. Default 600000 (600 s): a measured cold start took 290.7 s
+   *   (fresh container, linux-arm64, pulls included); 2× that, rounded up to a whole minute.
+   *   Running out throws {@link StartupTimeoutError} (phase `pull`,
+   *   `start` or `init`), or {@link ContainerStartupError} during a health wait. The bootstrap-admin
+   *   cleanup, party and user setup and the package upload are not bounded by it.
+   *   `parallel` (default `true`) starts the containers of one layer concurrently.
+   *   `skipHealthChecks` skips waiting for Docker health checks. `skipInitialization` skips
+   *   initialization: the readiness waits, party and user setup, and the package upload, so the
+   *   start can return before the APIs answer. `onProgress` receives
+   *   progress and warning messages, including elapsed time while a pull or a health wait runs.
    * @throws If this object is already running or starting, on a config mismatch or port conflict,
    *   if a container is paused, if another process appears to be starting the instance (including a
    *   name conflict on create), if a configured `packages` DAR is missing on a fresh start,
-   *   if initialization cannot read a validator's hosted parties, if Docker is unavailable, a container exits or does not become healthy, the timeout check
-   *   fails, or the APIs or Scan do not become ready.
+   *   if initialization cannot read a validator's hosted parties or set up a configured party or
+   *   user ({@link InitializationError}), if Docker is unavailable, a
+   *   container stops, turns unhealthy or does not become healthy ({@link ContainerStartupError},
+   *   with its last log lines), the timeout runs out, or the APIs or Scan do not become ready
+   *   ({@link InitializationError}, `kind: 'validator'`, after 30 attempts).
    *
    * @example
    * ```typescript
@@ -616,7 +679,14 @@ export class LocalNet {
 
     const mismatch = await this.detectConfigMismatch();
     if (mismatch.hasMismatch) {
-      throw new Error(
+      throw new InstanceMismatchError(
+        this.options.instanceId,
+        [{
+          container: '*',
+          field: 'config',
+          expected: 'the config of this handle',
+          actual: 'the config stored on the instance',
+        }],
         mismatch.message ||
           `Instance '${this.options.instanceId}' is already running with a different config. ` +
             `Stop and destroy first, or use a different instanceId.`,
@@ -626,7 +696,8 @@ export class LocalNet {
     const existing = await this.client.listContainers({
       [`${this.options.labelPrefix}.instance`]: this.options.instanceId,
     });
-    const expectedNames = this.buildContainerSpecs(EMPTY_GENERATED_CONFIGS).map((s) => s.name);
+    const specs = this.buildContainerSpecs(EMPTY_GENERATED_CONFIGS);
+    const expectedNames = specs.map((s) => s.name);
     const byName = new Map(existing.map((c) => [c.name, c]));
     const present = expectedNames.flatMap((n) => byName.get(n) ?? []);
 
@@ -648,6 +719,34 @@ export class LocalNet {
       }
     }
 
+    // Existing containers keep the image they were created with. Creating the missing ones from
+    // this handle's images next to them would mix releases, so a repair refuses; a complete
+    // instance resumes as it was created.
+    const differences = await this.diffExistingContainers(present, specs);
+    if (differences.length > 0) {
+      const missing = expectedNames.filter((n) => !byName.has(n));
+      const lines = differences.map((d) =>
+        `  ${d.container}: has ${d.actual}, expected ${d.expected}`
+      );
+      if (missing.length > 0) {
+        throw new InstanceMismatchError(
+          this.options.instanceId,
+          differences,
+          `Instance '${this.options.instanceId}' cannot be repaired: ${missing.join(', ')} ` +
+            `would be created next to containers that differ from this config and options:\n` +
+            `${lines.join('\n')}\n` +
+            `Destroy the instance and start it again (its ledger state is lost), or start it ` +
+            `with the spliceVersion and images it was created with.`,
+        );
+      }
+      this.options.onWarning({
+        source: 'instance',
+        message: `Instance '${this.options.instanceId}' resumes as it was created, which differs ` +
+          `from this config and options:\n${lines.join('\n')}\n` +
+          `Destroy it and start again to apply them.`,
+      });
+    }
+
     const running = present.filter((c) => c.state === 'running');
     if (running.length === expectedNames.length) {
       this.internalState = 'running';
@@ -665,7 +764,7 @@ export class LocalNet {
       await assertPackageFilesExist(await resolvePackages(this.config, this.options.configDir));
     }
 
-    const timeout = options?.timeout ?? 300000;
+    const timeout = options?.timeout ?? DEFAULT_START_TIMEOUT_MS; // 600 s
     const startTime = Date.now();
     const rb: StartRollback = {
       networkCreated: false,
@@ -702,11 +801,22 @@ export class LocalNet {
 
       const containerSpecs = this.buildContainerSpecs(generatedConfigs);
       const layers = getStartupOrder(containerSpecs);
+      // The timeout bounds the whole start, pulls included: each pull and health wait gets
+      // what is left of it.
+      const budget: StartBudget = { deadline: startTime + timeout, timeoutMs: timeout };
 
       for (const [layerIndex, layer] of layers.entries()) {
         rb.layer = layerIndex;
-        if (Date.now() - startTime > timeout) {
-          throw new Error('Startup timeout exceeded');
+        const elapsed = Date.now() - startTime;
+        if (elapsed > timeout) {
+          throw new StartupTimeoutError(
+            'start',
+            timeout,
+            elapsed,
+            undefined,
+            `Startup timeout (${timeout / 1000}s) exceeded before starting ` +
+              `${layer.map((s) => s.name).join(', ')}`,
+          );
         }
 
         const parallel = options?.parallel ?? true;
@@ -717,15 +827,15 @@ export class LocalNet {
         // containers behind the rollback's back.
         if (parallel) {
           const results = await Promise.allSettled(
-            layer.map((spec) => this.ensureStarted(spec, rb, options)),
+            layer.map((spec) => this.ensureStarted(spec, rb, budget, options)),
           );
           const failed = results.find((r): r is PromiseRejectedResult => r.status === 'rejected');
           if (failed) throw failed.reason;
-          await Promise.all(layer.map((spec) => this.waitHealthy(spec, options)));
+          await Promise.all(layer.map((spec) => this.waitHealthy(spec, budget, options)));
         } else {
           for (const spec of layer) {
-            await this.ensureStarted(spec, rb, options);
-            await this.waitHealthy(spec, options);
+            await this.ensureStarted(spec, rb, budget, options);
+            await this.waitHealthy(spec, budget, options);
           }
         }
       }
@@ -740,7 +850,7 @@ export class LocalNet {
       this.startedAt = new Date();
 
       if (!options?.skipInitialization) {
-        await this.initializeResources(options?.onProgress);
+        await this.initializeResources(options?.onProgress, budget);
       }
 
       options?.onProgress?.(
@@ -754,10 +864,23 @@ export class LocalNet {
         rb.restarted.size > 0
       ) {
         options?.onProgress?.('Startup failed; removing resources created by this attempt...');
+        // The startup error stays the one thrown; what the rollback could not undo rides on it.
+        let failure: RollbackFailure | undefined;
         try {
-          await this.rollbackStart(rb);
-        } catch {
-          // Swallow — the original error below is what matters.
+          failure = await this.rollbackStart(rb);
+        } catch (rollbackError) {
+          failure = {
+            leftBehind: ['unknown (the rollback itself failed)'],
+            errors: [rollbackError],
+          };
+        }
+        if (failure) {
+          options?.onProgress?.(
+            `Rollback incomplete; left behind: ${failure.leftBehind.join(', ')}`,
+          );
+          this.internalState = 'stopped';
+          this.startedAt = undefined;
+          throw withRollbackFailure(error, failure);
         }
       }
       this.internalState = 'stopped';
@@ -836,18 +959,39 @@ export class LocalNet {
    * A failed resume therefore leaves existing containers, network and data
    * volume in place (stopped), while a failed fresh start leaves nothing.
    */
-  private async rollbackStart(rb: StartRollback): Promise<void> {
+  private async rollbackStart(rb: StartRollback): Promise<RollbackFailure | undefined> {
+    // Every step still runs when another fails; each failure is recorded, not dropped.
+    const leftBehind: string[] = [];
+    const errors: unknown[] = [];
+    const record = async (what: string, results: Promise<PromiseSettledResult<unknown>[]>) => {
+      for (const r of await results) {
+        if (r.status === 'rejected') {
+          leftBehind.push(what);
+          errors.push(r.reason);
+        }
+      }
+    };
+    const each = <T>(
+      entries: Array<[string, T]>,
+      label: (name: string) => string,
+      op: (v: T) => Promise<unknown>,
+    ) => Promise.all(entries.map(([name, v]) => record(label(name), Promise.allSettled([op(v)]))));
+
     // Dependents that were running before this call and were stopped to restart.
     // Start them first, while their upstreams still run: nginx has static
     // proxy_pass hostnames and no resolver, and Docker DNS drops stopped
     // containers, so an nginx started after its upstreams stop crash-loops with
     // "host not found in upstream".
-    await Promise.allSettled(
-      [...rb.restarted.values()].map((id) => this.client.startContainer(id)),
+    await each(
+      [...rb.restarted.entries()],
+      (name) => `container ${name} (stopped, not started again)`,
+      (id) => this.client.startContainer(id),
     );
 
-    await Promise.allSettled(
-      [...rb.created.values()].map((id) => this.client.removeContainer(id, true)),
+    await each(
+      [...rb.created.entries()],
+      (name) => `container ${name}`,
+      (id) => this.client.removeContainer(id, true),
     );
 
     // Stop later layers first so dependents go down before their dependencies;
@@ -859,8 +1003,11 @@ export class LocalNet {
     // After a 409 another process may be mid-start: leave what this call started alone.
     if (!rb.conflict) {
       for (const layer of [...byLayer.keys()].sort((a, b) => b - a)) {
-        await Promise.allSettled(
-          (byLayer.get(layer) ?? []).map((id) => this.client.stopContainer(id, 30)),
+        const names = [...rb.started.entries()].filter(([, v]) => v.layer === layer);
+        await each(
+          names,
+          (name) => `container ${name} (still running)`,
+          (v) => this.client.stopContainer(v.id, 30),
         );
       }
     }
@@ -868,15 +1015,23 @@ export class LocalNet {
     // After a 409 the other process may already build on the network and volume
     // this call created: leave them for it (or for a retry) as well.
     if (rb.networkCreated && !rb.conflict) {
-      await this.networkManager.remove(this.options.instanceId).catch(() => {});
+      const network = this.networkManager.getExpectedNetworkName(this.options.instanceId);
+      await record(
+        `network ${network}`,
+        Promise.allSettled([
+          this.networkManager.remove(this.options.instanceId),
+        ]),
+      );
     }
     if (rb.volumeCreated && !rb.conflict) {
-      await this.client.removeVolume(`${this.options.instanceId}-postgres-data`).catch(() => {});
+      const volume = `${this.options.instanceId}-postgres-data`;
+      await record(`volume ${volume}`, Promise.allSettled([this.client.removeVolume(volume)]));
     }
 
     for (const name of rb.created.keys()) {
       this.containerIds.delete(name);
     }
+    return leftBehind.length > 0 ? { leftBehind, errors } : undefined;
   }
 
   /**
@@ -951,6 +1106,33 @@ export class LocalNet {
       network: network ?? undefined,
       startedAt: this.startedAt,
     };
+  }
+
+  /** Each existing container whose image differs from what this handle would create. */
+  private async diffExistingContainers(
+    present: ContainerInfo[],
+    specs: ContainerSpec[],
+  ): Promise<InstanceDifference[]> {
+    const specByName = new Map(specs.map((s) => [s.name, s]));
+    // A listed image equal to the expected reference is trusted: Docker lists the reference only
+    // while the tag still points at the container's image. Once the tag moves (say `postgres:18`
+    // pulled again) it lists the image ID instead, so any other listed value is confirmed by
+    // inspect, whose Config.Image keeps the reference. Comparing references cannot see a custom
+    // tag whose content changed underneath; Splice release tags do not move, which is what this
+    // guard is for.
+    const suspects = present.filter((c) => {
+      const spec = specByName.get(c.name);
+      return spec !== undefined && c.image !== spec.image;
+    });
+    const inspected = await Promise.all(suspects.map((c) => this.client.findContainer(c.id)));
+    const differences: InstanceDifference[] = [];
+    suspects.forEach((c, i) => {
+      const expected = specByName.get(c.name)!.image;
+      const info = inspected[i];
+      if (!info || info.image === expected) return;
+      differences.push({ container: c.name, field: 'image', expected, actual: info.image });
+    });
+    return differences;
   }
 
   /**
@@ -1063,10 +1245,17 @@ export class LocalNet {
    * unhealthy or still initializing. The result is cached for 30 seconds, including an unhealthy
    * one.
    *
+   * @param options - `signal` ends the health, participant-ID and validator-party requests when it
+   *   aborts (an aborted health check counts as unhealthy); the Keycloak token request is not
+   *   covered.
    * @throws If the instance is not running or the name is unknown.
    */
-  async getValidatorState(validatorName: string): Promise<ApiValidatorState> {
+  async getValidatorState(
+    validatorName: string,
+    options?: { signal?: AbortSignal },
+  ): Promise<ApiValidatorState> {
     await this.requireRunning('getValidatorState');
+    const signal = options?.signal;
 
     const cacheKey = `validator:${validatorName}`;
     const cached = this.getCached<ApiValidatorState>(cacheKey);
@@ -1079,14 +1268,14 @@ export class LocalNet {
       throw new Error(`Unknown validator: ${validatorName}`);
     }
 
-    const isHealthy = await cantonClient.healthCheck();
+    const isHealthy = await cantonClient.healthCheck(signal);
     let participantId = '';
     let validatorParty: string | undefined;
 
     if (isHealthy) {
       try {
-        participantId = await cantonClient.getParticipantId();
-        validatorParty = await validatorClient.getValidatorParty();
+        participantId = await cantonClient.getParticipantId(signal);
+        validatorParty = await validatorClient.getValidatorParty(signal);
       } catch {
         // Participant might not be fully initialized
       }
@@ -1413,13 +1602,10 @@ export class LocalNet {
       parties?: Array<{ hint: string; rights?: PerPartyRight[] }>;
     },
   ): Promise<ApiUserInfo> {
-    const lowerUserId = userId.toLowerCase();
-    if (userId !== lowerUserId) {
-      throw new Error(
-        `User id '${userId}' must be lowercase (Keycloak lowercases usernames); ` +
-          `use '${lowerUserId}'`,
-      );
-    }
+    // The config rule, checked before anything is created: an id Keycloak refuses would otherwise
+    // leave a Canton user behind.
+    const idProblem = userIdProblem(userId);
+    if (idProblem) throw new LocalNetError(idProblem);
     await this.requireRunning('createUser');
 
     const client = this.cantonClients.get(validatorName);
@@ -1461,9 +1647,17 @@ export class LocalNet {
       ? partyMap.get(options.primaryParty)?.partyId
       : undefined;
 
+    // Only a 404 means the user does not exist yet. Any other lookup failure is not a reason to
+    // create it (before, every lookup error led to a create attempt that hid the real cause).
     try {
       await client.getUser(userId);
-    } catch {
+    } catch (error) {
+      if (!(error instanceof CantonApiError && error.statusCode === 404)) {
+        throw new LocalNetError(
+          `Cannot look up user '${userId}' on ${validatorName}: ${errorMessage(error)}`,
+          { cause: error },
+        );
+      }
       await client.createUser(userId, primaryPartyId);
     }
 
@@ -2094,6 +2288,7 @@ export class LocalNet {
   private async ensureStarted(
     spec: ContainerSpec,
     rb: StartRollback,
+    budget: StartBudget,
     options?: StartOptions,
   ): Promise<void> {
     const progress = options?.onProgress ?? (() => {});
@@ -2131,7 +2326,7 @@ export class LocalNet {
         networks: [networkName],
       };
 
-      await this.pullImageIfNeeded(spec.image, progress);
+      await this.pullImageIfNeeded(spec.image, budget, progress);
       progress(`Creating ${spec.name}...`);
       try {
         containerId = await this.client.createContainer(specWithNetwork);
@@ -2155,7 +2350,11 @@ export class LocalNet {
     this.containerIds.set(spec.name, containerId);
   }
 
-  private async waitHealthy(spec: ContainerSpec, options?: StartOptions): Promise<void> {
+  private async waitHealthy(
+    spec: ContainerSpec,
+    budget: StartBudget,
+    options?: StartOptions,
+  ): Promise<void> {
     if (!spec.healthCheck || options?.skipHealthChecks) return;
     const containerId = this.containerIds.get(spec.name);
     if (!containerId) return;
@@ -2163,55 +2362,138 @@ export class LocalNet {
     const progress = options?.onProgress ?? (() => {});
     progress(`Waiting for ${spec.name} to be healthy...`);
     const healthStart = Date.now();
-    await this.waitForDockerHealthy(containerId, spec.name, spec.healthCheck);
+    await this.waitForDockerHealthy(containerId, spec.name, budget, progress);
     progress(`${spec.name} healthy (took ${((Date.now() - healthStart) / 1000).toFixed(1)}s)`);
   }
 
+  /**
+   * Wait until Docker reports the container healthy. Docker's own verdict decides failure: it
+   * reports `unhealthy` only after the health check's start period and retries, so dnm fails on
+   * the first `unhealthy` it sees, or when the container stops, or when the start timeout runs
+   * out. Every way out but healthy throws a {@link ContainerStartupError} with the logs.
+   */
   private async waitForDockerHealthy(
     containerId: string,
     containerName: string,
-    healthConfig?: { retries?: number; interval?: number; startPeriod?: number },
+    budget: StartBudget,
+    progress: (msg: string) => void,
   ): Promise<void> {
-    const configRetries = healthConfig?.retries ?? 30;
-    const configInterval = healthConfig?.interval ?? 10;
-    const startPeriod = healthConfig?.startPeriod ?? 30;
-
-    const maxRetries = Math.max(configRetries * 2, 60);
-    const retryDelay = Math.max(configInterval * 1000, 2000);
-    const minRetriesBeforeUnhealthyFail = Math.ceil(startPeriod / (retryDelay / 1000));
-
-    for (let i = 0; i < maxRetries; i++) {
+    const pollMs = this.healthPollMs ?? 1000;
+    const started = Date.now();
+    let nextReport = started + this.healthProgressIntervalMs;
+    for (;;) {
       const info = await this.client.getContainerInfo(containerId);
-      if (info?.health === 'healthy') {
-        return;
+      const state = info?.state ?? 'missing';
+      const health = info?.health ?? 'none';
+      if (health === 'healthy') return;
+      if (health === 'unhealthy') {
+        throw await this.startupError(containerId, containerName, state, 'is unhealthy');
       }
-      if (info?.health === 'unhealthy' && i >= minRetriesBeforeUnhealthyFail) {
-        throw new Error(`Container ${containerName} is unhealthy`);
+      if (state !== 'running') {
+        throw await this.startupError(
+          containerId,
+          containerName,
+          state,
+          `stopped unexpectedly (state: ${state})`,
+        );
       }
-      if (info?.state !== 'running') {
-        throw new Error(`Container ${containerName} stopped unexpectedly (state: ${info?.state})`);
+      const now = Date.now();
+      if (now >= budget.deadline) {
+        throw await this.startupError(
+          containerId,
+          containerName,
+          state,
+          `did not become healthy within the start timeout (${budget.timeoutMs / 1000}s)`,
+        );
       }
-      await new Promise((resolve) => setTimeout(resolve, retryDelay));
+      if (now >= nextReport) {
+        const waited = Math.round((now - started) / 1000);
+        progress(`Waiting for ${containerName} to be healthy... ${waited}s (health: ${health})`);
+        nextReport = now + this.healthProgressIntervalMs;
+      }
+      await new Promise((resolve) => setTimeout(resolve, Math.min(pollMs, budget.deadline - now)));
     }
-
-    throw new Error(`Container ${containerName} did not become healthy in time`);
   }
 
-  private async pullImageIfNeeded(image: string, progress?: (msg: string) => void): Promise<void> {
-    const exists = await this.client.imageExists(image);
-    if (!exists) {
-      progress?.(`Pulling ${image}...`);
-      await this.client.pullImage(image);
+  /**
+   * The error for a container that failed to come up, with its last log lines. Read here because
+   * a failed fresh start removes the containers it created, and their logs with them.
+   */
+  private async startupError(
+    containerId: string,
+    containerName: string,
+    state: string,
+    what: string,
+  ): Promise<ContainerStartupError> {
+    let tail: string[] = [];
+    let note: string;
+    try {
+      const stream = await this.client.getContainerLogs(containerId, {
+        tail: STARTUP_LOG_LINES,
+      });
+      tail = (await new Response(stream).text()).split('\n').filter((l) => l.trim() !== '')
+        .slice(-STARTUP_LOG_LINES);
+      note = tail.length > 0
+        ? `Its last ${tail.length} log lines:\n${tail.map((l) => `  ${l}`).join('\n')}`
+        : 'It wrote no log lines.';
+    } catch (err) {
+      note = `Its logs could not be read: ${err instanceof Error ? err.message : String(err)}`;
     }
+    return new ContainerStartupError(
+      containerName,
+      state,
+      tail,
+      `Container ${containerName} ${what}. ${note}`,
+    );
   }
 
-  private async waitForApisReady(onProgress?: (msg: string) => void): Promise<void> {
+  /** Pull an image if it is missing, within what is left of the start timeout. */
+  private async pullImageIfNeeded(
+    image: string,
+    budget: StartBudget,
+    progress?: (msg: string) => void,
+  ): Promise<void> {
+    if (await this.client.imageExists(image)) return;
+    const started = Date.now();
+    const elapsed = () => `${Math.round((Date.now() - started) / 1000)}s`;
+    progress?.(`Pulling ${image}...`);
+    const reporter = setInterval(
+      () => progress?.(`Pulling ${image}... ${elapsed()}`),
+      this.pullProgressIntervalMs,
+    );
+    const abort = new AbortController();
+    const expiry = setTimeout(() => abort.abort(), msUntil(budget.deadline));
+    try {
+      await this.client.pullImage(image, undefined, abort.signal);
+    } catch (error) {
+      if (!abort.signal.aborted) throw error;
+      const spent = budget.timeoutMs - (budget.deadline - started);
+      throw new StartupTimeoutError(
+        'pull',
+        budget.timeoutMs,
+        spent + (Date.now() - started),
+        image,
+        `Startup timeout (${budget.timeoutMs / 1000}s) reached while pulling ${image} ` +
+          `(pulling for ${elapsed()}). Pull it ahead of time with \`docker pull ${image}\`, ` +
+          `or raise the timeout (--timeout, StartOptions.timeout).`,
+      );
+    } finally {
+      clearInterval(reporter);
+      clearTimeout(expiry);
+    }
+    progress?.(`Pulled ${image} (${elapsed()})`);
+  }
+
+  private async waitForApisReady(
+    onProgress?: (msg: string) => void,
+    budget?: StartBudget,
+  ): Promise<void> {
     const validators = normalizeValidators(this.config.validators);
     const validatorNames = ['sv', ...validators.map((v) => v.name)];
 
     const maxRetries = 30;
-    const initialDelay = 1000;
-    const maxDelay = 10000;
+    const initialDelay = this.readinessDelayMs.initial;
+    const maxDelay = this.readinessDelayMs.max;
 
     for (const name of validatorNames) {
       let delay = initialDelay;
@@ -2220,7 +2502,10 @@ export class LocalNet {
       for (let i = 0; i < maxRetries; i++) {
         try {
           onProgress?.(`Checking API readiness for ${name}...`);
-          const state = await this.getValidatorState(name);
+          // Each attempt ends with the start's deadline, so an API that accepts and never
+          // answers cannot hold the start past its timeout.
+          const signal = budget ? AbortSignal.timeout(msUntil(budget.deadline)) : undefined;
+          const state = await this.getValidatorState(name, { signal });
           if (state.isHealthy && state.validatorParty) {
             onProgress?.(`${name} API is ready`);
             break;
@@ -2230,12 +2515,16 @@ export class LocalNet {
         }
 
         if (i === maxRetries - 1) {
-          throw new Error(
+          throw new InitializationError(
+            'validator',
+            name,
+            name,
             `API for ${name} did not become ready: ${lastError?.message ?? 'unknown error'}`,
+            { cause: lastError },
           );
         }
 
-        await new Promise((resolve) => setTimeout(resolve, delay));
+        await this.readinessPause(delay, budget, `the ${name} API`, lastError);
         this.invalidateCache(`validator:${name}`);
         delay = Math.min(delay * 1.5, maxDelay);
       }
@@ -2244,7 +2533,10 @@ export class LocalNet {
     onProgress?.('All APIs are ready');
   }
 
-  private async waitForScanActive(onProgress?: (msg: string) => void): Promise<void> {
+  private async waitForScanActive(
+    onProgress?: (msg: string) => void,
+    budget?: StartBudget,
+  ): Promise<void> {
     interface ScanStatusResponse {
       success?: {
         active?: boolean;
@@ -2252,8 +2544,8 @@ export class LocalNet {
     }
 
     const maxRetries = 30;
-    const initialDelay = 1000;
-    const maxDelay = 10000;
+    const initialDelay = this.readinessDelayMs.initial;
+    const maxDelay = this.readinessDelayMs.max;
     let delay = initialDelay;
     let lastError: Error | null = null;
 
@@ -2261,9 +2553,8 @@ export class LocalNet {
       try {
         onProgress?.('Checking Scan readiness...');
         const scanPort = getSvInternalPorts(this.config.basePort).scanAdmin;
-        const response = await fetch(
-          `http://localhost:${scanPort}/api/scan/status`,
-        );
+        const signal = budget ? AbortSignal.timeout(msUntil(budget.deadline)) : undefined;
+        const response = await fetch(`http://localhost:${scanPort}/api/scan/status`, { signal });
         if (!response.ok) {
           throw new Error(`Scan status returned ${response.status}`);
         }
@@ -2278,12 +2569,45 @@ export class LocalNet {
       }
 
       if (i === maxRetries - 1) {
-        throw new Error(`Scan did not become ready: ${lastError?.message ?? 'inactive'}`);
+        throw new InitializationError(
+          'validator',
+          'sv',
+          'sv',
+          `Scan did not become ready: ${lastError?.message ?? 'inactive'}`,
+          { cause: lastError },
+        );
       }
 
-      await new Promise((resolve) => setTimeout(resolve, delay));
+      await this.readinessPause(delay, budget, 'Scan', lastError);
       delay = Math.min(delay * 1.5, maxDelay);
     }
+  }
+
+  /**
+   * Sleep between readiness attempts, never past the start timeout: when `budget` runs out,
+   * throws a {@link StartupTimeoutError} (phase `init`) naming what was not ready yet.
+   */
+  private async readinessPause(
+    delay: number,
+    budget: StartBudget | undefined,
+    what: string,
+    lastError: Error | null,
+  ): Promise<void> {
+    if (!budget) {
+      await new Promise((resolve) => setTimeout(resolve, delay));
+      return;
+    }
+    const left = budget.deadline - Date.now();
+    if (left > 0) await new Promise((resolve) => setTimeout(resolve, Math.min(delay, left)));
+    if (Date.now() < budget.deadline) return;
+    throw new StartupTimeoutError(
+      'init',
+      budget.timeoutMs,
+      Date.now() - (budget.deadline - budget.timeoutMs),
+      undefined,
+      `Startup timeout (${budget.timeoutMs / 1000}s) reached while waiting for ${what}` +
+        (lastError ? ` (last error: ${lastError.message})` : ''),
+    );
   }
 
   /**
@@ -2291,7 +2615,9 @@ export class LocalNet {
    * onboard wallets, and upload the configured `packages`. Called automatically
    * by start() unless skipInitialization is set. Also exposed for the
    * `dnm init` CLI command on already-running instances. It first waits for every validator's
-   * APIs and for Scan to become ready; those waits throw on timeout.
+   * APIs and for Scan to become ready; those waits throw {@link StartupTimeoutError} when the
+   * start's timeout runs out, and {@link InitializationError} (`kind: 'validator'`, with the last
+   * error as `cause`) after 30 attempts (before 0.1.0, a plain `Error`).
    *
    * Safe to re-run: a configured party whose hint is already hosted on its
    * validator's participant is skipped, and users converge on their configured
@@ -2299,17 +2625,22 @@ export class LocalNet {
    * `uploadTo` validators (default `sv` and every validator); relative `dar`
    * paths resolve against `configDir`, then the current directory. A missing
    * DAR or failed upload is a `'packages'` warning (via `onWarning`), not an error.
-   * Re-uploading a DAR the participant already has succeeds. A party or user that fails is
-   * reported through `onProgress`; if the hosted-party query fails for a validator with
-   * configured parties, the call throws without allocating anything there.
+   * Re-uploading a DAR the participant already has succeeds. The first configured party or user
+   * that cannot be set up throws {@link InitializationError} (`kind` `'party'` or `'user'`), and so
+   * does a failed hosted-party query for a validator with configured parties (`'validator'`, before
+   * anything is allocated there); before 0.1.0 a party or user that failed was only
+   * reported through `onProgress`.
    *
    * @internal Do not call directly in application code — use start() instead.
    */
-  async initializeResources(onProgress?: (msg: string) => void): Promise<void> {
+  async initializeResources(
+    onProgress?: (msg: string) => void,
+    budget?: { deadline: number; timeoutMs: number },
+  ): Promise<void> {
     onProgress?.('Initializing resources...');
 
-    await this.waitForApisReady(onProgress);
-    await this.waitForScanActive(onProgress);
+    await this.waitForApisReady(onProgress, budget);
+    await this.waitForScanActive(onProgress, budget);
 
     const validators = normalizeValidators(this.config.validators);
 
@@ -2323,10 +2654,12 @@ export class LocalNet {
       try {
         hosted = await this.fetchHostedParties(validatorName);
       } catch (error) {
-        throw new Error(
-          `Cannot check existing parties on '${validatorName}': ${
-            error instanceof Error ? error.message : error
-          }`,
+        throw new InitializationError(
+          'validator',
+          validatorName,
+          validatorName,
+          `Cannot check existing parties on '${validatorName}': ${errorMessage(error)}`,
+          { cause: error },
         );
       }
       const existingHints = new Set(
@@ -2340,57 +2673,53 @@ export class LocalNet {
           );
           continue;
         }
+        onProgress?.(`Allocating party '${partyConfig.hint}' on ${validatorName}...`);
+        let partyInfo: ApiPartyInfo;
         try {
-          onProgress?.(`Allocating party '${partyConfig.hint}' on ${validatorName}...`);
-          const partyInfo = await this.allocateParty(
+          partyInfo = await this.allocateParty(
             partyConfig.hint,
             validatorName,
             partyConfig.displayName ?? partyConfig.hint,
           );
-          onProgress?.(
-            `Allocated party '${partyConfig.hint}': ${partyInfo.partyId.substring(0, 30)}...`,
-          );
         } catch (error) {
-          onProgress?.(
-            `Warning: Failed to allocate party '${partyConfig.hint}': ${
-              error instanceof Error ? error.message : error
+          throw new InitializationError(
+            'party',
+            partyConfig.hint,
+            validatorName,
+            `Cannot allocate party '${partyConfig.hint}' on ${validatorName}: ${
+              errorMessage(error)
             }`,
+            { cause: error },
           );
         }
+        onProgress?.(
+          `Allocated party '${partyConfig.hint}': ${partyInfo.partyId.substring(0, 30)}...`,
+        );
       }
     }
 
     for (const validator of validators) {
       const validatorName = validator.name;
-      try {
-        onProgress?.(`Initializing ${validatorName}...`);
-
-        // NOTE: Each createUser call also onboards the user's wallet — previous
-        // initializeResources never onboarded user wallets, so config-defined users
-        // could not log in to the wallet UI. Latent bug fixed in T7.
-        const users = validator.users ?? [];
-        for (const userConfig of users) {
-          try {
-            await this.createUser(userConfig.id, validatorName, {
-              primaryParty: userConfig.primaryParty,
-              rights: userConfig.rights,
-              parties: userConfig.parties,
-            });
-            onProgress?.(`Created user ${userConfig.id} on ${validatorName}`);
-          } catch (error) {
-            onProgress?.(
-              `Warning: Failed to create user ${userConfig.id}: ${
-                error instanceof Error ? error.message : error
-              }`,
-            );
-          }
+      onProgress?.(`Initializing ${validatorName}...`);
+      // Each createUser call also onboards the user's wallet, so config-defined users can log in
+      // to the wallet UI.
+      for (const userConfig of validator.users ?? []) {
+        try {
+          await this.createUser(userConfig.id, validatorName, {
+            primaryParty: userConfig.primaryParty,
+            rights: userConfig.rights,
+            parties: userConfig.parties,
+          });
+        } catch (error) {
+          throw new InitializationError(
+            'user',
+            userConfig.id,
+            validatorName,
+            `Cannot set up user '${userConfig.id}' on ${validatorName}: ${errorMessage(error)}`,
+            { cause: error },
+          );
         }
-      } catch (error) {
-        onProgress?.(
-          `Warning: Failed to initialize ${validatorName}: ${
-            error instanceof Error ? error.message : error
-          }`,
-        );
+        onProgress?.(`Created user ${userConfig.id} on ${validatorName}`);
       }
     }
 
@@ -2538,6 +2867,26 @@ export class LocalNet {
       keycloakRealms: Object.fromEntries(generateAllRealmsJson(this.config)),
     };
   }
+}
+
+/**
+ * The startup error, with what the rollback could not undo attached as `rollbackFailure` and
+ * appended to its message, so neither the caller nor the CLI loses it.
+ */
+function withRollbackFailure(error: unknown, failure: RollbackFailure): Error {
+  const target = error instanceof Error
+    ? error
+    : new LocalNetError(errorMessage(error), { cause: error });
+  const reasons = failure.errors.map(errorMessage).join('; ');
+  target.message += `\nRollback incomplete, left behind: ${
+    failure.leftBehind.join(', ')
+  } (${reasons})`;
+  Object.defineProperty(target, 'rollbackFailure', { value: failure, enumerable: true });
+  return target;
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 /**

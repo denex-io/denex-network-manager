@@ -289,3 +289,32 @@ Deno.test('KeycloakAdminClient - createUser is idempotent when user already exis
     restore();
   }
 });
+
+Deno.test('KeycloakAdminClient - createUser gives the user the same valid email and name as the realm import', async () => {
+  const posted: Array<Record<string, unknown>> = [];
+  const { restore } = installFetchMock((call) => {
+    if (call.url.includes('/protocol/openid-connect/token')) return tokenResponse();
+    if (call.init?.method === 'GET') {
+      return new Response('[]', { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }
+    posted.push(JSON.parse(call.init!.body as string));
+    return new Response(null, { status: 201, headers: { Location: 'http://kc/users/u' } });
+  });
+  try {
+    const client = new KeycloakAdminClient('http://localhost:5082', 'admin', 'admin');
+    await client.createUser('Validator1', { username: 'alice', password: 'alice' });
+    await client.createUser('Validator1', { username: '.rt+x@corp.example', password: 'p' });
+    assertEquals(
+      posted.map((b) => [b.username, b.firstName, b.emailVerified]),
+      [['alice', 'alice', true], ['.rt+x@corp.example', '.rt+x@corp.example', true]],
+    );
+    assertEquals(posted[0].email, 'alice@localnet.localhost');
+    assertEquals(
+      String(posted[1].email).endsWith('@id.localnet.localhost'),
+      true,
+      String(posted[1].email),
+    );
+  } finally {
+    restore();
+  }
+});

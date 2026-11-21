@@ -1,5 +1,12 @@
-import { assert, assertEquals, assertRejects } from '@std/assert';
+import { assert, assertEquals, assertRejects, assertStringIncludes } from '@std/assert';
 import { LocalNet, type LocalNetOptions } from '../../src/localnet.ts';
+import {
+  ContainerStartupError,
+  InitializationError,
+  InstanceMismatchError,
+  StartupTimeoutError,
+} from '../../src/errors.ts';
+import type { LocalNetWarning } from '../../src/types/state.ts';
 import type { LocalNetConfig } from '../../src/types/config.ts';
 import { NetworkManager } from '../../src/docker/network.ts';
 import type { DockerClient } from '../../src/docker/client.ts';
@@ -49,7 +56,16 @@ type FakeState = 'running' | 'exited' | 'created' | 'paused' | 'restarting';
 /** Records every Docker call; only the methods start() touches are implemented. */
 class FakeDockerClient {
   calls: string[] = [];
-  containers = new Map<string, { id: string; state: FakeState; created?: number }>();
+  containers = new Map<
+    string,
+    { id: string; state: FakeState; created?: number; image?: string }
+  >();
+  /** The image each container would be created with; seeded containers default to it. */
+  specImages = new Map<string, string>();
+  /** What listContainers reports as these containers' image (an ID once a tag moves). */
+  listedImage = new Map<string, string>();
+  /** Docker health of these running containers; others report healthy. */
+  healthOf = new Map<string, 'starting' | 'unhealthy'>();
   networkExists = false;
   volumeExists = false;
   failStart = new Set<string>();
@@ -82,14 +98,17 @@ class FakeDockerClient {
   }
 
   seedExisting(names: string[], state: FakeState = 'exited') {
-    for (const n of names) this.containers.set(n, { id: `old-${n}`, state });
+    for (const n of names) {
+      this.containers.set(n, { id: `old-${n}`, state, image: this.specImages.get(n) });
+    }
     this.networkExists = true;
     this.volumeExists = true;
   }
 
   private info(
     name: string,
-    c: { id: string; state: FakeState; created?: number },
+    c: { id: string; state: FakeState; created?: number; image?: string },
+    listed = false,
   ): ContainerInfo {
     return {
       id: c.id,
@@ -97,9 +116,9 @@ class FakeDockerClient {
       name,
       state: c.state,
       status: c.state,
-      image: 'img',
+      image: (listed ? this.listedImage.get(name) : undefined) ?? c.image ?? 'img',
       ports: [],
-      health: c.state === 'running' ? 'healthy' : 'none',
+      health: c.state === 'running' ? (this.healthOf.get(name) ?? 'healthy') : 'none',
       labels: {
         [`${this.labelPrefix}.instance`]: ID,
         [`${this.labelPrefix}.config`]: this.configJson,
@@ -119,7 +138,7 @@ class FakeDockerClient {
   }
 
   listContainers(): Promise<ContainerInfo[]> {
-    return Promise.resolve([...this.containers].map(([n, c]) => this.info(n, c)));
+    return Promise.resolve([...this.containers].map(([n, c]) => this.info(n, c, true)));
   }
 
   getContainerInfo(idOrName: string): Promise<ContainerInfo | null> {
@@ -133,12 +152,47 @@ class FakeDockerClient {
     return this.getContainerInfo(idOrName);
   }
 
-  imageExists(): Promise<boolean> {
-    return Promise.resolve(true);
+  /** Log text per container name; getContainerLogs applies `tail` like the daemon does. */
+  logs = new Map<string, string>();
+  /** getContainerLogs for these names rejects with this error. */
+  logsError = new Map<string, Error>();
+  /** imageExists is false for these images; pullImage then takes pullDelayMs. */
+  missingImages = new Set<string>();
+  pullDelayMs = 0;
+
+  getContainerLogs(
+    idOrName: string,
+    options?: { tail?: number },
+  ): Promise<ReadableStream<Uint8Array>> {
+    this.calls.push(`logs:${idOrName}`);
+    const name = this.find(idOrName)?.name ?? idOrName;
+    const err = this.logsError.get(name);
+    if (err) return Promise.reject(err);
+    const lines = (this.logs.get(name) ?? '').split('\n').filter((l) => l !== '');
+    const text = lines.slice(options?.tail ? -options.tail : 0).map((l) => `${l}\n`).join('');
+    return Promise.resolve(
+      new ReadableStream({
+        start(c) {
+          c.enqueue(new TextEncoder().encode(text));
+          c.close();
+        },
+      }),
+    );
   }
 
-  pullImage(): Promise<void> {
-    return Promise.resolve();
+  imageExists(image: string): Promise<boolean> {
+    return Promise.resolve(!this.missingImages.has(image));
+  }
+
+  pullImage(image: string, _onProgress?: unknown, signal?: AbortSignal): Promise<void> {
+    this.calls.push(`pullImage:${image}`);
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(resolve, this.pullDelayMs);
+      signal?.addEventListener('abort', () => {
+        clearTimeout(timer);
+        reject(new Error('pull aborted'));
+      }, { once: true });
+    });
   }
 
   async createContainer(spec: ContainerSpec): Promise<string> {
@@ -149,7 +203,7 @@ class FakeDockerClient {
       throw Object.assign(new Error('name conflict'), { statusCode: 409 });
     }
     const id = `new-${spec.name}`;
-    this.containers.set(spec.name, { id, state: 'exited' });
+    this.containers.set(spec.name, { id, state: 'exited', image: spec.image });
     this.calls.push(`createContainer:${spec.name}`);
     return id;
   }
@@ -178,8 +232,16 @@ class FakeDockerClient {
     this.calls.push(`stopDone:${idOrName}`);
   }
 
+  /** removeContainer for these names rejects; the container stays. */
+  failRemove = new Set<string>();
+  /** removeNetwork rejects with this error; the network stays. */
+  removeNetworkError: Error | null = null;
+
   removeContainer(idOrName: string): Promise<void> {
     const f = this.find(idOrName);
+    if (f && this.failRemove.has(f.name)) {
+      return Promise.reject(new Error(`remove failed: ${f.name}`));
+    }
     if (f) this.containers.delete(f.name);
     this.calls.push(`removeContainer:${idOrName}`);
     return Promise.resolve();
@@ -205,6 +267,7 @@ class FakeDockerClient {
   }
 
   removeNetwork(name: string): Promise<void> {
+    if (this.removeNetworkError) return Promise.reject(this.removeNetworkError);
     this.networkExists = false;
     this.calls.push(`removeNetwork:${name}`);
     return Promise.resolve();
@@ -251,6 +314,15 @@ async function withFakeNet(
     const prefix = net.getOptions().labelPrefix;
     const fake = new FakeDockerClient(prefix);
     fake.setConfig(JSON.stringify(parseLocalNetConfig(net.getConfig())));
+    const emptyConfigs = {
+      cantonConfig: '',
+      spliceConfig: '',
+      nginxConfig: '',
+      postgresInitScript: '',
+      keycloakRealms: {},
+    };
+    const specs: ContainerSpec[] = Reflect.get(net, 'buildContainerSpecs').call(net, emptyConfigs);
+    for (const s of specs) fake.specImages.set(s.name, s.image);
     const client = fake as unknown as DockerClient;
     Reflect.set(net, 'client', client);
     Reflect.set(net, 'networkManager', new NetworkManager(client, { prefix }));
@@ -265,7 +337,12 @@ const START = { skipHealthChecks: true, skipInitialization: true } as const;
 Deno.test('start rollback - failed resume (timeout) removes and stops nothing', async () => {
   await withFakeNet(async (net, fake) => {
     fake.seedExisting(ALL_NAMES);
-    await assertRejects(() => net.start({ ...START, timeout: -1 }), Error, 'Startup timeout');
+    const err = await assertRejects(
+      () => net.start({ ...START, timeout: -1 }),
+      StartupTimeoutError,
+      'Startup timeout',
+    );
+    assertEquals(err.phase, 'start');
     assertEquals(fake.mutations, []);
     assertEquals(fake.containers.size, ALL_NAMES.length);
     assert(fake.networkExists && fake.volumeExists);
@@ -303,6 +380,36 @@ Deno.test('start rollback - failed fresh start removes containers, network and v
     assert(fake.mutations.some((m) => m.startsWith('createNetwork:')));
     assert(fake.mutations.includes(`removeVolume:${VOLUME}`));
     assertEquals(net.getContainerId(`${ID}-postgres`), undefined);
+  });
+});
+
+Deno.test('start rollback - a rollback that cannot undo everything says what it left behind', async () => {
+  const progress: string[] = [];
+  await withFakeNet(async (net, fake) => {
+    fake.failStart.add(`${ID}-splice`);
+    fake.failRemove.add(`${ID}-postgres`);
+    fake.removeNetworkError = new Error('network has active endpoints');
+    const err = await assertRejects(
+      () => net.start({ ...START, onProgress: (m) => progress.push(m) }),
+      Error,
+      'start failed',
+    );
+    // The startup error is still the one thrown; the rollback failure rides on it.
+    assertStringIncludes(err.message, `start failed: ${ID}-splice`);
+    assertStringIncludes(err.message, 'left behind');
+    assertStringIncludes(err.message, `container ${ID}-postgres`);
+    assertStringIncludes(err.message, `network denex.localnet-${ID}`);
+    const failure = (err as Error & { rollbackFailure?: { leftBehind: string[] } }).rollbackFailure;
+    assertEquals(failure?.leftBehind.sort(), [
+      `container ${ID}-postgres`,
+      `network denex.localnet-${ID}`,
+    ]);
+    assert(
+      progress.some((m) => m.includes('left behind') && m.includes(`container ${ID}-postgres`)),
+      progress.join('\n'),
+    );
+    assert(fake.containers.has(`${ID}-postgres`));
+    assertEquals(fake.volumeExists, false);
   });
 });
 
@@ -477,6 +584,396 @@ Deno.test('start repair - a web UI exited: only that UI and nginx are started', 
     assertEquals(fake.mutations.filter((m) => m.startsWith('stopContainer:')), [
       `stopContainer:old-${ID}-nginx`,
     ]);
+  });
+});
+
+Deno.test('start repair - a missing container next to one on another image is refused, nothing changes', async () => {
+  await withFakeNet(async (net, fake) => {
+    fake.seedExisting(ALL_BUT(`${ID}-splice`), 'running');
+    const old = 'ghcr.io/digital-asset/decentralized-canton-sync/docker/canton:0.9.3';
+    fake.containers.get(`${ID}-canton`)!.image = old;
+    const err = await assertRejects(() => net.start(START), InstanceMismatchError);
+    assertEquals(fake.mutations, []);
+    assertEquals(err.instanceId, ID);
+    assertEquals(err.differences, [{
+      container: `${ID}-canton`,
+      field: 'image',
+      expected: fake.specImages.get(`${ID}-canton`)!,
+      actual: old,
+    }]);
+    assertStringIncludes(err.message, `${ID}-splice`);
+    assertStringIncludes(err.message, 'Destroy the instance');
+  });
+});
+
+Deno.test('start resume - a complete instance on another image resumes as created, with a warning', async () => {
+  const warnings: LocalNetWarning[] = [];
+  await withFakeNet(
+    async (net, fake) => {
+      fake.seedExisting(ALL_NAMES);
+      fake.containers.get(`${ID}-splice`)!.image = 'example/splice-app:0.9.3';
+      await net.start(START);
+      assertEquals(fake.mutations.filter((m) => m.startsWith('createContainer')), []);
+      const instance = warnings.filter((w) => w.source === 'instance');
+      assertEquals(instance.length, 1);
+      assertStringIncludes(instance[0].message, `${ID}-splice`);
+      assertStringIncludes(instance[0].message, 'example/splice-app:0.9.3');
+    },
+    undefined,
+    { onWarning: (w) => warnings.push(w) },
+  );
+});
+
+Deno.test('start - existing containers whose listed image matches are not inspected', async () => {
+  await withFakeNet(async (net, fake) => {
+    fake.seedExisting(ALL_NAMES, 'running');
+    for (const n of ALL_NAMES) fake.inspectError.set(`old-${n}`, new Error('must not inspect'));
+    await net.start(START);
+    assertEquals(net.currentState, 'running');
+  });
+});
+
+Deno.test('start - a listed image ID is resolved by inspect, not reported as a mismatch', async () => {
+  const warnings: LocalNetWarning[] = [];
+  await withFakeNet(
+    async (net, fake) => {
+      // After a tag moves, the list API shows the image ID; inspect keeps the reference. On a
+      // complete instance a false mismatch would only warn, so the warning is what is checked.
+      fake.seedExisting(ALL_NAMES, 'running');
+      fake.listedImage.set(`${ID}-postgres`, '98f8ec75657d');
+      await net.start(START);
+      assertEquals(net.currentState, 'running');
+      assertEquals(warnings.filter((w) => w.source === 'instance'), []);
+    },
+    undefined,
+    { onWarning: (w) => warnings.push(w) },
+  );
+});
+
+Deno.test('start - a transient inspect error surfaces as itself, not as a mismatch', async () => {
+  await withFakeNet(async (net, fake) => {
+    fake.seedExisting(ALL_NAMES, 'running');
+    fake.listedImage.set(`${ID}-postgres`, '98f8ec75657d');
+    fake.inspectError.set(`old-${ID}-postgres`, new Error('socket hang up'));
+    const err = await assertRejects(() => net.start(START), Error, 'socket hang up');
+    assert(!(err instanceof InstanceMismatchError));
+    assertEquals(fake.mutations, []);
+  });
+});
+
+// With health checks on (the dying container must be waited for).
+const START_CHECKED = { skipInitialization: true } as const;
+
+Deno.test('start - a container that dies during startup fails with its last 20 log lines, read before rollback', async () => {
+  await withFakeNet(async (net, fake) => {
+    fake.exitsAfterStart.add(`${ID}-splice`);
+    fake.logs.set(
+      `${ID}-splice`,
+      [...Array.from({ length: 30 }, (_, i) => `line ${i + 1}`), 'GENERIC_CONFIG_ERROR(8,0)'].join(
+        '\n',
+      ),
+    );
+    const err = await assertRejects(() => net.start(START_CHECKED), ContainerStartupError);
+    assertEquals(err.container, `${ID}-splice`);
+    assertEquals(err.state, 'exited');
+    assertEquals(err.logTail.length, 20);
+    assertEquals(err.logTail[0], 'line 12');
+    assertEquals(err.logTail.at(-1), 'GENERIC_CONFIG_ERROR(8,0)');
+    assertStringIncludes(err.message, `${ID}-splice stopped unexpectedly (state: exited)`);
+    assertStringIncludes(err.message, 'GENERIC_CONFIG_ERROR(8,0)');
+    const read = fake.calls.indexOf(`logs:new-${ID}-splice`);
+    const removed = fake.calls.indexOf(`removeContainer:new-${ID}-splice`);
+    assert(read >= 0 && removed > read, 'logs are read before rollback removes the container');
+  });
+});
+
+Deno.test('start - a running container that never turns healthy fails with its last log lines', async () => {
+  await withFakeNet(async (net, fake) => {
+    fake.healthOf.set(`${ID}-canton`, 'starting');
+    fake.logs.set(`${ID}-canton`, 'DbMigrations: still migrating\nnot ready yet');
+    Reflect.set(net, 'healthPollMs', 1);
+    const err = await assertRejects(
+      () => net.start({ ...START_CHECKED, timeout: 100 }),
+      ContainerStartupError,
+    );
+    assertEquals(err.container, `${ID}-canton`);
+    assertEquals(err.state, 'running');
+    assertEquals(err.logTail, ['DbMigrations: still migrating', 'not ready yet']);
+    assertStringIncludes(err.message, 'did not become healthy within the start timeout');
+    const read = fake.calls.indexOf(`logs:new-${ID}-canton`);
+    const removed = fake.calls.indexOf(`removeContainer:new-${ID}-canton`);
+    assert(read >= 0 && removed > read, 'logs are read before rollback removes the container');
+  });
+});
+
+Deno.test('start - a short --timeout bounds the health wait and fails fast, typed', async () => {
+  await withFakeNet(async (net, fake) => {
+    fake.healthOf.set(`${ID}-canton`, 'starting');
+    Reflect.set(net, 'healthPollMs', 100);
+    const started = Date.now();
+    const err = await assertRejects(
+      () => net.start({ ...START_CHECKED, timeout: 300 }),
+      ContainerStartupError,
+    );
+    const took = Date.now() - started;
+    assert(took < 1500, `a 300 ms timeout failed after ${took} ms`);
+    assertEquals(err.container, `${ID}-canton`);
+    assertStringIncludes(err.message, 'did not become healthy within the start timeout (0.3s)');
+  });
+});
+
+Deno.test('start - the health wait prints elapsed time and the last health status', async () => {
+  const messages: string[] = [];
+  await withFakeNet(async (net, fake) => {
+    fake.healthOf.set(`${ID}-canton`, 'starting');
+    Reflect.set(net, 'healthPollMs', 5);
+    Reflect.set(net, 'healthProgressIntervalMs', 20);
+    await assertRejects(
+      () => net.start({ ...START_CHECKED, timeout: 150, onProgress: (m) => messages.push(m) }),
+      ContainerStartupError,
+    );
+    const waiting = messages.filter((m) =>
+      new RegExp(`^Waiting for ${ID}-canton to be healthy\\.\\.\\. \\d+s \\(health: starting\\)$`)
+        .test(m)
+    );
+    assert(waiting.length >= 2, `progress while waiting: ${JSON.stringify(messages)}`);
+  });
+});
+
+Deno.test('start - a running container Docker reports unhealthy fails with its last log lines', async () => {
+  await withFakeNet(async (net, fake) => {
+    fake.healthOf.set(`${ID}-canton`, 'unhealthy');
+    fake.logs.set(`${ID}-canton`, 'health server: not ready');
+    Reflect.set(net, 'healthPollMs', 1);
+    const err = await assertRejects(
+      () => net.start({ ...START_CHECKED, timeout: 2000 }),
+      ContainerStartupError,
+    );
+    assertEquals(err.container, `${ID}-canton`);
+    assertEquals(err.state, 'running');
+    assertEquals(err.logTail, ['health server: not ready']);
+    assertStringIncludes(err.message, `Container ${ID}-canton is unhealthy`);
+  });
+});
+
+/** A party allocation that fails during initialization, with the readiness waits stubbed out. */
+function failPartyAllocation(net: LocalNet): void {
+  Reflect.set(net, 'waitForApisReady', () => Promise.resolve());
+  Reflect.set(net, 'waitForScanActive', () => Promise.resolve());
+  Reflect.set(
+    net,
+    'fetchHostedParties',
+    () => Promise.resolve({ participantId: 'p', parties: [] }),
+  );
+  Reflect.set(net, 'allocateParty', () => Promise.reject(new Error('INVALID_ARGUMENT')));
+}
+
+const WITH_PARTY = (config: LocalNetConfig) => {
+  config.validators = [{ name: 'validator-1', parties: [{ hint: 'alice' }] }];
+};
+
+Deno.test('start - a --timeout beyond the timer limit does not end a pull at once', async () => {
+  await withFakeNet(async (net, fake) => {
+    fake.missingImages.add('postgres:18');
+    fake.pullDelayMs = 50;
+    // A delay above 2^31-1 ms overflows setTimeout, which then fires at once.
+    await net.start({ ...START, timeout: 2 ** 32 });
+    assertEquals(net.currentState, 'running');
+  });
+});
+
+/** A fetch that accepts every request and never answers, until its signal aborts. */
+function hangingFetch(hangs: (url: string) => boolean): typeof fetch {
+  return (input, init) => {
+    const url = String(input);
+    if (!hangs(url)) return Promise.reject(new Error(`fetch is stubbed in this test: ${url}`));
+    return new Promise((_resolve, reject) => {
+      init?.signal?.addEventListener('abort', () => reject(init.signal!.reason), { once: true });
+    });
+  };
+}
+
+/** Resolves with what `p` settles to, or with a note once `ms` pass without it settling. */
+function within<T>(p: Promise<T>, ms: number): Promise<T | string> {
+  return Promise.race([
+    p,
+    new Promise<string>((r) => setTimeout(() => r(`not settled after ${ms} ms`), ms)),
+  ]);
+}
+
+Deno.test('start - a validator API that never answers fails typed within --timeout', async () => {
+  await withFakeNet(async (net) => {
+    Reflect.set(net, 'readinessDelayMs', { initial: 20, max: 20 });
+    globalThis.fetch = hangingFetch((url) => url.endsWith('/livez'));
+    const outcome = await within(
+      net.start({ skipHealthChecks: true, timeout: 300 }).then(() => 'started', (e) => e),
+      1500,
+    );
+    assert(outcome instanceof StartupTimeoutError, `got ${outcome}`);
+    assertEquals(outcome.phase, 'init');
+  });
+});
+
+Deno.test('start - Scan that never answers fails typed within --timeout', async () => {
+  await withFakeNet(async (net) => {
+    Reflect.set(net, 'readinessDelayMs', { initial: 20, max: 20 });
+    Reflect.set(
+      net,
+      'getValidatorState',
+      () => Promise.resolve({ isHealthy: true, validatorParty: 'p::ns' }),
+    );
+    globalThis.fetch = hangingFetch((url) => url.endsWith('/api/scan/status'));
+    const outcome = await within(
+      net.start({ skipHealthChecks: true, timeout: 300 }).then(() => 'started', (e) => e),
+      1500,
+    );
+    assert(outcome instanceof StartupTimeoutError, `got ${outcome}`);
+    assertEquals(outcome.phase, 'init');
+  });
+});
+
+Deno.test('start - an instance whose config says version 1 resumes, with one warning', async () => {
+  const warnings: LocalNetWarning[] = [];
+  await withFakeNet(async (net, fake) => {
+    fake.seedExisting(ALL_NAMES, 'running');
+    await net.start(START);
+    assertEquals(net.currentState, 'running');
+  }, (config) => {
+    config.version = '1';
+  }, { onWarning: (w) => warnings.push(w) });
+  assertEquals(warnings.map((w) => w.path), ['version']);
+  assertStringIncludes(warnings[0].message, "'1'");
+});
+
+Deno.test('start - a party that cannot be set up fails a fresh start, typed, and rolls it back', async () => {
+  await withFakeNet(async (net, fake) => {
+    failPartyAllocation(net);
+    const err = await assertRejects(
+      () => net.start({ skipHealthChecks: true }),
+      InitializationError,
+    );
+    assertEquals([err.kind, err.resource], ['party', 'alice']);
+    assertEquals(fake.containers.size, 0);
+    assertEquals(fake.networkExists, false);
+    assertEquals(fake.volumeExists, false);
+    assertEquals(net.currentState, 'stopped');
+  }, WITH_PARTY);
+});
+
+Deno.test('start - a party that cannot be set up fails a resume, typed, and removes nothing', async () => {
+  await withFakeNet(async (net, fake) => {
+    fake.seedExisting(ALL_NAMES);
+    failPartyAllocation(net);
+    const err = await assertRejects(
+      () => net.start({ skipHealthChecks: true }),
+      InitializationError,
+    );
+    assertEquals([err.kind, err.resource], ['party', 'alice']);
+    assertEquals(
+      fake.mutations.filter((m) =>
+        !m.startsWith('startContainer:') && !m.startsWith('stopContainer:')
+      ),
+      [],
+    );
+    for (const n of ALL_NAMES) assert(fake.containers.has(n), `${n} must still exist`);
+    assert(fake.networkExists && fake.volumeExists);
+  }, WITH_PARTY);
+});
+
+Deno.test('start - API readiness that never succeeds stops at --timeout, typed, phase init', async () => {
+  await withFakeNet(async (net) => {
+    // fetch is stubbed to reject, so no validator API ever answers.
+    Reflect.set(net, 'readinessDelayMs', { initial: 20, max: 20 });
+    const started = Date.now();
+    const err = await assertRejects(
+      () => net.start({ skipHealthChecks: true, timeout: 300 }),
+      StartupTimeoutError,
+    );
+    const took = Date.now() - started;
+    assert(took < 500, `a 300 ms timeout failed after ${took} ms`);
+    assertEquals(err.phase, 'init');
+    assertStringIncludes(
+      err.message,
+      'Startup timeout (0.3s) reached while waiting for the sv API',
+    );
+  });
+});
+
+Deno.test('start - Scan readiness that never succeeds stops at --timeout, typed, phase init', async () => {
+  await withFakeNet(async (net) => {
+    Reflect.set(net, 'readinessDelayMs', { initial: 20, max: 20 });
+    Reflect.set(
+      net,
+      'getValidatorState',
+      () => Promise.resolve({ isHealthy: true, validatorParty: 'p::1' }),
+    );
+    const started = Date.now();
+    const err = await assertRejects(
+      () => net.start({ skipHealthChecks: true, timeout: 300 }),
+      StartupTimeoutError,
+    );
+    const took = Date.now() - started;
+    assert(took < 500, `a 300 ms timeout failed after ${took} ms`);
+    assertEquals(err.phase, 'init');
+    assertStringIncludes(err.message, 'Startup timeout (0.3s) reached while waiting for Scan');
+  });
+});
+
+Deno.test('start - a pull that outlasts --timeout fails typed, naming the image', async () => {
+  await withFakeNet(async (net, fake) => {
+    const image = fake.specImages.get(`${ID}-canton`)!;
+    fake.missingImages.add(image);
+    fake.pullDelayMs = 5000;
+    const started = Date.now();
+    const err = await assertRejects(
+      () => net.start({ ...START_CHECKED, timeout: 200 }),
+      StartupTimeoutError,
+    );
+    const took = Date.now() - started;
+    assert(took < 1500, `a 200 ms timeout failed after ${took} ms`);
+    assertEquals(err.phase, 'pull');
+    assertEquals(err.image, image);
+    assertEquals(err.timeoutMs, 200);
+    assertStringIncludes(err.message, `Startup timeout (0.2s) reached while pulling ${image}`);
+  });
+});
+
+Deno.test('start - a startup failure whose logs cannot be read says so and still fails typed', async () => {
+  await withFakeNet(async (net, fake) => {
+    fake.exitsAfterStart.add(`${ID}-splice`);
+    fake.logsError.set(`${ID}-splice`, new Error('socket hang up'));
+    const err = await assertRejects(() => net.start(START_CHECKED), ContainerStartupError);
+    assertEquals(err.logTail, []);
+    assertStringIncludes(err.message, 'logs could not be read: socket hang up');
+  });
+});
+
+Deno.test('start - an image pull reports progress with elapsed time while it waits', async () => {
+  const messages: string[] = [];
+  await withFakeNet(async (net, fake) => {
+    const image = fake.specImages.get(`${ID}-postgres`)!;
+    fake.missingImages.add(image);
+    fake.pullDelayMs = 120;
+    Reflect.set(net, 'pullProgressIntervalMs', 30);
+    await net.start({ ...START, onProgress: (m) => messages.push(m) });
+    assertEquals(messages.filter((m) => m === `Pulling ${image}...`).length, 1);
+    const waiting = messages.filter((m) => new RegExp(`^Pulling ${image}\\.\\.\\. \\d+s$`).test(m));
+    assert(waiting.length >= 2, `elapsed lines while pulling: ${JSON.stringify(messages)}`);
+    assertEquals(
+      messages.filter((m) => new RegExp(`^Pulled ${image} \\(\\d+s\\)$`).test(m)).length,
+      1,
+    );
+  });
+});
+
+Deno.test('start - a stored config that differs throws InstanceMismatchError before any change', async () => {
+  await withFakeNet(async (net, fake) => {
+    fake.seedExisting(ALL_NAMES);
+    const stored = { ...parseLocalNetConfig(net.getConfig()), spliceVersion: '0.10.2' };
+    fake.setConfig(JSON.stringify(stored));
+    const err = await assertRejects(() => net.start(START), InstanceMismatchError);
+    assertEquals(err.differences.map((d) => d.field), ['config']);
+    assertEquals(fake.mutations, []);
   });
 });
 
@@ -712,11 +1209,12 @@ Deno.test('packages - a resume with a missing DAR does not fail the pre-flight',
     // Containers exist but are stopped, so start() goes past the all-running early return and
     // would hit the pre-flight if it ran on a resume. The timeout then fails the start.
     fake.seedExisting(ALL_NAMES);
-    await assertRejects(
+    const err = await assertRejects(
       () => net.start({ skipHealthChecks: true, timeout: -1 }),
-      Error,
+      StartupTimeoutError,
       'Startup timeout',
     );
+    assertEquals(err.phase, 'start');
   }, (c) => {
     c.packages = [{ name: 'app', dar: 'definitely-missing.dar' }];
   }, { configDir: '/nonexistent-config-dir' });
@@ -724,11 +1222,12 @@ Deno.test('packages - a resume with a missing DAR does not fail the pre-flight',
 
 Deno.test('packages - a fresh start with skipInitialization ignores a missing DAR', async () => {
   await withFakeNet(async (net) => {
-    await assertRejects(
+    const err = await assertRejects(
       () => net.start({ skipHealthChecks: true, skipInitialization: true, timeout: -1 }),
-      Error,
+      StartupTimeoutError,
       'Startup timeout',
     );
+    assertEquals(err.phase, 'start');
   }, (c) => {
     c.packages = [{ name: 'app', dar: 'definitely-missing.dar' }];
   }, { configDir: '/nonexistent-config-dir' });

@@ -91,10 +91,12 @@ export class ValidatorAdminClient {
     }
   }
 
-  async getValidatorUserInfo(): Promise<ValidatorUserInfo> {
+  /** @param signal - Ends the request when it aborts. */
+  async getValidatorUserInfo(signal?: AbortSignal): Promise<ValidatorUserInfo> {
     const response = await fetch(`${this.baseUrl}/api/validator/v0/validator-user`, {
       method: 'GET',
       headers: { Accept: 'application/json' },
+      signal,
     });
     if (!response.ok) {
       const errorText = await response.text();
@@ -106,8 +108,9 @@ export class ValidatorAdminClient {
     return response.json();
   }
 
-  async getValidatorParty(): Promise<string> {
-    const info = await this.getValidatorUserInfo();
+  /** @param signal - Ends the request when it aborts. */
+  async getValidatorParty(signal?: AbortSignal): Promise<string> {
+    const info = await this.getValidatorUserInfo(signal);
     return info.party_id;
   }
 

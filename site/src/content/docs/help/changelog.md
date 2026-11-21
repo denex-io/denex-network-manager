@@ -12,6 +12,39 @@ The authoritative changelog lives in the repository so it ships with the source 
 
 This page summarizes what each release means for you. It is not a copy of the changelog.
 
+## 0.1.0 — 2026-11-21
+
+Behavior you can now rely on:
+
+- Splice 0.10.2 runs with `spliceVersion: '0.10.2'`. The default stays 0.9.4; both are tested on
+  every release. Another release starts with a warning that it is untested.
+- An instance keeps the release it was created with. `dnm start` refuses a repair that would mix
+  releases, before changing anything; destroy and start again to switch.
+- `--timeout` (default 600 s) bounds the whole start, image pulls included, and image pulls report
+  progress.
+- A container that dies or turns unhealthy during `dnm start` fails it with the container's last
+  log lines.
+- A configured party or user that cannot be set up, or a validator whose API never becomes ready,
+  fails `dnm start` and `dnm init` (exit 1), naming it; before, the start succeeded without it.
+- Config input is checked for what Keycloak and Canton would refuse later: user ids (3 to 128
+  lowercase letters, digits, `@`, `.`, `-`, `+` and `_`) and user party references. Every user that
+  is created can log in.
+- On 0.10.2, Scan's ACS export and the validators' identities dumps work as they do on 0.9.4.
+- Every release runs the full integration suite on both tested Splice releases before it is
+  published, and each binary is installed with `install.sh` and run first.
+- `install.sh` can install from a directory or mirror of release archives with `DNM_BASE_URL`.
+
+Changes that may need action:
+
+- The first release that is not a beta: install the SDK with `npm install @denex/network-manager`.
+  `@denex/network-manager@beta` still installs 0.1.0-beta.3.
+- A config that relied on a party or user failing quietly now fails to start.
+- User ids shorter than 3 or longer than 128 characters, or with characters other than lowercase
+  letters, digits, `@`, `.`, `-`, `+` and `_`, are refused when the config is read.
+- On 0.10.2: external-party transfers and allocations need a `requestedAt` within the past 24
+  hours, and Splice is configured for protocol version 37 (Canton 3.7 adds PV 37, per the Splice
+  0.10.0 release notes).
+
 ## 0.1.0-beta.3 — 2026-11-09
 
 Behavior you can now rely on:

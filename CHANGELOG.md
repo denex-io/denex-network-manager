@@ -5,6 +5,128 @@ All notable changes to this project will be documented in this file. The format 
 
 ## [Unreleased]
 
+## [0.1.0] — 2026-11-21
+
+### Added
+
+- Splice 0.10.2 support. `spliceVersion: '0.10.2'` generates the Splice 0.10 config shape: each
+  Splice app's participant Admin API client is a `client-config` plus an `auth-config`, which 0.10
+  requires. The tested releases are 0.9.4 and 0.10.2.
+- For app builders on 0.10.2: Splice 0.10 accepts an external-party transfer or allocation only if
+  its `requestedAt` is within the past 24 hours (per the Splice 0.10 release notes;
+  `assertInPast24Hours` in `ExternalPartyAmuletRules.daml` at 0.10.2). At 0.9.4 any time in the past
+  was accepted. dnm sets no `requestedAt`; a test that fixes one in the past may need a current
+  time. See `docs/splice-version-support-plan.md` for this and the protocol-version change.
+- Typed errors: `LocalNetError` (base), `InstanceMismatchError`, `SpliceVersionConflictError`,
+  `ContainerStartupError`, `StartupTimeoutError` and `InitializationError`, exported from the
+  package root and `/sdk`, so callers can tell these failures apart with `instanceof`.
+- Image pulls report progress: `Pulling <image>...`, then the elapsed time every 10 seconds, then
+  `Pulled <image> (<n>s)`. A cold start used to print nothing for minutes during the splice-app
+  pull.
+- A `spliceVersion` outside the tested set (0.9.4, 0.10.2) is accepted with a warning that it is
+  untested and which config shape (0.9 or 0.10) it gets; a tag that is not a release number, such as
+  `dev-snapshot`, gets the 0.10 shape. Only a value that cannot be a Docker tag is refused, as
+  before.
+- `install.sh` reads `DNM_BASE_URL`: the URL of a directory holding the release archives and
+  `SHA256SUMS` (for example `file:///tmp/dist` or a mirror), used instead of the GitHub release. CI
+  uses it to install the archives it has just built.
+- Release checks: a release runs the full integration suite on Splice 0.9.4 and 0.10.2 before
+  anything is published, and installs each binary a hosted runner can execute (linux-x64,
+  linux-arm64, darwin-arm64 through `install.sh`; win-x64 from its zip), which must report the
+  release version. The tag must be on `main` and equal the `deno.json` version. Pull requests also
+  check formatting, the frozen lockfile and `install.sh` (shellcheck, and an install in a clean
+  `ubuntu:24.04` container), with Deno pinned to 2.9.3.
+- On Splice 0.10.2, LocalNets enable Canton's participant repair service and key download
+  (`canton.features.enable-repair-commands` and `canton.parameters.enable-key-download`, which
+  Canton 3.7 turns off by default), so Scan's ACS export (`/v0/acs/{party}`) and the validator's
+  identities dump (`/v0/admin/participant/identities`) work as they do on 0.9.4. Upstream's own
+  0.10.2 LocalNet sets neither. 0.9.4 is unchanged.
+- A config `version` other than `'1.0'` is read with a warning naming it; before, it was accepted
+  without one.
+- `LocalNetWarning.source` can be `'instance'`: an existing instance resumes as it was created
+  although it differs from the current config and options (for example another image).
+
+### Changed
+
+- 0.1.0 is the first release that is not a beta. npm publishes it under `latest`, so
+  `npm install @denex/network-manager` installs it; the release no longer uses npm's `beta` tag,
+  which stays on 0.1.0-beta.3, so `@denex/network-manager@beta` installs that older release.
+- **Breaking:** `start()` refuses a repair that would create missing containers next to existing
+  ones running other images (for example after a dnm upgrade changed a default, or after
+  `options.images` changed). It throws `InstanceMismatchError` before changing anything; destroy the
+  instance, or start it with the `spliceVersion` and images it was created with. Before, the repair
+  mixed releases. A complete instance still resumes as it was created, with an `'instance'` warning.
+  A config mismatch on start now throws `InstanceMismatchError` too (still an `Error`).
+- **Breaking:** `LocalNetOptions.images` that put canton or splice-app on a Splice release whose
+  config shape differs from the config's release (0.10.x vs earlier) throw
+  `SpliceVersionConflictError` when the handle is created. Set `spliceVersion` to that release.
+  Same-shape overrides (for example 0.7.0 images with the 0.9.4 default) are unchanged.
+- A container that stops, turns unhealthy or never becomes healthy during `start()` fails it with
+  `ContainerStartupError`, which carries the container's last 20 log lines. They are read before the
+  failed start is rolled back; before, the rollback removed the container and its logs, and the
+  message said only "stopped unexpectedly" or "is unhealthy", which it still starts with.
+- **Breaking:** `--timeout` (`StartOptions.timeout`) is now enforced as a wall-clock limit on the
+  whole start, image pulls included; previously it was only checked between container layers, so the
+  last health wait and initialization's waits for the validator APIs and Scan ran past it. Running
+  out throws `StartupTimeoutError` (phase `pull`, `start` or `init`; before, a plain `Error`
+  "Startup timeout exceeded"), or `ContainerStartupError` with the logs during a health wait. An
+  explicit timeout now bounds the whole start; raise it if you set one below a cold start. The
+  default rises from 300000 to 600000 ms: a cold start in a fresh container (linux-arm64, every
+  image pulled) took 290.7 s, and 600 s is 2× that, rounded up to a whole minute.
+- **Breaking:** a configured party or user that initialization cannot set up fails `start()` with
+  `InitializationError` (`kind` `'party'` or `'user'`, the hint or user id, its validator, and the
+  cause), so `dnm start` and `dnm init` exit 1 naming it; before, it printed
+  `Warning: Failed to
+  allocate party …` or `Warning: Failed to create user …` and `start()`
+  succeeded without it. A failed fresh start is rolled back and a failed resume removes nothing, as
+  for any startup failure. A party or user that already exists still counts as set up, and package
+  uploads still only warn. A validator's API (or Scan, for `sv`) that does not become ready within
+  its 30 attempts and the hosted-party query failure (`Cannot check existing parties on …`) are an
+  `InitializationError` too (`kind: 'validator'`, the last error as `cause`; before, a plain
+  `Error`).
+- `createUser()` creates the Canton user only when looking it up returns 404. Any other lookup error
+  fails it with a `LocalNetError` carrying the cause; before, every lookup error led to a create
+  attempt, and the lookup error was lost.
+- A failed `start()` whose rollback cannot undo everything says what it left behind: the startup
+  error is still the one thrown, with the leftover containers, network or volume and the reasons
+  appended to its message and attached as `rollbackFailure` (`rollbackFailureOf()`), and
+  `onProgress` names them. Before, every rollback failure was ignored without a word.
+- `createUser()` checks the user id by the same rule before it creates anything; before, an id
+  Keycloak refused left the Canton user behind.
+- Keycloak users keep the email `<id>@localnet.localhost` when the id is a valid email local part.
+  Any other allowed id (one with `@`, longer than 64 characters, or with a leading, trailing or
+  doubled `.`) gets a hashed address at `id.localnet.localhost` instead, so every allowed id can log
+  in; before, such a user was created but Keycloak answered its login with "Account is not fully set
+  up".
+- The canton container's health check asks `/health/ready` instead of `/health` on the SV's HTTP
+  health port: readiness rather than liveness. Canton 3.6.4 (Splice 0.9.4) and 3.7.3 (Splice 0.10.2)
+  both serve it.
+- Health waits follow Docker's own verdict: `start()` fails on the first `unhealthy` Docker reports
+  (after the health check's start period and retries) instead of after its own poll count, polls
+  every second instead of every 5–10, and prints the elapsed time and last health status every 10
+  seconds.
+- **Breaking:** config input refuses, with an error naming the field, what was only refused at
+  startup before (by Keycloak or Canton, after the containers were up): a user id that is not 3 to
+  128 characters of lowercase letters, digits, `@`, `.`, `-`, `+` and `_`, what both a Keycloak
+  username and a Canton user id accept (before, any lowercase string, and an id such as
+  `ops|team(1)` started healthy but could not log in), and a user's `primaryParty` or
+  `parties[].hint` that Canton does not accept as a party hint (letters, digits, `:`, `-`, `_` and
+  spaces, at most 185 characters, no `::` and no trailing `:`, which do not read back as the same
+  hint; before, any non-empty string). Stored instance labels are not checked, so existing instances
+  stay stoppable.
+- The bundled default stays Splice 0.9.4. Splice 0.10 moves to Canton 3.7 and is configured for
+  protocol version 37 (Canton 3.7 adds PV 37, per the Splice 0.10.0 release notes; the running SV
+  app's config has `initial-protocol-version` 37 on 0.10.2 and 36 on 0.9.4), where
+  `GenerateExternalPartyTopology` returns v31 topology transactions unless the request pins protocol
+  version 36, which changes external-party onboarding for SDK users.
+- The SV app config no longer sets `comet-bft-config`. Splice 0.10.2 removed CometBFT; at 0.9.4
+  leaving it unset is the same as the `enabled = false` dnm wrote.
+
+### Fixed
+
+- The `--skip-init` help now says it skips the readiness waits, so `dnm start --skip-init` can
+  return before the APIs answer.
+
 ## [0.1.0-beta.3] — 2026-11-09
 
 ### Changed

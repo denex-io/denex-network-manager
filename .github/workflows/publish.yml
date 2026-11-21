@@ -24,6 +24,9 @@ jobs:
     steps:
       # @v7.0.0
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          # The whole history, so the tag check below can see whether main contains the commit.
+          fetch-depth: 0
 
       - name: Resolve version and dry-run mode
         id: resolve
@@ -43,6 +46,27 @@ jobs:
             echo '::error::could not resolve a version to build'
             exit 1
           fi
+          # This workflow publishes to npm's `latest` and never marks the GitHub release a
+          # prerelease, so a prerelease would reach every default install. Refuse it before any job
+          # builds or releases anything; publishing prereleases again is issue #30's follow-up.
+          case "$version" in
+            *-*)
+              echo "::error::prerelease versions aren't published by this workflow (see #30): $version"
+              exit 1
+              ;;
+          esac
+          if [ "${GITHUB_REF_TYPE}" = 'tag' ]; then
+            # A release is cut from main, at the version deno.json declares.
+            if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+              echo "::error::tag ${GITHUB_REF_NAME} (${GITHUB_SHA}) is not on origin/main"
+              exit 1
+            fi
+            declared="$(jq -r '.version' deno.json)"
+            if [ "$version" != "$declared" ]; then
+              echo "::error::tag ${GITHUB_REF_NAME} is version $version, but deno.json says $declared"
+              exit 1
+            fi
+          fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "dry_run=$dry_run" >> "$GITHUB_OUTPUT"
           echo "Building version $version (dry_run=$dry_run)"
@@ -59,7 +83,7 @@ jobs:
       - uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed
         name: Setup Deno
         with:
-          deno-version: v2.x
+          deno-version: v2.9.3
 
       - name: Stamp CLI version
         run: deno run --allow-read --allow-write scripts/stamp_version.ts "${{ needs.prepare.outputs.version }}"
@@ -105,7 +129,7 @@ jobs:
       - uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed
         name: Setup Deno
         with:
-          deno-version: v2.x
+          deno-version: v2.9.3
 
       - name: Stamp CLI version
         run: deno run --allow-read --allow-write scripts/stamp_version.ts "${{ needs.prepare.outputs.version }}"
@@ -132,10 +156,106 @@ jobs:
             dnm-darwin-arm64.tar.gz
           if-no-files-found: error
 
+  assets:
+    name: Checksum Release Assets
+    runs-on: ubuntu-latest
+    needs: [compile-linux-win, compile-macos]
+    steps:
+      # @v4.1.7
+      - uses: actions/download-artifact@65a9edc5881444af0b9093a5e628f2fe47ea3b2e
+        name: Download linux/win archives
+        with:
+          name: archives-linux-win
+          path: dist
+
+      # @v4.1.7
+      - uses: actions/download-artifact@65a9edc5881444af0b9093a5e628f2fe47ea3b2e
+        name: Download macOS archives
+        with:
+          name: archives-macos
+          path: dist
+
+      - name: Generate checksums
+        working-directory: dist
+        run: |
+          set -euo pipefail
+          sha256sum dnm-*.tar.gz dnm-*.zip > SHA256SUMS
+          cat SHA256SUMS
+          # Fail loudly if any expected archive is missing.
+          for f in dnm-linux-x64.tar.gz dnm-linux-arm64.tar.gz \
+                   dnm-darwin-x64.tar.gz dnm-darwin-arm64.tar.gz dnm-win-x64.zip; do
+            [ -f "$f" ] || { echo "::error::missing release asset $f"; exit 1; }
+          done
+
+      # @v4.3.3
+      - uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0abb4808
+        name: Upload release assets
+        with:
+          name: release-assets
+          path: dist/*
+          if-no-files-found: error
+
+  # Each binary that a hosted runner can execute is installed the way a user installs it and must
+  # report the release version: install.sh against the built archives and SHA256SUMS on Linux and
+  # macOS, the zip on Windows. darwin-x64 has no native hosted runner here and is not executed.
+  verify-binaries:
+    name: Verify ${{ matrix.archive }}
+    needs: [prepare, assets]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            archive: dnm-linux-x64.tar.gz
+          - runner: ubuntu-24.04-arm
+            archive: dnm-linux-arm64.tar.gz
+          - runner: macos-latest
+            archive: dnm-darwin-arm64.tar.gz
+          - runner: windows-latest
+            archive: dnm-win-x64.zip
+    runs-on: ${{ matrix.runner }}
+    env:
+      EXPECTED: dnm ${{ needs.prepare.outputs.version }}
+      NO_COLOR: '1'
+    steps:
+      # @v7.0.0
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+
+      # @v4.1.7
+      - uses: actions/download-artifact@65a9edc5881444af0b9093a5e628f2fe47ea3b2e
+        name: Download release assets
+        with:
+          name: release-assets
+          path: dist
+
+      - name: Install with install.sh and check the version
+        if: runner.os != 'Windows'
+        run: |
+          set -euo pipefail
+          DNM_BASE_URL="file://$PWD/dist" DNM_INSTALL_DIR="$RUNNER_TEMP/dnm-bin" sh install.sh
+          version="$("$RUNNER_TEMP/dnm-bin/dnm" --version)"
+          echo "dnm --version: $version"
+          [ "$version" = "$EXPECTED" ] || { echo "::error::expected '$EXPECTED'"; exit 1; }
+
+      - name: Unzip and check the version
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Expand-Archive -Path dist/dnm-win-x64.zip -DestinationPath "$env:RUNNER_TEMP/dnm-bin"
+          $version = (& "$env:RUNNER_TEMP/dnm-bin/dnm.exe" --version | Out-String).Trim()
+          Write-Output "dnm --version: $version"
+          if ($version -ne $env:EXPECTED) { Write-Output "::error::expected '$env:EXPECTED'"; exit 1 }
+
+  # The release gate: the full integration suite on every tested Splice release.
+  integration:
+    name: Integration
+    needs: [prepare]
+    uses: ./.github/workflows/integration.yml
+
   publish:
     name: Build and Publish
     runs-on: ubuntu-latest
-    needs: [prepare, compile-linux-win, compile-macos]
+    needs: [prepare, assets, verify-binaries, integration]
     permissions:
       # Needed to create the GitHub release and upload its assets.
       contents: write
@@ -149,7 +269,7 @@ jobs:
       - uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed
         name: Setup Deno
         with:
-          deno-version: v2.x
+          deno-version: v2.9.3
 
       # @v4.0.2
       - uses: actions/setup-node@60edb5dd545a775178f52524783378180af0d1f8
@@ -187,29 +307,10 @@ jobs:
 
       # @v4.1.7
       - uses: actions/download-artifact@65a9edc5881444af0b9093a5e628f2fe47ea3b2e
-        name: Download linux/win archives
+        name: Download release assets (archives and SHA256SUMS)
         with:
-          name: archives-linux-win
+          name: release-assets
           path: dist
-
-      # @v4.1.7
-      - uses: actions/download-artifact@65a9edc5881444af0b9093a5e628f2fe47ea3b2e
-        name: Download macOS archives
-        with:
-          name: archives-macos
-          path: dist
-
-      - name: Generate checksums
-        working-directory: dist
-        run: |
-          set -euo pipefail
-          sha256sum dnm-*.tar.gz dnm-*.zip > SHA256SUMS
-          cat SHA256SUMS
-          # Fail loudly if any expected archive is missing.
-          for f in dnm-linux-x64.tar.gz dnm-linux-arm64.tar.gz \
-                   dnm-darwin-x64.tar.gz dnm-darwin-arm64.tar.gz dnm-win-x64.zip; do
-            [ -f "$f" ] || { echo "::error::missing release asset $f"; exit 1; }
-          done
 
       - name: Build npm package (SDK only)
         run: deno run --allow-all scripts/build_npm.ts "${{ needs.prepare.outputs.version }}"
@@ -237,7 +338,7 @@ jobs:
         run: |
           set -euo pipefail
           npm --version
-          npm publish --access public --tag beta --dry-run --loglevel verbose 2>&1 \
+          npm publish --access public --dry-run --loglevel verbose 2>&1 \
             | tee "$RUNNER_TEMP/npm-publish-dry-run.log"
           if ! grep -q 'oidc Successfully retrieved and set token' "$RUNNER_TEMP/npm-publish-dry-run.log"; then
             echo '::error::npm did not get a publish token through OIDC. Check the trusted publisher config for @denex/network-manager on npmjs.com (repository, workflow file name publish.yml, no environment).'
@@ -262,15 +363,13 @@ jobs:
             echo
             echo "Version: \`${{ needs.prepare.outputs.version }}\`"
             echo
-            echo 'Verified: type check, lint, format, unit + smoke tests, all five'
-            echo 'binaries compiled and archived, checksums generated, the npm trusted'
-            echo 'publishing token exchange succeeded, and `npm publish --dry-run` passed.'
+            echo 'Verified: the integration suite on every tested Splice release, type check,'
+            echo 'lint, format, unit + smoke tests, all five binaries compiled and archived,'
+            echo 'checksums generated, install.sh and `dnm --version` on linux-x64, linux-arm64,'
+            echo 'darwin-arm64 and win-x64, the npm trusted publishing token exchange, and'
+            echo '`npm publish --dry-run`.'
             echo
             echo 'Skipped: GitHub release creation and the real `npm publish`.'
-            echo
-            echo 'Not rehearsed: moving the npm `latest` dist-tag (the Tag npm latest job).'
-            echo '`npm dist-tag` has no dry run; it needs "Allow npm dist-tag" enabled on the'
-            echo 'trusted publisher for @denex/network-manager on npmjs.com.'
           } >> "$GITHUB_STEP_SUMMARY"
 
       # ── Real release ────────────────────────────────────────────────────────
@@ -288,8 +387,6 @@ jobs:
             --title "v$VERSION" \
             --notes "See [CHANGELOG.md](https://github.com/${GITHUB_REPOSITORY}/blob/main/CHANGELOG.md) for details.
 
-          **This is a beta release.** The API may change in minor (0.x) versions.
-
           ### Install the \`dnm\` CLI
 
           \`\`\`bash
@@ -301,7 +398,7 @@ jobs:
           ### Install the SDK
 
           \`\`\`bash
-          npm install @denex/network-manager@beta
+          npm install @denex/network-manager
           \`\`\`" \
             dist/dnm-linux-x64.tar.gz \
             dist/dnm-linux-arm64.tar.gz \
@@ -313,40 +410,6 @@ jobs:
       - name: Publish to npm
         if: needs.prepare.outputs.dry_run != 'true'
         working-directory: npm
-        # Authenticates through OIDC (trusted publishing); no token secret is used.
-        run: npm publish --access public --tag beta
-
-  # Every release so far is a beta, published with `--tag beta`. npm only sets `latest` on a
-  # package's first publish, so it stayed on 0.1.0-beta.1 and a plain `npm install` of the package
-  # got the oldest release. While every release is a beta, point `latest` at each one too. Revisit
-  # this once a non-beta release exists: prereleases should then move only `beta` (issue #30).
-  #
-  # A separate job so that, if it fails, "Re-run failed jobs" repeats only this step, not the
-  # publish. Through OIDC it needs "Allow npm dist-tag" enabled on the package's trusted publisher
-  # (npmjs.com package settings; off by default) and npm >= 11.21.0.
-  tag-latest:
-    name: Tag npm latest
-    runs-on: ubuntu-latest
-    needs: [prepare, publish]
-    if: needs.prepare.outputs.dry_run != 'true'
-    permissions:
-      # npm trusted publishing: npm exchanges this job's OIDC token for a dist-tag token.
-      id-token: write
-    steps:
-      # @v4.0.2
-      - uses: actions/setup-node@60edb5dd545a775178f52524783378180af0d1f8
-        name: Setup Node.js
-        with:
-          node-version: '24'
-          registry-url: 'https://registry.npmjs.org'
-
-      - name: Point latest at this release
-        env:
-          VERSION: ${{ needs.prepare.outputs.version }}
-        run: |
-          set -euo pipefail
-          # dist-tag over OIDC needs npm >= 11.21.0, newer than the one Node 24 bundles.
-          npm install -g npm@11.21.2
-          npm --version
-          npm dist-tag add "@denex/network-manager@${VERSION}" latest
-          npm dist-tag ls @denex/network-manager
+        # Authenticates through OIDC (trusted publishing); no token secret is used. With no --tag,
+        # npm adds the `latest` dist-tag.
+        run: npm publish --access public

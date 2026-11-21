@@ -54,7 +54,7 @@ anything. `start` differs from the other commands: its `--instance` defaults to 
 than auto-resolving, and it has the short form `-i`.
 
 :::caution[The `--timeout` unit is not consistent]
-`start --timeout` is in milliseconds (default `300000`). `stop --timeout` and `destroy --timeout`
+`start --timeout` is in milliseconds (default `600000`). `stop --timeout` and `destroy --timeout`
 are in seconds (default `30`), the grace period Docker gives each container before it kills it.
 Passing `300000` to `stop` sets that grace period to about three and a half days.
 :::
@@ -67,10 +67,10 @@ Start the Canton LocalNet.
 | ---------------------- | ----------- | --------------------------------------------------- |
 | `-c, --config <path>`  | discovered  | Path to config file                                 |
 | `-i, --instance <id>`  | `"default"` | Instance ID                                         |
-| `-t, --timeout <ms>`   | `300000`    | Startup timeout in milliseconds                     |
+| `-t, --timeout <ms>`   | `600000`    | Wall-clock limit on the whole start, image pulls included, in milliseconds |
 | `--no-parallel`        |             | Start containers sequentially                       |
 | `--skip-health-checks` |             | Skip container health checks                        |
-| `--skip-init`          |             | Skip post-startup initialization (party and user setup, packages upload) |
+| `--skip-init`          |             | Skip initialization: the readiness waits, party and user setup, and the package upload, so the start can return before the APIs answer |
 
 `start` resumes an existing instance with the same ID and repairs a partly running one: stopped
 containers are started, missing ones are created, running containers that depend on them are
@@ -95,16 +95,19 @@ Before it changes anything, `start` runs these checks:
   are caught only when Docker binds the port.
 - On a fresh start without `--skip-init`, it fails when a `packages` DAR cannot be found.
 
-The timeout is checked before each layer of containers starts, so health-check waits and
-initialization can run past it. At the end of initialization, `start` uploads the DARs in the
-config's `packages` list.
+`--timeout` is a wall-clock limit on the whole start: image pulls, starting the containers, the
+health-check waits, and initialization's waits for the validator APIs and Scan. When it runs out,
+`start` fails and rolls back, naming what it was waiting for; a container that stops or turns
+unhealthy fails it too, with that container's last log lines. Pulls and health waits print the
+elapsed time while they run. At the end of initialization, `start` uploads the DARs in the config's
+`packages` list.
 
 When `--config` is omitted, the CLI looks for `localnet.yaml`, `localnet.yml`, `.localnet.yaml`, then
 `.localnet.yml`.
 
 ```bash
 dnm start
-dnm start --instance demo --timeout 300000
+dnm start --instance demo
 dnm start --skip-init
 dnm start --skip-health-checks
 ```

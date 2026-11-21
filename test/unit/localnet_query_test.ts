@@ -62,8 +62,8 @@ class FakeCantonClient {
   }
   /** Records the primary party and stops createUser right after hint resolution. */
   createdWith: Array<string | undefined> = [];
-  getUser(): Promise<UserDetails> {
-    return Promise.reject(new Error('not found'));
+  getUser(userId: string): Promise<UserDetails> {
+    return Promise.reject(new CantonApiError(404, `GET /v2/users/${userId}: USER_NOT_FOUND`));
   }
   createUser(_userId: string, primaryPartyId?: string): Promise<UserDetails> {
     this.createdWith.push(primaryPartyId);
@@ -342,7 +342,7 @@ Deno.test('getSnapshot - parties are empty when no participant responds', async 
 Deno.test('createUser - a failing hosted-party query fails the call and allocates nothing', async () => {
   const { net, fakes } = harness(threeNodes({ 'validator-1': { down: 'party query failed' } }));
   await assertRejects(
-    () => net.createUser('u1', 'validator-1', { primaryParty: 'alice' }),
+    () => net.createUser('usr1', 'validator-1', { primaryParty: 'alice' }),
     Error,
     'party query failed',
   );
@@ -388,7 +388,7 @@ Deno.test('createUser - prefers the party in the participant own namespace', asy
     },
   }));
   await assertRejects(
-    () => net.createUser('u1', 'validator-1', { primaryParty: 'shared' }),
+    () => net.createUser('usr1', 'validator-1', { primaryParty: 'shared' }),
     Error,
     'stop after resolution',
   );
@@ -400,7 +400,7 @@ Deno.test('createUser - a hint hosted only elsewhere is allocated on the home va
   const { net, fakes } = harness(threeNodes());
   // carol is hosted on validator-2 only, and alice::bb is remote on validator-2.
   await assertRejects(
-    () => net.createUser('u1', 'validator-1', { primaryParty: 'carol' }),
+    () => net.createUser('usr1', 'validator-1', { primaryParty: 'carol' }),
     Error,
     'stop after resolution',
   );
@@ -413,7 +413,7 @@ Deno.test('createUser - parties hosted elsewhere (isLocal false) are never match
   const { net, fakes } = harness(threeNodes());
   // validator-2 lists alice::bb as remote; validator-2 must allocate its own alice.
   await assertRejects(
-    () => net.createUser('u1', 'validator-2', { primaryParty: 'alice' }),
+    () => net.createUser('usr1', 'validator-2', { primaryParty: 'alice' }),
     Error,
     'stop after resolution',
   );

@@ -3,13 +3,13 @@ import { LocalNet } from '../../src/mod.ts';
 import { KeycloakAdminClient } from '../../src/api/keycloak-admin.ts';
 import { getKeycloakUrl, type LocalNetConfig } from '../../src/types/config.ts';
 import { getValidatorPorts } from '../../src/utils/ports.ts';
-import { isDockerAvailable } from './helpers.ts';
+import { isDockerAvailable, testConfig } from './helpers.ts';
 
 function makeConfig(validators: string[] | number = 1): LocalNetConfig {
-  return {
+  return testConfig({
     validators: typeof validators === 'number' ? validators : validators.map((name) => ({ name })),
     auth: { keycloak: { admin: 'admin', password: 'admin' } },
-  };
+  });
 }
 
 function uniqueInstanceId(): string {
@@ -26,7 +26,7 @@ Deno.test('runtime createUser: happy path full lifecycle', async () => {
   const localnet = await LocalNet.fromConfig(config, { instanceId: uniqueInstanceId() });
 
   try {
-    await localnet.start({ timeout: 300000 });
+    await localnet.start();
 
     await localnet.createUser('alice', 'validator-1', { primaryParty: 'alice' });
 
@@ -79,7 +79,7 @@ Deno.test('runtime createUser: multi-party rights', async () => {
   const localnet = await LocalNet.fromConfig(config, { instanceId: uniqueInstanceId() });
 
   try {
-    await localnet.start({ timeout: 300000 });
+    await localnet.start();
 
     await localnet.createUser('charlie', 'validator-1', {
       parties: [{ hint: 'bob', rights: ['CanReadAs'] }],
@@ -113,7 +113,7 @@ Deno.test('runtime createUser: admin-only (no primaryParty)', async () => {
   const localnet = await LocalNet.fromConfig(config, { instanceId: uniqueInstanceId() });
 
   try {
-    await localnet.start({ timeout: 300000 });
+    await localnet.start();
 
     await localnet.createUser('admin', 'validator-1', { rights: ['ParticipantAdmin'] });
 
@@ -141,7 +141,7 @@ Deno.test('runtime createUser: idempotency', async () => {
   const localnet = await LocalNet.fromConfig(config, { instanceId: uniqueInstanceId() });
 
   try {
-    await localnet.start({ timeout: 300000 });
+    await localnet.start();
 
     const first = await localnet.createUser('alice', 'validator-1', { primaryParty: 'alice' });
     const usersAfterFirst = await localnet.getUsers('validator-1');
@@ -171,7 +171,7 @@ Deno.test('runtime createUser: multi-validator isolation', async () => {
   const localnet = await LocalNet.fromConfig(config, { instanceId: uniqueInstanceId() });
 
   try {
-    await localnet.start({ timeout: 300000 });
+    await localnet.start();
 
     await localnet.createUser('alice', 'validator-1');
 
@@ -201,7 +201,7 @@ Deno.test('runtime createUser: SV-specific case (resolveRealmName)', async () =>
   const localnet = await LocalNet.fromConfig(config, { instanceId: uniqueInstanceId() });
 
   try {
-    await localnet.start({ timeout: 300000 });
+    await localnet.start();
 
     await localnet.createUser('sv-helper', 'sv', { rights: ['ParticipantAdmin'] });
 
@@ -239,7 +239,7 @@ Deno.test('runtime createUser: performance bound (< 30s)', async () => {
   const localnet = await LocalNet.fromConfig(config, { instanceId: uniqueInstanceId() });
 
   try {
-    await localnet.start({ timeout: 300000 });
+    await localnet.start();
 
     let timeoutId: ReturnType<typeof setTimeout> | undefined;
     try {
@@ -269,7 +269,7 @@ Deno.test('runtime createUser: same hint on two validators gives two distinct pa
   const localnet = await LocalNet.fromConfig(config, { instanceId: uniqueInstanceId() });
 
   try {
-    await localnet.start({ timeout: 300000 });
+    await localnet.start();
 
     await localnet.createUser('user-one', 'validator-1', { primaryParty: 'shared' });
     await localnet.createUser('user-two', 'validator-2', { primaryParty: 'shared' });

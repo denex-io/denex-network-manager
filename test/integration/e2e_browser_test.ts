@@ -10,11 +10,12 @@ import {
   createTestDockerClient,
   generateTestInstanceId,
   isDockerAvailable,
+  testConfig,
 } from './helpers.ts';
 
 const EVIDENCE_DIR = '.sisyphus/evidence';
 
-const E2E_BROWSER_TEST_CONFIG: LocalNetConfig = {
+const E2E_BROWSER_TEST_CONFIG: LocalNetConfig = testConfig({
   validators: 2,
   auth: {
     keycloak: {
@@ -22,7 +23,7 @@ const E2E_BROWSER_TEST_CONFIG: LocalNetConfig = {
       password: 'admin',
     },
   },
-};
+});
 
 interface WebUIConfig {
   name: string;
@@ -90,7 +91,6 @@ Deno.test({
 
       console.log('[E2E] Starting LocalNet with 2 validators (oauth2 mode)...');
       await localnet.start({
-        timeout: 300000,
         onProgress: (msg) => console.log(`[progress] ${msg}`),
       });
 
@@ -243,10 +243,10 @@ Deno.test({
       await localnet.stop();
       assertEquals(localnet.currentState, 'stopped', 'LocalNet should be stopped');
 
-      const config2: LocalNetConfig = {
+      const config2: LocalNetConfig = testConfig({
         validators: [{ name: 'app' }, { name: 'user-1' }],
         auth: E2E_BROWSER_TEST_CONFIG.auth,
-      };
+      });
       localnet2 = new LocalNet(config2, { instanceId });
 
       console.log('[E2E] Testing config mismatch detection (returns hasMismatch: true)...');
@@ -268,7 +268,6 @@ Deno.test({
 
       console.log('[E2E] Starting LocalNet with new config (force recreate)...');
       await localnet2.start({
-        timeout: 420000,
         onProgress: (msg) => console.log(`[progress] ${msg}`),
       });
 

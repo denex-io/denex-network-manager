@@ -117,9 +117,10 @@ such as `App` would never authenticate.
 
 Party hints referenced by users are auto-allocated even if not listed under the validator's
 top-level `parties`. A party whose hint is already hosted on the validator is skipped when
-initialization runs again. Configured hints are passed to Canton unchanged. The validator operator
-party is separate, and its hint is generated from the validator name and position, for example
-`localnet-app-1` for the first validator, `app`.
+initialization runs again. Configured hints are passed to Canton unchanged. A party or user that
+initialization cannot set up fails `dnm start` (and `dnm init`) with an error naming it, its
+validator and the cause. The validator operator party is separate, and its hint is generated from
+the validator name and position, for example `localnet-app-1` for the first validator, `app`.
 
 Earlier versions accepted a `validator` key on parties and users. It has been removed: a party or
 user always belongs to the validator it is listed under, and a leftover `validator` key produces a
@@ -129,15 +130,16 @@ warning and is ignored.
 
 | Field          | Type   | Description                                    |
 | -------------- | ------ | ---------------------------------------------- |
-| `id`           | string | Required. Lowercase, non-empty, and unique within the validator; use at least 3 characters (see below). Also the Keycloak password |
+| `id`           | string | Required. 3 to 128 lowercase letters, digits, `@`, `.`, `-`, `+` and `_`, unique within the validator (see below). Also the Keycloak password |
 | `primaryParty` | string | Grants `CanActAs` on that party and onboards the user to the wallet |
 | `rights`       | array  | Participant-wide rights                        |
 | `parties`      | array  | Per-party rights, as `{ hint, rights }`        |
 
-Config validation accepts any non-empty, lowercase `id` that is unique within its validator.
-Keycloak's default user profile (26.1.0, the Keycloak image LocalNet runs) sets a 3–255 character
-rule for usernames, so use at least 3. Users created at runtime with `LocalNet.createUser()` are
-checked against it.
+The rule is what both a Keycloak username and a Canton user id accept: Keycloak's default user
+profile (26.1.0, the Keycloak image LocalNet runs) requires 3 to 255 characters, and Canton allows
+at most 128. Config validation refuses any other `id` with an error naming the field, and
+`LocalNet.createUser()` checks users created at runtime by the same rule before it creates
+anything.
 
 Rights split into two kinds:
 
@@ -219,14 +221,16 @@ By default every LocalNet runs the Splice release bundled with this version of
 `ghcr.io/digital-asset/decentralized-canton-sync/docker` are all pulled at that tag. PostgreSQL,
 Keycloak and Nginx are unaffected. The value must be a valid Docker tag.
 
-The version is stored with the instance, so a `dnm start` that repairs it recreates containers at
-the same release. Without `spliceVersion` no release is stored, and a repair uses the release
-bundled with the `denex-network-manager` version doing the repair, which after an upgrade can
-differ from the one the instance was created with. In the SDK, `LocalNetOptions.images` overrides
-individual images and wins over `spliceVersion`.
+The tested releases are 0.9.4 (the default) and 0.10.2; another value starts with a warning that
+it is untested. The generated Canton and Splice config follows the release: 0.10 and later get the
+Splice 0.10 shape.
 
-Only the bundled release is tested. Generated Canton and Splice configs are not versioned, so a
-release that changed its config format can fail to start.
+An instance keeps the release it was created with. A `dnm start` that would create containers next
+to existing ones on another release (for example after a `denex-network-manager` upgrade changed
+the default) refuses before changing anything; a complete instance resumes as it was created, with
+a warning. To switch release, destroy the instance and start it again (its ledger state is lost).
+In the SDK, `LocalNetOptions.images` overrides individual images and wins over `spliceVersion`, but
+an override that puts canton or splice-app on a release of the other config shape is refused.
 
 ## Environment variable interpolation
 

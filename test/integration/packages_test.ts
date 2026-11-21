@@ -3,16 +3,21 @@ import { mkdtemp, readdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { LocalNet } from '../../src/localnet.ts';
-import { DEFAULT_IMAGES } from '../../src/docker/containers.ts';
 import type { LocalNetConfig } from '../../src/types/config.ts';
 import type { LocalNetWarning } from '../../src/types/state.ts';
-import { generateTestInstanceId, isDockerAvailable, newestDar } from './helpers.ts';
+import {
+  generateTestInstanceId,
+  isDockerAvailable,
+  newestDar,
+  SELECTED_SPLICE_IMAGES,
+  testConfig,
+} from './helpers.ts';
 
-const CONFIG: LocalNetConfig = {
+const CONFIG: LocalNetConfig = testConfig({
   basePort: 22000,
   validators: [{ name: 'validator-1' }],
   auth: { keycloak: { admin: 'admin', password: 'admin' } },
-};
+});
 
 /** Copies the DARs shipped in the splice image to a temp directory with `docker cp`. */
 async function copyImageDars(instanceId: string): Promise<string> {
@@ -46,7 +51,7 @@ async function extractImageDarsBeforeStart(instanceId: string): Promise<string> 
     }
   };
   const dir = await mkdtemp(join(tmpdir(), 'dnm-dars-'));
-  await docker(['create', '--name', name, DEFAULT_IMAGES.splice]);
+  await docker(['create', '--name', name, SELECTED_SPLICE_IMAGES.splice]);
   try {
     await docker(['cp', `${name}:/app/splice-node/dars/.`, dir]);
   } finally {
@@ -65,7 +70,7 @@ Deno.test({
     const localnet = new LocalNet(CONFIG, { instanceId });
 
     try {
-      await localnet.start({ timeout: 300000 });
+      await localnet.start();
 
       const before = await localnet.getPackages('validator-1');
       assert(before.length > 0, 'validator-1 should know built-in packages');
@@ -129,7 +134,7 @@ Deno.test({
     });
 
     try {
-      await localnet.start({ timeout: 300000 });
+      await localnet.start();
       const packageWarnings = () => warnings.filter((w) => w.source === 'packages');
       assertEquals(packageWarnings(), [], 'first start should upload without warnings');
 

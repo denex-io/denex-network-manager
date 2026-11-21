@@ -4,11 +4,12 @@ import {
   createTestDockerClient,
   generateTestInstanceId,
   isDockerAvailable,
+  testConfig,
 } from './helpers.ts';
 import { LocalNet } from '../../src/localnet.ts';
 import type { LocalNetConfig } from '../../src/types/config.ts';
 
-const TEST_CONFIG: LocalNetConfig = {
+const TEST_CONFIG: LocalNetConfig = testConfig({
   validators: [
     {
       name: 'validator-1',
@@ -29,7 +30,7 @@ const TEST_CONFIG: LocalNetConfig = {
       password: 'admin',
     },
   },
-};
+});
 
 Deno.test({
   name: 'E2E: LocalNet initializes parties and users for multiple validators',
@@ -44,7 +45,6 @@ Deno.test({
     try {
       const messages: string[] = [];
       await localnet.start({
-        timeout: 600000,
         onProgress: (msg) => messages.push(msg),
       });
 
@@ -80,7 +80,7 @@ Deno.test({
   async fn() {
     const client = createTestDockerClient();
     const instanceId = generateTestInstanceId();
-    const simpleConfig: LocalNetConfig = {
+    const simpleConfig: LocalNetConfig = testConfig({
       validators: 1,
       auth: {
         keycloak: {
@@ -88,11 +88,11 @@ Deno.test({
           password: 'admin',
         },
       },
-    };
+    });
     const localnet = new LocalNet(simpleConfig, { instanceId });
 
     try {
-      await localnet.start({ timeout: 600000 });
+      await localnet.start();
 
       const dsoPartyId = await localnet.getDsoPartyId();
 

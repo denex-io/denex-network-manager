@@ -180,9 +180,11 @@ export interface PartyEnvironmentInfo {
  * - `query`: a per-validator query (parties, packages, users, rights) failed and its
  *   results are omitted from a partial result.
  * - `packages`: a package upload problem.
+ * - `instance`: an existing instance differs from what this version would create (for example
+ *   another image) and is resumed as it was created.
  */
 export interface LocalNetWarning {
-  source: 'config' | 'query' | 'packages';
+  source: 'config' | 'query' | 'packages' | 'instance';
   message: string;
   /** The validator the warning is about, when it concerns a single one. */
   validator?: string;

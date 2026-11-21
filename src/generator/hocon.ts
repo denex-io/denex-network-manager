@@ -7,6 +7,7 @@ import {
   normalizeValidators,
 } from '../types/config.ts';
 import { getSvInternalPorts, getSvPorts, getValidatorPorts } from '../utils/ports.ts';
+import { resolveSpliceVersion, usesSplice010Config } from '../utils/splice-version.ts';
 
 function generateLedgerApiAuthServices(realmName: string): string {
   const jwksUrl = `http://keycloak:8080/realms/${realmName}/protocol/openid-connect/certs`;
@@ -268,6 +269,20 @@ export function generateFullCantonConfig(
   config += `
 canton.monitoring.metrics.reporters = []
 `;
+
+  // Canton 3.7 (Splice 0.10) turns off the participant repair service and key download by default
+  // (CantonFeatures.enableRepairCommands, CantonParameters.enableKeyDownload in CantonConfig.scala
+  // at canton v3.7.3). A LocalNet keeps them: Scan's /v0/acs/{party} reads through the repair
+  // service's ExportAcs, and the validator's /v0/admin/participant/identities downloads keys. Both
+  // work on 0.9.4 without them; Canton 3.6.4 has no enable-key-download and refuses unknown keys.
+  const spliceVersion = typeof configOrValidators === 'object' && 'validators' in configOrValidators
+    ? resolveSpliceVersion(configOrValidators)
+    : undefined;
+  if (spliceVersion !== undefined && usesSplice010Config(spliceVersion)) {
+    config += `canton.features.enable-repair-commands = yes
+canton.parameters.enable-key-download = yes
+`;
+  }
 
   return config;
 }

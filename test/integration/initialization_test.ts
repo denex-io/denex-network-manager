@@ -4,12 +4,15 @@ import {
   createTestDockerClient,
   generateTestInstanceId,
   isDockerAvailable,
+  testConfig,
+  waitForLedgerJsonApi,
 } from './helpers.ts';
 import { LocalNet } from '../../src/localnet.ts';
 import type { LocalNetConfig } from '../../src/types/config.ts';
+import { buildConfigEnvironmentInfo } from '../../src/utils/env-info.ts';
 
 // Config with parties defined for allocation testing
-const PARTY_ALLOCATION_CONFIG: LocalNetConfig = {
+const PARTY_ALLOCATION_CONFIG: LocalNetConfig = testConfig({
   validators: [
     {
       name: 'alice',
@@ -31,10 +34,10 @@ const PARTY_ALLOCATION_CONFIG: LocalNetConfig = {
       password: 'admin',
     },
   },
-};
+});
 
 // Config with users defined for wallet onboarding testing
-const USER_ONBOARDING_CONFIG: LocalNetConfig = {
+const USER_ONBOARDING_CONFIG: LocalNetConfig = testConfig({
   validators: [
     {
       name: 'val1',
@@ -61,7 +64,7 @@ const USER_ONBOARDING_CONFIG: LocalNetConfig = {
       password: 'admin',
     },
   },
-};
+});
 
 // ============================================================================
 // PARTY ALLOCATION TESTS
@@ -79,7 +82,7 @@ Deno.test({
 
     try {
       // Start LocalNet - initialization runs automatically
-      await localnet.start({ timeout: 300000 });
+      await localnet.start();
 
       // Get all parties
       const allParties = await localnet.getParties();
@@ -134,7 +137,7 @@ Deno.test({
     const localnet = new LocalNet(PARTY_ALLOCATION_CONFIG, { instanceId });
 
     try {
-      await localnet.start({ timeout: 300000 });
+      await localnet.start();
 
       // Get parties for alice
       const aliceParties = await localnet.getParties('alice');
@@ -168,7 +171,7 @@ Deno.test({
     const localnet = new LocalNet(USER_ONBOARDING_CONFIG, { instanceId });
 
     try {
-      await localnet.start({ timeout: 300000 });
+      await localnet.start();
 
       // Get users for val1
       const users = await localnet.getUsers('val1');
@@ -200,7 +203,7 @@ Deno.test({
     const localnet = new LocalNet(USER_ONBOARDING_CONFIG, { instanceId });
 
     try {
-      await localnet.start({ timeout: 300000 });
+      await localnet.start();
 
       // Get parties and users
       const parties = await localnet.getParties('val1');
@@ -245,7 +248,7 @@ Deno.test({
     const localnet = new LocalNet(USER_ONBOARDING_CONFIG, { instanceId });
 
     try {
-      await localnet.start({ timeout: 300000 });
+      await localnet.start();
 
       // NOTE: This test verifies LEDGER user creation only. Wallet onboarding
       // verification requires browser-level testing — see test/integration/wallet_ui_test.ts.
@@ -281,7 +284,11 @@ Deno.test({
 
     try {
       // Start with skipInitialization
-      await localnet.start({ skipInitialization: true, timeout: 300000 });
+      await localnet.start({ skipInitialization: true });
+      // skipInitialization skips the readiness waits (LocalNet.start), so wait for alice's API.
+      await waitForLedgerJsonApi(
+        buildConfigEnvironmentInfo(PARTY_ALLOCATION_CONFIG).validators.alice.endpoints.jsonApi,
+      );
 
       // Get parties for alice
       const aliceParties = await localnet.getParties('alice');
@@ -312,7 +319,7 @@ Deno.test({
 
     try {
       // Start with skipInitialization
-      await localnet.start({ skipInitialization: true, timeout: 300000 });
+      await localnet.start({ skipInitialization: true });
 
       // Manually initialize
       await localnet.initializeResources();
@@ -344,7 +351,7 @@ Deno.test({
     const client = createTestDockerClient();
     const instanceId = generateTestInstanceId();
     // Two validators share a hint; each user's primaryParty must be hosted on its own validator.
-    const config: LocalNetConfig = {
+    const config: LocalNetConfig = testConfig({
       basePort: 23000,
       validators: [
         {
@@ -359,11 +366,11 @@ Deno.test({
         },
       ],
       auth: { keycloak: { admin: 'admin', password: 'admin' } },
-    };
+    });
     const localnet = new LocalNet(config, { instanceId });
 
     try {
-      await localnet.start({ timeout: 300000 });
+      await localnet.start();
 
       const snapshot = async (net: LocalNet) => ({
         parties: (await net.getParties()).length,
@@ -376,8 +383,6 @@ Deno.test({
       await fresh.initializeResources((m) => messages.push(m));
 
       assertEquals(await snapshot(fresh), before);
-      assertEquals(messages.filter((m) => m.includes('Failed to allocate party')), []);
-      assertEquals(messages.filter((m) => m.includes('Failed to create user')), []);
       assertEquals(messages.filter((m) => m.includes('Allocating party')), []);
       for (const v of ['val1', 'val2']) {
         assertEquals(
