@@ -3,8 +3,8 @@
  * `networks` are started once for all its files (shared_localnet.ts), and are up together while
  * the files run; every other LocalNet in the group belongs to the test that starts it.
  *
- * test/unit/integration_groups_test.ts checks that every integration test file is in exactly
- * one group.
+ * The `groups` job of .github/workflows/integration.yml checks that every integration test file
+ * is in exactly one group, and that the matrix runs exactly these groups.
  */
 
 import type { SharedNetworkName } from './shared_localnet.ts';
