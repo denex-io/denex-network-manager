@@ -1,8 +1,9 @@
 name: Integration
 
-# The full integration suite on every tested Splice release: each job starts real LocalNets in
-# Docker on the runner. publish.yml calls it as the release gate; run it by hand from the Actions
-# tab against any branch.
+# The full integration suite on every tested Splice release, split into four groups of test files,
+# each group on its own runner: 2 releases x 4 groups = 8 jobs that start real LocalNets in Docker.
+# publish.yml calls it as the release gate, which passes only if every job passes; run it by hand
+# from the Actions tab against any branch.
 
 'on':
   workflow_call:
@@ -12,18 +13,86 @@ permissions:
   contents: read
 
 jobs:
+  # Every test file in test/integration/ must be in exactly one group below (splice_version_test.ts
+  # runs in every job as its version check). A file that is missing, in two groups, or listed but
+  # gone fails here by name, so a rename cannot silently drop a test from the gate.
+  groups:
+    name: Test groups cover every file once
+    runs-on: ubuntu-24.04
+    steps:
+      # @v7.0.0
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+
+      # @v2.0.5
+      - uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed
+        with:
+          deno-version: v2.9.3
+
+      - name: Check the groups in this workflow against test/integration/
+        run: |
+          deno eval --quiet '
+            import { parse } from "jsr:@std/yaml@1";
+            const wf = parse(await Deno.readTextFile(".github/workflows/integration.yml"));
+            const groups = wf.jobs.integration.strategy.matrix.group;
+            const seen = new Map();
+            for (const g of groups) {
+              for (const f of g.files.split(/\s+/).filter(Boolean)) {
+                seen.set(f, [...(seen.get(f) ?? []), g.name]);
+              }
+            }
+            const files = [];
+            for await (const e of Deno.readDir("test/integration")) {
+              if (e.isFile && e.name.endsWith("_test.ts") && e.name !== "splice_version_test.ts") {
+                files.push(`test/integration/${e.name}`);
+              }
+            }
+            const problems = [];
+            for (const f of files.sort()) {
+              const in_ = seen.get(f) ?? [];
+              if (in_.length === 0) problems.push(`${f} is in no group`);
+              if (in_.length > 1) problems.push(`${f} is in groups ${in_.join(", ")}`);
+            }
+            for (const f of seen.keys()) {
+              if (!files.includes(f)) problems.push(`${f} is listed but is not a test file in test/integration/`);
+            }
+            for (const p of problems) console.log(`::error::${p}`);
+            console.log(`${files.length} test files, ${groups.length} groups${problems.length ? `, ${problems.length} problems` : ", each file in exactly one"}`);
+            if (problems.length) Deno.exit(1);
+          '
+
   integration:
-    name: Integration (Splice ${{ matrix.splice }})
+    name: Integration (Splice ${{ matrix.splice }}, group ${{ matrix.group.name }})
+    needs: [groups]
     # Pinned: ubuntu-latest became 26.04, where Playwright 1.57.0 cannot install Chromium.
     runs-on: ubuntu-24.04
-    # One run took 97 minutes on a 10-CPU Docker Desktop VM with the images already pulled
-    # (2026-11-18). A hosted runner has 4 vCPUs and pulls every image (about 6.4 GB per release);
-    # 180 minutes leaves that run almost 2x.
-    timeout-minutes: 180
+    # The whole suite took 97 minutes on a 10-CPU Docker Desktop VM and 114 to 141 on a hosted
+    # 4-vCPU runner (2026-11-20). Each group is about a quarter of it (balanced by the measured
+    # per-file times, about 24 local minutes each); 90 minutes leaves a group more than 2x.
+    timeout-minutes: 90
     strategy:
       fail-fast: false
       matrix:
         splice: ['0.9.4', '0.10.2']
+        group:
+          - name: '1'
+            files: >-
+              test/integration/cli_test.ts test/integration/docker_client_test.ts
+              test/integration/multi_instance_test.ts test/integration/postgres_volume_test.ts
+              test/integration/runtime_user_test.ts
+          - name: '2'
+            files: >-
+              test/integration/initialization_test.ts test/integration/operator_apis_test.ts
+              test/integration/packages_test.ts
+          - name: '3'
+            files: >-
+              test/integration/e2e_browser_test.ts test/integration/network_test.ts
+              test/integration/postgres_test.ts test/integration/transfer_test.ts
+              test/integration/wallet_ui_test.ts
+          - name: '4'
+            files: >-
+              test/integration/auth_confidence_test.ts test/integration/config_recovery_test.ts
+              test/integration/entitlements_test.ts test/integration/keycloak_master_realm_test.ts
+              test/integration/localnet_test.ts
     env:
       DNM_TEST_SPLICE_VERSION: ${{ matrix.splice }}
 
@@ -51,20 +120,18 @@ jobs:
       - name: Install Chromium for the browser tests
         # Installed by Node, into the cache the Deno tests read: run under Deno, Playwright's
         # installer hung right after the download reached 100% (runs 44798831470, 44803942769).
-        # Normally 1 to 3 minutes; the limit makes a hang fail here, not at the job's 180 minutes.
+        # Normally 1 to 3 minutes; the limit makes a hang fail here, not at the job's limit.
         timeout-minutes: 10
         run: node --version && npx --yes playwright@1.57.0 install --with-deps chromium
 
-      # The rest of the run is evidence for one Splice release only if the LocalNets really run it:
-      # this test starts one and checks the canton and splice image tags, and the suite runs only
-      # if it passes (as `deno task test:integration` does).
+      # A group is evidence for one Splice release only if its LocalNets really run it: this test
+      # starts one and checks the canton and splice image tags, and the group runs only if it passes
+      # (as `deno task test:integration` does).
       - name: Version check (Splice ${{ matrix.splice }})
         run: deno test --allow-all --junit-path=junit-version.xml test/integration/splice_version_test.ts
 
-      - name: Integration suite (Splice ${{ matrix.splice }})
-        run: >-
-          deno test --allow-all --junit-path=junit-suite.xml
-          --ignore=test/integration/splice_version_test.ts test/integration/
+      - name: Integration group ${{ matrix.group.name }} (Splice ${{ matrix.splice }})
+        run: deno test --allow-all --junit-path=junit-suite.xml ${{ matrix.group.files }}
 
       - name: Collect container logs
         if: failure()
@@ -83,7 +150,7 @@ jobs:
         name: Upload test reports and container logs
         if: always()
         with:
-          name: integration-splice-${{ matrix.splice }}
+          name: integration-splice-${{ matrix.splice }}-group-${{ matrix.group.name }}
           path: |
             junit-*.xml
             container-logs/
