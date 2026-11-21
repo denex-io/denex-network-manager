@@ -7,7 +7,7 @@
  * instance ids reach the test files in the environment (shared_localnet.ts). Then `deno test`
  * runs the group's files, with the given flags. The shared networks are destroyed in `finally`,
  * whatever happened. If a shared start fails, that is the one failure reported: the files do not
- * run.
+ * run, and with `--junit-path` the report holds that failure as one named test case.
  */
 
 import { LocalNet } from '../../src/localnet.ts';
@@ -53,6 +53,32 @@ let code = 1;
 Deno.addSignalListener('SIGINT', () => {});
 Deno.addSignalListener('SIGTERM', () => child?.kill('SIGTERM'));
 
+/** The `--junit-path` the caller gave, in either form, or undefined. */
+function junitPath(flags: string[]): string | undefined {
+  for (const [i, flag] of flags.entries()) {
+    if (flag.startsWith('--junit-path=')) return flag.slice('--junit-path='.length);
+    if (flag === '--junit-path') return flags[i + 1];
+  }
+  return undefined;
+}
+
+const xmlEscape = (text: string) =>
+  text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+
+/** A JUnit report with one failed test case: the shared start, named after the network. */
+async function writeStartFailureReport(path: string, name: SharedNetworkName, reason: string) {
+  const testCase = `shared LocalNet ${name} starts (group ${groupName})`;
+  await Deno.writeTextFile(
+    path,
+    '<?xml version="1.0" encoding="UTF-8"?>\n' +
+      `<testsuites name="deno test" tests="1" failures="1" errors="0">\n` +
+      `  <testsuite name="./test/integration/run_group.ts" tests="1" failures="1" errors="0">\n` +
+      `    <testcase name="${xmlEscape(testCase)}" classname="run_group.ts">\n` +
+      `      <failure message="${xmlEscape(reason)}">${xmlEscape(reason)}</failure>\n` +
+      `    </testcase>\n  </testsuite>\n</testsuites>\n`,
+  );
+}
+
 const log = (message: string) =>
   console.log(`[group ${groupName}] ${new Date().toISOString()} ${message}`);
 
@@ -72,6 +98,8 @@ try {
         `::error title=shared LocalNet ${name}::shared LocalNet ${name} (${instanceId}) ` +
           `failed to start, so group '${groupName}' did not run: ${reason}`,
       );
+      const report = junitPath(testFlags);
+      if (report !== undefined) await writeStartFailureReport(report, name, reason);
       throw error;
     }
     log(`ready shared LocalNet ${name} ${instanceId}`);
