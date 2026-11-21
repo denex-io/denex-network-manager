@@ -13,7 +13,7 @@
 #                    GitHub release for DNM_VERSION. Used by CI to install the archives it built.
 #
 # This installs a pre-compiled binary. The SDK is a separate npm package:
-#   npm install @denex/network-manager@beta
+#   npm install @denex/network-manager
 
 set -eu
 

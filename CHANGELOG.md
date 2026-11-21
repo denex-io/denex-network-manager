@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file. The format 
 
 ## [Unreleased]
 
-## [0.1.0-beta.4] — 2026-11-20
+## [0.1.0] — 2026-11-21
 
 ### Added
 
@@ -31,11 +31,11 @@ All notable changes to this project will be documented in this file. The format 
   `SHA256SUMS` (for example `file:///tmp/dist` or a mirror), used instead of the GitHub release. CI
   uses it to install the archives it has just built.
 - Release checks: a release runs the full integration suite on Splice 0.9.4 and 0.10.2 before
-  anything is published or the `latest` dist-tag moves, and installs each binary a hosted runner can
-  execute (linux-x64, linux-arm64, darwin-arm64 through `install.sh`; win-x64 from its zip), which
-  must report the release version. The tag must be on `main` and equal the `deno.json` version. Pull
-  requests also check formatting, the frozen lockfile and `install.sh` (shellcheck, and an install
-  in a clean `ubuntu:24.04` container), with Deno pinned to 2.9.3.
+  anything is published, and installs each binary a hosted runner can execute (linux-x64,
+  linux-arm64, darwin-arm64 through `install.sh`; win-x64 from its zip), which must report the
+  release version. The tag must be on `main` and equal the `deno.json` version. Pull requests also
+  check formatting, the frozen lockfile and `install.sh` (shellcheck, and an install in a clean
+  `ubuntu:24.04` container), with Deno pinned to 2.9.3.
 - On Splice 0.10.2, LocalNets enable Canton's participant repair service and key download
   (`canton.features.enable-repair-commands` and `canton.parameters.enable-key-download`, which
   Canton 3.7 turns off by default), so Scan's ACS export (`/v0/acs/{party}`) and the validator's
@@ -48,6 +48,9 @@ All notable changes to this project will be documented in this file. The format 
 
 ### Changed
 
+- 0.1.0 is the first release that is not a beta. npm publishes it under `latest`, so
+  `npm install @denex/network-manager` installs it; the release no longer uses npm's `beta` tag,
+  which stays on 0.1.0-beta.3, so `@denex/network-manager@beta` installs that older release.
 - **Breaking:** `start()` refuses a repair that would create missing containers next to existing
   ones running other images (for example after a dnm upgrade changed a default, or after
   `options.images` changed). It throws `InstanceMismatchError` before changing anything; destroy the

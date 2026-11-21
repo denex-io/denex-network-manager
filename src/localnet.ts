@@ -634,7 +634,7 @@ export class LocalNet {
    * Initialization ({@link LocalNet.initializeResources}) waits for every validator's APIs and
    * for Scan to become ready, allocates the configured parties, creates the configured users
    * and uploads the configured `packages`. A party or user that cannot be set up fails `start()`
-   * with {@link InitializationError}, naming it and the cause (before 0.1.0-beta.4 it was only
+   * with {@link InitializationError}, naming it and the cause (before 0.1.0 it was only
    * reported through `onProgress` and `start()` succeeded without it); a party or user that
    * already exists counts as set up. Like any failure, it rolls back a fresh start and removes
    * nothing on a resume. A package that fails is still only a warning, through `onWarning`.
@@ -2617,7 +2617,7 @@ export class LocalNet {
    * `dnm init` CLI command on already-running instances. It first waits for every validator's
    * APIs and for Scan to become ready; those waits throw {@link StartupTimeoutError} when the
    * start's timeout runs out, and {@link InitializationError} (`kind: 'validator'`, with the last
-   * error as `cause`) after 30 attempts (before 0.1.0-beta.4, a plain `Error`).
+   * error as `cause`) after 30 attempts (before 0.1.0, a plain `Error`).
    *
    * Safe to re-run: a configured party whose hint is already hosted on its
    * validator's participant is skipped, and users converge on their configured
@@ -2628,7 +2628,7 @@ export class LocalNet {
    * Re-uploading a DAR the participant already has succeeds. The first configured party or user
    * that cannot be set up throws {@link InitializationError} (`kind` `'party'` or `'user'`), and so
    * does a failed hosted-party query for a validator with configured parties (`'validator'`, before
-   * anything is allocated there); before 0.1.0-beta.4 a party or user that failed was only
+   * anything is allocated there); before 0.1.0 a party or user that failed was only
    * reported through `onProgress`.
    *
    * @internal Do not call directly in application code — use start() instead.

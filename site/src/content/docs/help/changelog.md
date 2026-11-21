@@ -12,7 +12,7 @@ The authoritative changelog lives in the repository so it ships with the source 
 
 This page summarizes what each release means for you. It is not a copy of the changelog.
 
-## 0.1.0-beta.4 — 2026-11-20
+## 0.1.0 — 2026-11-21
 
 Behavior you can now rely on:
 
@@ -36,6 +36,8 @@ Behavior you can now rely on:
 
 Changes that may need action:
 
+- The first release that is not a beta: install the SDK with `npm install @denex/network-manager`.
+  `@denex/network-manager@beta` still installs 0.1.0-beta.3.
 - A config that relied on a party or user failing quietly now fails to start.
 - User ids shorter than 3 or longer than 128 characters, or with characters other than lowercase
   letters, digits, `@`, `.`, `-`, `+` and `_`, are refused when the config is read.
