@@ -499,7 +499,19 @@ Deno.test({
       const before = await client.getContainerInfo(webUiName);
       assertExists(before);
       await client.stopContainer(before.id, 5);
-      assertEquals(await first.state(), 'partial');
+      // state() reads Docker's list API, which can still show a container as running for a few
+      // milliseconds after its stop returned: moby v28.0.4 wakes the stop call before it updates the
+      // list's view (daemon/monitor.go:120-130). Wait that out, bounded; any other state is final.
+      const listDeadline = Date.now() + 10_000;
+      let seen = await first.state();
+      while (seen === 'running' && Date.now() < listDeadline) {
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        seen = await first.state();
+      }
+      if (seen === 'running') {
+        throw new Error(`state() was still 'running' 10 s after ${webUiName} was stopped`);
+      }
+      assertEquals(seen, 'partial');
 
       const second = new LocalNet(config, { instanceId });
       await second.start({ skipHealthChecks: true, skipInitialization: true });
