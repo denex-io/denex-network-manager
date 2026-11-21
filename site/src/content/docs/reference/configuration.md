@@ -130,15 +130,16 @@ warning and is ignored.
 
 | Field          | Type   | Description                                    |
 | -------------- | ------ | ---------------------------------------------- |
-| `id`           | string | Required. Lowercase, non-empty, and unique within the validator; use at least 3 characters (see below). Also the Keycloak password |
+| `id`           | string | Required. 3 to 128 lowercase letters, digits, `@`, `.`, `-`, `+` and `_`, unique within the validator (see below). Also the Keycloak password |
 | `primaryParty` | string | Grants `CanActAs` on that party and onboards the user to the wallet |
 | `rights`       | array  | Participant-wide rights                        |
 | `parties`      | array  | Per-party rights, as `{ hint, rights }`        |
 
-Config validation accepts any non-empty, lowercase `id` that is unique within its validator.
-Keycloak's default user profile (26.1.0, the Keycloak image LocalNet runs) sets a 3–255 character
-rule for usernames, so use at least 3. Users created at runtime with `LocalNet.createUser()` are
-checked against it.
+The rule is what both a Keycloak username and a Canton user id accept: Keycloak's default user
+profile (26.1.0, the Keycloak image LocalNet runs) requires 3 to 255 characters, and Canton allows
+at most 128. Config validation refuses any other `id` with an error naming the field, and
+`LocalNet.createUser()` checks users created at runtime by the same rule before it creates
+anything.
 
 Rights split into two kinds:
 
