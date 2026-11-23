@@ -46,18 +46,18 @@ global setup, through the SDK, instead of around the test run through the CLI.
 
 ## Layout
 
-| Path                                                          | What it is                                                            |
-| ------------------------------------------------------------- | --------------------------------------------------------------------- |
-| [`localnet.yaml`](localnet.yaml)                              | The LocalNet: the SV, `org-a` hosting `alice`, `org-b` hosting `bob`  |
-| [`daml/`](daml/)                                              | The Daml model: `Invitation` and `Reply`                              |
-| [`src/ledger.ts`](src/ledger.ts)                              | One party's connection to its own validator's JSON Ledger API         |
-| [`src/rsvp-bot.ts`](src/rsvp-bot.ts)                          | The off-chain service acting for bob                                  |
-| [`scripts/localnet.ts`](scripts/localnet.ts)                  | The CLI pattern: `up`, `down`, and `test` (what CI runs)              |
-| [`test/global-setup.cli.ts`](test/global-setup.cli.ts)        | Reads `dnm env --json` once for every test file                       |
-| [`test/global-setup.sdk.ts`](test/global-setup.sdk.ts)        | The SDK pattern: the test run owns the LocalNet                       |
-| [`scripts/install-dnm.sh`](scripts/install-dnm.sh)            | Installs the CLI matching the `@denex/network-manager` version        |
-| [`scripts/container-logs.ts`](scripts/container-logs.ts)      | A dnm 0.1.0-beta.3 workaround: keeps container logs of a failed start |
-| [`.github/workflows/example-integration-tests.yml`][workflow] | The CI job, running both patterns                                     |
+| Path                                                          | What it is                                                           |
+| ------------------------------------------------------------- | -------------------------------------------------------------------- |
+| [`localnet.yaml`](localnet.yaml)                              | The LocalNet: the SV, `org-a` hosting `alice`, `org-b` hosting `bob` |
+| [`daml/`](daml/)                                              | The Daml model: `Invitation` and `Reply`                             |
+| [`src/ledger.ts`](src/ledger.ts)                              | One party's connection to its own validator's JSON Ledger API        |
+| [`src/rsvp-bot.ts`](src/rsvp-bot.ts)                          | The off-chain service acting for bob                                 |
+| [`scripts/localnet.ts`](scripts/localnet.ts)                  | The CLI pattern: `up`, `down`, and `test` (what CI runs)             |
+| [`test/global-setup.cli.ts`](test/global-setup.cli.ts)        | Reads `dnm env --json` once for every test file                      |
+| [`test/global-setup.sdk.ts`](test/global-setup.sdk.ts)        | The SDK pattern: the test run owns the LocalNet                      |
+| [`scripts/install-dnm.sh`](scripts/install-dnm.sh)            | Installs the CLI matching the `@denex/network-manager` version       |
+| [`scripts/container-logs.ts`](scripts/container-logs.ts)      | Keeps the containers' logs of a failed run, which teardown removes   |
+| [`.github/workflows/example-integration-tests.yml`][workflow] | The CI job, running both patterns                                    |
 
 The `@denex/network-manager` version in [`package.json`](package.json) is the one pin for both the
 CLI and the SDK.

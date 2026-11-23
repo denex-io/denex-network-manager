@@ -1,9 +1,10 @@
 /**
  * Copies the logs of the LocalNet's containers into logs/ while they run.
  *
- * A workaround, not part of the recommended setup: dnm 0.1.0-beta.3 removes the containers of a
- * failed first start, and its error carries no container logs, so logs collected after a failure
- * find nothing. Following them from the start covers that until dnm keeps them itself.
+ * dnm 0.1.0 puts a container's last log lines in the error when that container fails to start, but
+ * nothing else keeps them: a start that runs out of time, or a test that fails after a good start,
+ * is followed by a teardown that removes the containers and their logs. Following them from the
+ * start keeps a copy for those failures.
  */
 import { type ChildProcess, execFile, spawn } from 'node:child_process';
 import { createWriteStream, mkdirSync, readdirSync, readFileSync, rmSync } from 'node:fs';

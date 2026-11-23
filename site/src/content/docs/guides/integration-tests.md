@@ -78,7 +78,7 @@ expire, which matters because LocalNet tokens last five minutes.
 `packages:` in `localnet.yaml` uploads the DAR at the end of initialization. Two things about it
 matter in a test command:
 
-- **A failed upload is only a warning in dnm 0.1.0-beta.3, and `start` still succeeds.** The tests
+- **A failed upload is only a warning in dnm 0.1.0, and `start` still succeeds.** The tests
   then fail later, on a template that does not exist. The example's CLI script therefore checks the
   result itself: it reads the DAR's main package id with `dpm inspect-dar --json` and fails unless
   `dnm packages --json` shows it on each validator that needs it. That check covers current dnm
@@ -116,17 +116,17 @@ In your own repository it is the same job, without the `working-directory` and w
 - An `if: always()` step destroys the instance if a cancelled or timed-out job left it behind. On a
   hosted runner the VM is discarded anyway; on a self-hosted one it is what keeps containers from
   piling up.
-- `timeout-minutes` on the job and on every step, because nothing inside the run bounds it (see
-  `--timeout` below).
+- `timeout-minutes` on the job and on every step. `--timeout` bounds the start (see below), but
+  nothing inside the run bounds the dpm install, the tests or the teardown.
 
 ### Image pulls are not the slow part
 
-Measured on a hosted `ubuntu-24.04` runner on 2026-11-20, with dnm 0.1.0-beta.3 (Splice 0.9.4) and
-this example's SV and two validators: a cold `dnm start`, pulling every image, took 4 min 9 s. With
-the images already present it took 3 min 38 s. The pulls cost about half a minute; the rest is
-initialization. Restoring the images from `actions/cache` took 17 s and `docker load` another 33 s,
-more than the pulls they replace, so the example does not cache images and plain pulls are the
-default. Budget about four minutes for the LocalNet, every run.
+Measured on a hosted `ubuntu-24.04` runner on 2026-11-20, with dnm 0.1.0-beta.3 (Splice 0.9.4, which
+0.1.0 still runs by default) and this example's SV and two validators: a cold `dnm start`, pulling
+every image, took 4 min 9 s. With the images already present it took 3 min 38 s. The pulls cost
+about half a minute; the rest is initialization. Restoring the images from `actions/cache` took 17 s
+and `docker load` another 33 s, more than the pulls they replace, so the example does not cache
+images and plain pulls are the default. Budget about four minutes for the LocalNet, every run.
 
 ### Other CI systems
 
@@ -145,18 +145,19 @@ post steps, and set a job timeout.
   3.2 GiB (measured on Docker Desktop for 0.1.0-beta.3; see the
   [changelog](/denex-network-manager/help/changelog/)). Hosted runners have 16 GB; size a
   self-hosted runner or a Docker VM for the higher figure. One validator fewer uses less.
-- **`--timeout` is not a wall-clock limit in 0.1.0-beta.3.** `start --timeout` is in milliseconds
-  (default `300000`) and is checked only before each layer of containers starts, so image pulls
-  within a layer, health-check waits and initialization can all run past it. `stop` and `destroy`
-  take `--timeout` in seconds, as the grace period before Docker kills a container. The example
-  passes `--timeout 900000` so a slow cold pull does not trip the check, and relies on the CI job's
-  timeout as the real bound. Check the [CLI reference](/denex-network-manager/reference/cli/#start)
-  for the version you pin.
-- **A failed first start leaves no containers, and so no logs.** `start` removes what a failed
-  attempt created, and in 0.1.0-beta.3 its error does not include container logs. The example
-  covers that with `scripts/container-logs.ts`, which copies each container's log into `logs/` while
-  the run is going and prints the end of each one when it fails. It is a workaround for current dnm
-  behavior, not something your project should need for good.
+- **`--timeout` units differ between commands.** `start --timeout` is in milliseconds and, since
+  0.1.0, a wall-clock limit on the whole start, image pulls included (default `600000`). Running out
+  fails the start with `StartupTimeoutError`. `stop` and `destroy` take `--timeout` in seconds, as
+  the grace period before Docker kills a container. An explicit start timeout has to cover a cold
+  start, about four minutes on a hosted runner; the example passes `--timeout 900000` to leave room
+  for slower machines. Before 0.1.0 the start timeout was only checked between container layers.
+  Check the [CLI reference](/denex-network-manager/reference/cli/#start) for the version you pin.
+- **Teardown takes the logs with it.** Since 0.1.0, a container that stops or turns unhealthy
+  during `start` fails it with `ContainerStartupError`, which carries the container's last 20 log
+  lines. Other failures do not: a start that runs out of time, a test that fails after a good start,
+  and then the teardown, which removes the containers and their logs. The example keeps a copy with
+  `scripts/container-logs.ts`, which follows each container's log into `logs/` while the run is
+  going and prints the end of each one when the run fails. CI uploads `logs/` as an artifact.
 - **More than one instance on one Docker daemon.** On a shared self-hosted runner, or beside a
   developer's own LocalNet, give each run its own instance id and its own `basePort`. The example
   reads both from the environment (`LOCALNET_INSTANCE`, and `${LOCALNET_BASE_PORT:6600}` in
