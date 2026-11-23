@@ -17,7 +17,8 @@ async function attach(): Promise<LocalNet | null> {
   try {
     return await LocalNet.fromInstanceId(INSTANCE);
   } catch (error) {
-    // Only "nothing there yet" is ordinary. The SDK throws plain Errors, hence the message match.
+    // Only "nothing there yet" is ordinary. dnm 0.1.0 has no error class for it, hence the message
+    // match; anything else is a real problem and is thrown on.
     if (!String(error).includes('No running LocalNet found')) throw error;
     return null;
   }
@@ -35,7 +36,7 @@ export async function setup(project: TestProject): Promise<void> {
     } else {
       console.log(`Starting LocalNet '${INSTANCE}' (a cold first start takes several minutes)...`);
       const fresh = await LocalNet.fromConfig(CONFIG, { instanceId: INSTANCE });
-      // In milliseconds, and in dnm 0.1.0-beta.3 checked only between container layers.
+      // In milliseconds: a wall-clock limit on the whole start, image pulls included.
       await fresh.start({ timeout: 900_000, onProgress: (m) => console.log(`  ${m}`) });
       net = fresh;
     }

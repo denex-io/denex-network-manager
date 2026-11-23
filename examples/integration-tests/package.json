@@ -15,7 +15,7 @@
     "check": "tsc"
   },
   "devDependencies": {
-    "@denex/network-manager": "0.1.0-beta.3",
+    "@denex/network-manager": "0.1.0",
     "@types/node": "24.19.2",
     "typescript": "7.0.2",
     "vitest": "5.1.0"

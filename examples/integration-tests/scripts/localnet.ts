@@ -35,9 +35,9 @@ async function instanceExists(): Promise<boolean> {
 /** Starts or reuses the instance and makes sure the DAR is on it. */
 async function up(existed: boolean): Promise<void> {
   // `start` creates the instance, resumes a stopped one, repairs a partly running one, and leaves a
-  // running one with the same config alone. `--timeout` is in milliseconds, and dnm 0.1.0-beta.3
-  // checks it only between container layers, so image pulls and initialization can run past it:
-  // in CI the job's own timeout is the real bound.
+  // running one with the same config alone. `--timeout` is in milliseconds, a wall-clock limit on
+  // the whole start, image pulls included. A cold start takes about four minutes on a hosted
+  // runner; 900000 leaves room for slower machines.
   await dnm('start', '--config', CONFIG, '--instance', INSTANCE, '--timeout', '900000');
 
   // On an instance that is already running, `start` skips initialization, so a rebuilt DAR would
@@ -48,7 +48,7 @@ async function up(existed: boolean): Promise<void> {
 }
 
 /**
- * A workaround, not part of the recommended setup: dnm 0.1.0-beta.3 only warns when a `packages:`
+ * A workaround, not part of the recommended setup: dnm 0.1.0 only warns when a `packages:`
  * upload fails, and `start` succeeds anyway. So check that the DAR's package reached every
  * participant that needs it.
  */

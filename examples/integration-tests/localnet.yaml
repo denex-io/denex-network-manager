@@ -18,7 +18,7 @@ validators:
       - id: bob
         primaryParty: bob
 
-# Uploaded at the end of initialization, to the SV and every validator. dnm 0.1.0-beta.3 only warns
+# Uploaded at the end of initialization, to the SV and every validator. dnm 0.1.0 only warns
 # when an upload fails, so scripts/localnet.ts checks the package arrived.
 packages:
   - name: rsvp
